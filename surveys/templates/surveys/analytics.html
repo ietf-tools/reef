@@ -1,0 +1,24 @@
+{% extends "surveys/manage_base.html" %}
+{% load static %}
+
+{% block title %}Results: {{ survey.title }}{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="{% static 'vendor/surveyjs/survey-core.min.css' %}">
+  <link rel="stylesheet" href="{% static 'vendor/surveyjs/survey.analytics.min.css' %}">
+  <style>#surveyVizPanel { min-height: 60vh; }</style>
+{% endblock %}
+
+{% block content %}
+  <h1>{{ survey.title }} <small>({{ survey.slug }})</small></h1>
+  <p>Responses: <span id="responseCount">…</span></p>
+  {{ config|json_script:"pink-config" }}
+  <div id="surveyVizPanel"></div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{% static 'vendor/surveyjs/survey.core.min.js' %}"></script>
+  <script src="{% static 'vendor/surveyjs/plotly.min.js' %}"></script>
+  <script src="{% static 'vendor/surveyjs/survey.analytics.min.js' %}"></script>
+  <script src="{% static 'surveys/init-analytics.js' %}"></script>
+{% endblock %}

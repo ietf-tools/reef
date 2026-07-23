@@ -161,3 +161,21 @@ class ManageBuilderTests(TestCase):
         self.assertContains(edit, 'id="surveyCreator"')
         self.assertContains(edit, 'id="pink-config"')
         self.assertContains(edit, "init-creator.js")
+
+
+class ManageAnalyticsTests(TestCase):
+    def _staff(self):
+        return User.objects.create(username="admin", oidc_sub="s-a", is_staff=True)
+
+    def test_analytics_requires_staff(self):
+        resp = self.client.get("/manage/surveys/1/analytics/")
+        self.assertEqual(resp.status_code, 302)
+
+    def test_staff_analytics_page_renders(self):
+        survey = make_survey(slug="a1")
+        self.client.force_login(self._staff())
+        resp = self.client.get(f"/manage/surveys/{survey.pk}/analytics/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="surveyVizPanel"')
+        self.assertContains(resp, "init-analytics.js")
+        self.assertContains(resp, f"/api/pink/surveys/{survey.pk}/results/")

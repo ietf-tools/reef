@@ -26,7 +26,11 @@
           <td>{{ survey.slug }}</td>
           <td>{{ survey.get_status_display }}</td>
           <td>{{ survey.get_visibility_display }}</td>
-          <td><a href="{% url 'manage-survey-edit' survey.pk %}">Edit</a></td>
+          <td>
+            <a href="{% url 'manage-survey-edit' survey.pk %}">Edit</a>
+            &middot;
+            <a href="{% url 'manage-survey-analytics' survey.pk %}">Results</a>
+          </td>
         </tr>
       {% empty %}
         <tr><td colspan="5">No surveys yet.</td></tr>

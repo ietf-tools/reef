@@ -55,3 +55,15 @@ def survey_edit(request, pk):
         "licenseKey": settings.PINK_SURVEYJS_LICENSE_KEY,
     }
     return render(request, "surveys/creator.html", {"survey": survey, "config": config})
+
+
+@staff_required
+def survey_analytics(request, pk):
+    survey = get_object_or_404(Survey, pk=pk)
+    config = {
+        "resultsUrl": f"/api/pink/surveys/{survey.pk}/results/",
+        "licenseKey": settings.PINK_SURVEYJS_LICENSE_KEY,
+    }
+    return render(
+        request, "surveys/analytics.html", {"survey": survey, "config": config}
+    )
