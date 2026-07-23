@@ -28,6 +28,11 @@ services:
       - POSTGRES_PASSWORD=pink
       - POSTGRES_HOST=db
       - PINK_BROKER_URL=amqp://mq/
+      # OIDC (Authentik at account.ietf.org). Set these in a local .env file.
+      - PINK_OIDC_APP_SLUG=${PINK_OIDC_APP_SLUG:-pink}
+      - PINK_OIDC_RP_CLIENT_ID=${PINK_OIDC_RP_CLIENT_ID:-}
+      - PINK_OIDC_RP_CLIENT_SECRET=${PINK_OIDC_RP_CLIENT_SECRET:-}
+      - PINK_OIDC_STAFF_GROUPS=${PINK_OIDC_STAFF_GROUPS:-}
     depends_on:
       - db
       - mq

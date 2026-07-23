@@ -9,6 +9,7 @@ from django.urls import include, path
 urlpatterns = [
     path("health/", lambda _: HttpResponse(status=204)),  # no content
     path("admin/", admin.site.urls),
+    path("oidc/", include("mozilla_django_oidc.urls")),
 ]
 
 if settings.DEBUG and "debug_toolbar" in settings.INSTALLED_APPS:

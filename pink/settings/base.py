@@ -10,12 +10,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
+    "mozilla_django_oidc",  # load after django.contrib.auth
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
     "drf_spectacular",
+    "pinkauth",
 ]
 
 MIDDLEWARE = [
@@ -48,6 +50,45 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "pink.wsgi.application"
 
+# Authentication
+AUTH_USER_MODEL = "pinkauth.User"
+AUTHENTICATION_BACKENDS = (
+    "pinkauth.backends.PinkOIDCAuthBackend",  # Authentik OIDC login
+    "django.contrib.auth.backends.ModelBackend",  # break-glass local superuser
+)
+
+# OIDC (Authentik at account.ietf.org). Endpoints are derived from the host and
+# the per-application slug; credentials come from the environment.
+PINK_OIDC_HOST = os.environ.get("PINK_OIDC_HOST", "https://account.ietf.org")
+PINK_OIDC_APP_SLUG = os.environ.get("PINK_OIDC_APP_SLUG", "pink")
+_oidc_app = f"{PINK_OIDC_HOST}/application/o"
+OIDC_OP_ISSUER_ID = f"{_oidc_app}/{PINK_OIDC_APP_SLUG}/"
+OIDC_OP_AUTHORIZATION_ENDPOINT = f"{_oidc_app}/authorize/"
+OIDC_OP_TOKEN_ENDPOINT = f"{_oidc_app}/token/"
+OIDC_OP_USER_ENDPOINT = f"{_oidc_app}/userinfo/"
+OIDC_OP_JWKS_ENDPOINT = f"{_oidc_app}/{PINK_OIDC_APP_SLUG}/jwks/"
+OIDC_OP_END_SESSION_ENDPOINT = f"{_oidc_app}/{PINK_OIDC_APP_SLUG}/end-session/"
+
+OIDC_RP_CLIENT_ID = os.environ.get("PINK_OIDC_RP_CLIENT_ID", "")
+OIDC_RP_CLIENT_SECRET = os.environ.get("PINK_OIDC_RP_CLIENT_SECRET", "")
+OIDC_RP_SIGN_ALGO = "RS256"
+OIDC_RP_SCOPES = "openid profile email"
+OIDC_STORE_ID_TOKEN = True  # kept in session for RP-initiated logout
+OIDC_OP_LOGOUT_URL_METHOD = "pinkauth.utils.op_logout_url"
+
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/"
+
+# Bearer (resource-server) validation of Authentik access tokens.
+# Audience defaults to the RP client id; the groups claim maps to staff access.
+PINK_OIDC_AUDIENCE = os.environ.get("PINK_OIDC_AUDIENCE", "") or OIDC_RP_CLIENT_ID
+PINK_OIDC_GROUPS_CLAIM = os.environ.get("PINK_OIDC_GROUPS_CLAIM", "groups")
+PINK_OIDC_STAFF_GROUPS = [
+    g.strip()
+    for g in os.environ.get("PINK_OIDC_STAFF_GROUPS", "").split(",")
+    if g.strip()
+]
+
 # Database
 DATABASES = {
     "default": {
@@ -63,6 +104,13 @@ DATABASES = {
 # Django REST Framework
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "pinkauth.authentication.BearerTokenAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
         "rest_framework.renderers.BrowsableAPIRenderer",
