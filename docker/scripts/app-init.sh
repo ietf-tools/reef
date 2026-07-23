@@ -40,7 +40,7 @@ echo "Collecting static files..."
 # Install client dependencies if the Nuxt client is present
 if [ -f client/package.json ]; then
     echo "Installing client dependencies..."
-    (cd client && npm ci) || true
+    (cd client && npm install) || true
 fi
 
 sudo touch /.dev-ready
