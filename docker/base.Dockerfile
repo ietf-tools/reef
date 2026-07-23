@@ -1,0 +1,50 @@
+FROM python:3.13
+LABEL maintainer="IETF Tools Team <tools-discuss@ietf.org>"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Update system packages
+RUN apt-get update \
+    && apt-get -qy upgrade \
+    && apt-get -y install --no-install-recommends apt-utils ca-certificates curl dialog gnupg lsb-release 2>&1
+
+# Add Node.js source
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
+
+# Add PostgreSQL source
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/keyrings/apt.postgresql.org.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+
+# Install the packages we need
+RUN apt-get update --fix-missing && apt-get install -qy \
+	bash \
+	build-essential \
+	gcc \
+	git \
+	jq \
+	less \
+	make \
+	nano \
+	netcat-openbsd \
+	nodejs \
+	postgresql-client-17 \
+	unzip \
+	wget \
+	zsh
+
+# Remove installation files we do not need, to reduce image size
+RUN apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+
+# Colorize the bash shell
+RUN sed -i 's/#force_color_prompt=/force_color_prompt=/' /root/.bashrc
+
+# Fetch the wait-for utility
+ADD https://raw.githubusercontent.com/eficode/wait-for/v2.1.3/wait-for /usr/local/bin/
+RUN chmod +rx /usr/local/bin/wait-for
+
+# Create the workspace
+RUN mkdir -p /workspace
+WORKDIR /workspace

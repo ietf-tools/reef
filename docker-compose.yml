@@ -1,0 +1,82 @@
+services:
+  db:
+    build:
+      dockerfile: docker/db.Dockerfile
+    volumes:
+      - postgresdb-data:/var/lib/postgresql/data
+      - .:/workspace
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=pink
+      - POSTGRES_USER=pink
+      - POSTGRES_PASSWORD=pink
+      - POSTGRES_HOST_AUTH_METHOD=trust
+      - DUMPFILE=
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+    command: sleep infinity
+    volumes:
+      - .:/workspace
+    environment:
+      - PINK_DEPLOYMENT_MODE=development
+      - POSTGRES_DB=pink
+      - POSTGRES_USER=pink
+      - POSTGRES_PASSWORD=pink
+      - POSTGRES_HOST=db
+      - PINK_BROKER_URL=amqp://mq/
+    depends_on:
+      - db
+      - mq
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  celery:
+    image: "${COMPOSE_PROJECT_NAME}-app"
+    command: ["/celery-init.sh"]
+    volumes:
+      - .:/workspace
+    restart: unless-stopped
+    environment:
+      - PINK_DEPLOYMENT_MODE=development
+      - POSTGRES_DB=pink
+      - POSTGRES_USER=pink
+      - POSTGRES_PASSWORD=pink
+      - POSTGRES_HOST=db
+      - PINK_BROKER_URL=amqp://mq/
+      - CELERY_APP=pink
+    depends_on:
+      - db
+      - mq
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    environment:
+      - MP_DISABLE_VERSION_CHECK=true
+      - MP_LABEL=PinkMail
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  mq:
+    image: rabbitmq:4.1-management
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    restart: unless-stopped
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=dev@ietf.org
+      - PGADMIN_DEFAULT_PASSWORD=dev
+      - PGADMIN_CONFIG_LOGIN_BANNER="Login with dev@ietf.org / dev"
+      - PGADMIN_DISABLE_POSTFIX=True
+      - PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED=False
+      - SCRIPT_NAME=/pgadmin
+    volumes:
+      - ./docker/configs/pgadmin-servers.json:/pgadmin4/servers.json
+
+volumes:
+  postgresdb-data:
