@@ -73,7 +73,7 @@ Celery worker: subscription emails <- datatracker RFC-change feed
 - Django site (builder and analytics): server-rendered template pages that mount the
   vanilla SurveyJS bundles (survey-creator-js, survey-analytics), self-hosted, no CDN.
   Login uses mozilla_django_oidc. The /manage/ paths require login.
-- Nuxt runner (client/, ssr disabled): themed survey pages (survey-vue3-ui plus a
+- Nuxt runner (client/, SSR enabled): themed survey pages (survey-vue3-ui plus a
   per-survey theme JSON). Browser OIDC uses oidc-client-ts (PKCE), the same library
   Red uses. Protected surveys require login; open surveys are anonymous.
 - DRF APIs (/api/pink/): Pink acts as an OIDC resource server, validating Authentik
@@ -122,7 +122,7 @@ pink/
   subscriptions/           scaffold: Subscription model, API, email task, datatracker-feed ingest interface
   vendor/                  package.json for self-hosted SurveyJS Creator/Analytics bundles into Django static
   client/                  Nuxt 4 survey runner (themed)
-    nuxt.config.ts         ssr disabled, :3000, url http://localhost:8088
+    nuxt.config.ts         ssr enabled, :3000; server-side API base for render-time fetches
     app/pages/{index,s/[slug]}.vue
     app/components/SurveyRunner.client.vue
     app/composables/{useOidc,useSurveyApi}.ts

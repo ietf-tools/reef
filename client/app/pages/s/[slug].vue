@@ -8,8 +8,12 @@ const oidc = useOidc();
 
 const submitted = ref(false);
 
-const { data: survey, error } = await useAsyncData(`survey-${slug}`, () =>
-  api.getDefinition(slug),
+// Fetch client-side only: the definition may require the user's bearer token
+// (held in the browser), and the SurveyJS widget renders client-side regardless.
+const { data: survey, error } = await useAsyncData(
+  `survey-${slug}`,
+  () => api.getDefinition(slug),
+  { server: false },
 );
 
 // A 403 means the survey requires authentication; send the visitor to log in.

@@ -1,7 +1,7 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: "2025-07-01",
-  ssr: false,
+  ssr: true,
   devtools: { enabled: true },
   devServer: {
     port: 3000,
@@ -9,8 +9,12 @@ export default defineNuxtConfig({
   modules: ["@nuxtjs/tailwindcss", "reka-ui/nuxt"],
   css: ["~/assets/css/tailwind.css"],
   runtimeConfig: {
+    // Server-side (render-time) API base. The Nuxt server cannot use a relative
+    // URL, so it needs a reachable host: the Django server in the same dev
+    // container, or the internal service URL in production.
+    apiBaseServer: "http://localhost:8001", // NUXT_API_BASE_SERVER
     public: {
-      // Same NGINX origin as the Django API in dev, so a relative base works.
+      // Client-side base. Same NGINX origin as the Django API, so relative works.
       apiBase: "", // NUXT_PUBLIC_API_BASE
       // Authentik OIDC application issuer (discovery is fetched from here).
       oidcAuthority: "https://account.ietf.org/application/o/pink/", // NUXT_PUBLIC_OIDC_AUTHORITY
