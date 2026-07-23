@@ -17,6 +17,7 @@ services:
     build:
       context: .
       dockerfile: docker/app.Dockerfile
+    image: pink-app
     command: sleep infinity
     volumes:
       - .:/workspace
@@ -34,7 +35,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   celery:
-    image: "${COMPOSE_PROJECT_NAME}-app"
+    image: pink-app
     command: ["/celery-init.sh"]
     volumes:
       - .:/workspace

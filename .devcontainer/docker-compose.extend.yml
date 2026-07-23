@@ -1,0 +1,7 @@
+services:
+  app:
+    # Keep the container running so VS Code can attach; the servers are started
+    # by the term-server.sh / term-client.sh tasks.
+    command: /bin/sh -c "while sleep 1000; do :; done"
+    volumes:
+      - .:/workspace
