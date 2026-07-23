@@ -1,0 +1,49 @@
+# Nuxt dev/build outputs
+.output
+.data
+.nuxt
+.nitro
+.cache
+dist
+
+# Node dependencies
+node_modules
+
+# Logs
+logs
+*.log
+
+# Misc
+.DS_Store
+.fleet
+.idea
+
+# Local env files
+.env
+.env.*
+!.env.example
+secrets.env
+
+# Local settings
+pink/settings/development_local.py
+
+# Python
+*.pyc
+__pycache__
+*.egg-info
+.venv
+venv
+
+# Celery Beat schedule database (runtime state)
+celerybeat-schedule
+celerybeat-schedule-shm
+celerybeat-schedule-wal
+
+# Generated OpenAPI schema and client
+/pink_api.yaml
+client/app/pink_client
+
+# Collected static
+/static
+
+docker-compose.extend-custom.yml
