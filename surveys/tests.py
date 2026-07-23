@@ -1,5 +1,6 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.contrib.auth import get_user_model
+from django.test import TestCase
 from rest_framework.test import APITestCase
 
 from .models import Response, Survey
@@ -121,3 +122,42 @@ class ManagementPermissionTests(APITestCase):
         body = results.json()
         self.assertEqual(body["count"], 1)
         self.assertEqual(body["results"], [{"q1": 1}])
+
+
+class ManageBuilderTests(TestCase):
+    def _staff(self):
+        return User.objects.create(username="admin", oidc_sub="s-admin", is_staff=True)
+
+    def test_list_requires_login(self):
+        resp = self.client.get("/manage/surveys/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("oidc", resp["Location"])
+
+    def test_non_staff_forbidden(self):
+        user = User.objects.create(username="plain", oidc_sub="s-plain", is_staff=False)
+        self.client.force_login(user)
+        resp = self.client.get("/manage/surveys/")
+        self.assertEqual(resp.status_code, 302)  # redirected to login
+
+    def test_staff_sees_list(self):
+        self.client.force_login(self._staff())
+        resp = self.client.get("/manage/surveys/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Surveys")
+
+    def test_create_then_edit_renders_creator(self):
+        self.client.force_login(self._staff())
+        create = self.client.post(
+            "/manage/surveys/new/", {"title": "My Survey", "slug": ""}
+        )
+        self.assertEqual(create.status_code, 302)
+        survey = Survey.objects.get()
+        self.assertEqual(survey.slug, "my-survey")
+        self.assertEqual(survey.status, Survey.Status.DRAFT)
+        self.assertEqual(create["Location"], f"/manage/surveys/{survey.pk}/edit/")
+
+        edit = self.client.get(f"/manage/surveys/{survey.pk}/edit/")
+        self.assertEqual(edit.status_code, 200)
+        self.assertContains(edit, 'id="surveyCreator"')
+        self.assertContains(edit, 'id="pink-config"')
+        self.assertContains(edit, "init-creator.js")

@@ -18,6 +18,7 @@ urlpatterns = [
         name="swagger-ui",
     ),
     path("api/pink/", include("surveys.urls")),
+    path("manage/", include("surveys.manage_urls")),
 ]
 
 if settings.DEBUG and "debug_toolbar" in settings.INSTALLED_APPS:

@@ -80,8 +80,13 @@ OIDC_RP_SCOPES = "openid profile email"
 OIDC_STORE_ID_TOKEN = True  # kept in session for RP-initiated logout
 OIDC_OP_LOGOUT_URL_METHOD = "pinkauth.utils.op_logout_url"
 
+LOGIN_URL = "oidc_authentication_init"  # send @login_required through Authentik
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
+
+# SurveyJS commercial license key for Creator and Analytics (empty in dev, which
+# runs unlicensed with a watermark). Passed to the browser bundles.
+PINK_SURVEYJS_LICENSE_KEY = os.environ.get("PINK_SURVEYJS_LICENSE_KEY", "")
 
 # Base URL of the Nuxt survey runner, used to build the link Red follows from
 # its popover. Empty yields a site-relative "/s/<slug>".

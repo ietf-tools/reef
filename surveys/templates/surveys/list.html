@@ -1,0 +1,36 @@
+{% extends "surveys/manage_base.html" %}
+
+{% block title %}Surveys{% endblock %}
+
+{% block content %}
+  <h1>Surveys</h1>
+
+  <form method="post" action="{% url 'manage-survey-create' %}">
+    {% csrf_token %}
+    <fieldset>
+      <legend>New survey</legend>
+      <label>Title <input type="text" name="title" required></label>
+      <label>Slug <input type="text" name="slug" placeholder="optional"></label>
+      <button type="submit">Create</button>
+    </fieldset>
+  </form>
+
+  <table border="1" cellpadding="6" cellspacing="0">
+    <thead>
+      <tr><th>Title</th><th>Slug</th><th>Status</th><th>Visibility</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for survey in surveys %}
+        <tr>
+          <td>{{ survey.title }}</td>
+          <td>{{ survey.slug }}</td>
+          <td>{{ survey.get_status_display }}</td>
+          <td>{{ survey.get_visibility_display }}</td>
+          <td><a href="{% url 'manage-survey-edit' survey.pk %}">Edit</a></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5">No surveys yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
