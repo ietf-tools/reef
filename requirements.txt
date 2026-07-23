@@ -1,5 +1,6 @@
 celery>=5.5.3
 Django~=5.2
+django-csp>=4.0
 django-debug-toolbar>=4.0.0
 djangorestframework>=3.14
 drf-spectacular>=0.27

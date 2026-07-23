@@ -23,9 +23,17 @@ sudo nginx || true
 echo "Waiting for the DB container to come online..."
 /usr/local/bin/wait-for db:5432 -- echo "PostgreSQL ready"
 
-# Run migrations and collect static files
+# Run migrations
 echo "Running migrations..."
 ./manage.py migrate --no-input || true
+
+# Vendor the self-hosted SurveyJS bundles into the static tree
+if [ -f vendor/package.json ]; then
+    echo "Vendoring SurveyJS bundles..."
+    (cd vendor && npm install && npm run sync) || true
+fi
+
+# Collect static files (after vendoring so the bundles are included)
 echo "Collecting static files..."
 ./manage.py collectstatic --no-input || true
 

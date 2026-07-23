@@ -49,4 +49,9 @@ client/app/types/pink-api.ts
 # Collected static
 /static
 
+# Vendored SurveyJS bundles (fetched via npm; not committed)
+vendor/node_modules/
+vendor/static/vendor/surveyjs/*
+!vendor/static/vendor/surveyjs/.gitkeep
+
 docker-compose.extend-custom.yml
