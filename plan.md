@@ -173,7 +173,22 @@ Scaffolded (models and endpoints stubbed, returning minimal real data):
 - GET/POST/DELETE /subscriptions/ (bearer) plus an internal ingest task hook. Tickets
   #126, #127, and #133.
 
-drf-spectacular serves /api/pink/schema/ and Swagger.
+### API contract
+
+drf-spectacular is the single source of truth for the API contract. It serves
+/api/pink/schema/ and Swagger at runtime, and manage.py spectacular exports the
+schema to pink_api.yaml, which is committed as the published contract. Both
+consumers work from that schema rather than hand-agreed shapes:
+
+- Pink's Nuxt runner generates TypeScript types from pink_api.yaml with
+  openapi-typescript (pure npm, no Java toolchain) and calls the API with typed
+  fetch helpers.
+- Red consumes the same published pink_api.yaml to generate its own client
+  independently in its repository.
+
+This keeps the /api/pink/surveys/open/ contract with Red (#225) and the runner
+contract machine-checkable on both sides. The heavier openapi-generator client
+used by Purple is intentionally avoided so the base image needs no Java.
 
 ### dev / staging / prod modes
 
@@ -202,7 +217,8 @@ Each step ends with a commit.
    Authentik OIDC login and bearer resource-server auth".
 6. Surveys models and API: Survey and Response plus migrations, serializers, DRF
    endpoints (manage, open/, definition/, responses/, results/), rules.py,
-   drf-spectacular. Commit: "Add surveys models and REST API".
+   drf-spectacular. Export the schema to pink_api.yaml and commit it as the
+   published contract. Commit: "Add surveys models and REST API".
 7. Vendored SurveyJS bundles: vendor/package.json (survey-core, survey-js-ui,
    survey-creator-core/js, survey-analytics plus plotly) into Django static plus
    collectstatic; strict CSP, self only. Commit: "Vendor self-hosted SurveyJS bundles".
@@ -213,9 +229,10 @@ Each step ends with a commit.
    init-analytics.js mounting VisualizationPanel over results/. Commit: "Add
    Django-hosted survey analytics".
 10. Nuxt runner and OIDC: client/ Nuxt 4 SPA, useOidc.ts (oidc-client-ts, PKCE),
-    s/[slug].vue, SurveyRunner.client.vue (survey-vue3-ui plus theme), useSurveyApi.ts
-    (bearer when logged in), submit responses. Commit: "Add themed Nuxt survey runner
-    with OIDC".
+    s/[slug].vue, SurveyRunner.client.vue (survey-vue3-ui plus theme). Generate TS
+    types from pink_api.yaml with openapi-typescript and call the API with typed
+    fetch helpers in useSurveyApi.ts (bearer when logged in); submit responses.
+    Commit: "Add themed Nuxt survey runner with OIDC".
 11. Scaffold ratings, popularity, subscriptions: three Django apps with models plus
     migrations plus DRF endpoints returning minimal real data; a celery task and a
     datatracker-change ingest interface for subscription emails (not fully wired); test

@@ -39,9 +39,9 @@ celerybeat-schedule
 celerybeat-schedule-shm
 celerybeat-schedule-wal
 
-# Generated OpenAPI schema and client
-/pink_api.yaml
-client/app/pink_client
+# Generated TypeScript API types (regenerated from pink_api.yaml by openapi-typescript).
+# The contract itself, pink_api.yaml, is committed.
+client/app/types/pink-api.ts
 
 # Collected static
 /static
