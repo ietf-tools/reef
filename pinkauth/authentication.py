@@ -10,6 +10,7 @@ a token happens to be supplied (for example the open-survey list).
 
 import jwt
 from django.conf import settings
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import authentication, exceptions
 
 from .claims import sync_user_from_claims
@@ -64,3 +65,13 @@ class BearerTokenAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request):
         return self.keyword
+
+
+class BearerTokenScheme(OpenApiAuthenticationExtension):
+    """Document BearerTokenAuthentication as HTTP bearer (JWT) in the schema."""
+
+    target_class = "pinkauth.authentication.BearerTokenAuthentication"
+    name = "BearerAuth"
+
+    def get_security_definition(self, auto_schema):
+        return {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}

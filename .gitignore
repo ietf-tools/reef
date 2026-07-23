@@ -34,6 +34,9 @@ __pycache__
 .venv
 venv
 
+# Local sqlite (build-mode / ad-hoc)
+*.sqlite3
+
 # Celery Beat schedule database (runtime state)
 celerybeat-schedule
 celerybeat-schedule-shm

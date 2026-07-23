@@ -17,7 +17,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "drf_spectacular",
+    "rules.apps.AutodiscoverRulesConfig",
     "pinkauth",
+    "surveys",
 ]
 
 MIDDLEWARE = [
@@ -54,6 +56,7 @@ WSGI_APPLICATION = "pink.wsgi.application"
 AUTH_USER_MODEL = "pinkauth.User"
 AUTHENTICATION_BACKENDS = (
     "pinkauth.backends.PinkOIDCAuthBackend",  # Authentik OIDC login
+    "rules.permissions.ObjectPermissionBackend",  # rules-based permissions
     "django.contrib.auth.backends.ModelBackend",  # break-glass local superuser
 )
 
@@ -78,6 +81,10 @@ OIDC_OP_LOGOUT_URL_METHOD = "pinkauth.utils.op_logout_url"
 
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/"
+
+# Base URL of the Nuxt survey runner, used to build the link Red follows from
+# its popover. Empty yields a site-relative "/s/<slug>".
+PINK_SURVEY_RUNNER_BASE_URL = os.environ.get("PINK_SURVEY_RUNNER_BASE_URL", "")
 
 # Bearer (resource-server) validation of Authentik access tokens.
 # Audience defaults to the RP client id; the groups claim maps to staff access.
