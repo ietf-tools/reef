@@ -87,3 +87,21 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Caches. Disabled by default; per-environment modules configure a real backend.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.dummy.DummyCache",
+    }
+}
+
+# Email. Per-environment modules configure a real backend.
+EMAIL_BACKEND = "django.core.mail.backends.dummy.EmailBackend"
+DEFAULT_FROM_EMAIL = os.environ.get("PINK_DEFAULT_FROM_EMAIL", "pink@ietf.org")
+ADMINS = []
+
+# Celery
+CELERY_TIMEZONE = "UTC"
+CELERY_BROKER_URL = os.environ.get("PINK_BROKER_URL", "amqp://mq/")
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TASK_IGNORE_RESULT = True  # ignore results unless a task opts in
