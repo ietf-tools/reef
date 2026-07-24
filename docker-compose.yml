@@ -33,6 +33,9 @@ services:
       - PINK_OIDC_RP_CLIENT_ID=${PINK_OIDC_RP_CLIENT_ID:-}
       - PINK_OIDC_RP_CLIENT_SECRET=${PINK_OIDC_RP_CLIENT_SECRET:-}
       - PINK_OIDC_STAFF_GROUPS=${PINK_OIDC_STAFF_GROUPS:-}
+      - PINK_SURVEYJS_LICENSE_KEY=${PINK_SURVEYJS_LICENSE_KEY:-}
+      # Public client id for the Nuxt runner's browser OIDC login.
+      - NUXT_PUBLIC_OIDC_CLIENT_ID=${NUXT_PUBLIC_OIDC_CLIENT_ID:-}
     depends_on:
       - db
       - mq
