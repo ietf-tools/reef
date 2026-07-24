@@ -18,6 +18,9 @@ urlpatterns = [
         name="swagger-ui",
     ),
     path("api/pink/", include("surveys.urls")),
+    path("api/pink/", include("ratings.urls")),
+    path("api/pink/", include("popularity.urls")),
+    path("api/pink/", include("subscriptions.urls")),
     path("manage/", include("surveys.manage_urls")),
 ]
 

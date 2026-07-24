@@ -4,6 +4,82 @@ info:
   version: 0.1.0
   description: Backend API for the Pink survey and engagement service
 paths:
+  /api/pink/popularity/:
+    get:
+      operationId: popularity_list
+      description: The curated most-popular list. Public; consumed by Red at build
+        time.
+      tags:
+      - popularity
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PopularEntry'
+          description: ''
+  /api/pink/ratings/{rfc}/:
+    get:
+      operationId: ratings_retrieve
+      description: GET the public aggregate (anonymous); PUT the caller's rating (bearer).
+      parameters:
+      - in: path
+        name: rfc
+        schema:
+          type: string
+        required: true
+      tags:
+      - ratings
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RatingAggregate'
+          description: ''
+    put:
+      operationId: ratings_update
+      description: GET the public aggregate (anonymous); PUT the caller's rating (bearer).
+      parameters:
+      - in: path
+        name: rfc
+        schema:
+          type: string
+        required: true
+      tags:
+      - ratings
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RatingWrite'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RatingWrite'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RatingWrite'
+        required: true
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RatingAggregate'
+          description: ''
   /api/pink/schema/:
     get:
       operationId: schema_retrieve
@@ -150,6 +226,69 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/pink/subscriptions/:
+    get:
+      operationId: subscriptions_list
+      description: List and create the current user's subscriptions.
+      tags:
+      - subscriptions
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Subscription'
+          description: ''
+    post:
+      operationId: subscriptions_create
+      description: List and create the current user's subscriptions.
+      tags:
+      - subscriptions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Subscription'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Subscription'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Subscription'
+        required: true
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+          description: ''
+  /api/pink/subscriptions/{id}/:
+    delete:
+      operationId: subscriptions_destroy
+      description: Delete one of the current user's subscriptions.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - subscriptions
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/pink/surveys/:
     get:
       operationId: surveys_list
@@ -404,6 +543,18 @@ paths:
           description: ''
 components:
   schemas:
+    KindEnum:
+      enum:
+      - new_rfc
+      - by_status
+      - obsoleted
+      - subject_tag
+      type: string
+      description: |-
+        * `new_rfc` - Any new RFC
+        * `by_status` - New RFC by status
+        * `obsoleted` - RFC obsoleted or made historic
+        * `subject_tag` - RFC with a subject tag
     OpenSurvey:
       type: object
       description: Minimal representation for Red's open-survey list and popover.
@@ -461,6 +612,44 @@ components:
           type: string
           format: date-time
           readOnly: true
+    PopularEntry:
+      type: object
+      properties:
+        rfc:
+          type: string
+          maxLength: 32
+        rank:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Lower sorts first
+      required:
+      - rfc
+    RatingAggregate:
+      type: object
+      properties:
+        rfc:
+          type: string
+        average:
+          type: number
+          format: double
+          nullable: true
+        count:
+          type: integer
+      required:
+      - average
+      - count
+      - rfc
+    RatingWrite:
+      type: object
+      properties:
+        value:
+          type: integer
+          maximum: 5
+          minimum: 1
+      required:
+      - value
     ResponseCreate:
       type: object
       properties:
@@ -476,6 +665,27 @@ components:
         * `draft` - Draft
         * `published` - Published
         * `closed` - Closed
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        kind:
+          $ref: '#/components/schemas/KindEnum'
+        params: {}
+        verified:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - kind
+      - verified
     Survey:
       type: object
       description: Full survey representation used by the management API and the builder.

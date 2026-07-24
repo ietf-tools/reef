@@ -20,6 +20,9 @@ INSTALLED_APPS = [
     "rules.apps.AutodiscoverRulesConfig",
     "pinkauth",
     "surveys",
+    "ratings",
+    "popularity",
+    "subscriptions",
 ]
 
 MIDDLEWARE = [
