@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pink-celery
+  labels:
+    app.kubernetes.io/part-of: pink
+    app.kubernetes.io/component: celery
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: celery
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: pink
+        app.kubernetes.io/component: celery
+    spec:
+      containers:
+        - name: celery
+          image: ghcr.io/ietf-tools/pink-backend:latest
+          env:
+            - name: CONTAINER_ROLE
+              value: celery
+            - name: CELERY_APP
+              value: pink
+          envFrom:
+            - configMapRef:
+                name: pink-config
+            - secretRef:
+                name: pink-secrets

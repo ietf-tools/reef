@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pink-config
+data:
+  PINK_ALLOWED_HOSTS: "pink.ietf.org"
+  PINK_DB_HOST: "postgres"
+  NUXT_PUBLIC_OIDC_CLIENT_ID: "" # production Authentik client id
+  PINK_OIDC_RP_CLIENT_ID: "" # production Authentik client id

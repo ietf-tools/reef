@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pink-config
+data:
+  PINK_DEPLOYMENT_MODE: "production"
+  # Host-specific values are overridden per environment in the overlays.
+  PINK_ALLOWED_HOSTS: "pink.example.org"
+  PINK_DB_HOST: "postgres"
+  PINK_DB_PORT: "5432"
+  PINK_DB_NAME: "pink"
+  PINK_DB_USER: "pink"
+  PINK_BROKER_URL: "amqp://mq:5672//"
+  PINK_OIDC_APP_SLUG: "pink"
+  PINK_OIDC_RP_CLIENT_ID: ""
+  PINK_OIDC_STAFF_GROUPS: ""
+  # Frontend (Nuxt) configuration.
+  NUXT_API_BASE_SERVER: "http://pink-backend:8000"
+  NUXT_PUBLIC_API_BASE: ""
+  NUXT_PUBLIC_OIDC_AUTHORITY: "https://account.ietf.org/application/o/pink/"
+  NUXT_PUBLIC_OIDC_CLIENT_ID: ""

@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - configmap.yaml
+  - secret.yaml
+  - backend.yaml
+  - celery.yaml
+  - frontend.yaml
+  - statics.yaml
+  - memcached.yaml
+  - mq.yaml
+  - ingress.yaml
+
+images:
+  - name: ghcr.io/ietf-tools/pink-backend
+    newTag: latest
+  - name: ghcr.io/ietf-tools/pink-frontend
+    newTag: latest
+  - name: ghcr.io/ietf-tools/pink-statics
+    newTag: latest
