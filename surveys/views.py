@@ -23,7 +23,22 @@ def staff_required(view):
 @staff_required
 def survey_list(request):
     surveys = Survey.objects.all()
-    return render(request, "surveys/list.html", {"surveys": surveys})
+    return render(
+        request,
+        "surveys/list.html",
+        {"surveys": surveys, "statuses": Survey.Status.choices},
+    )
+
+
+@staff_required
+@require_http_methods(["POST"])
+def survey_set_status(request, pk):
+    survey = get_object_or_404(Survey, pk=pk)
+    status = request.POST.get("status")
+    if status in Survey.Status.values:
+        survey.status = status
+        survey.save()
+    return redirect("manage-survey-list")
 
 
 @staff_required

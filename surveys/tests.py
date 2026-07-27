@@ -179,3 +179,34 @@ class ManageAnalyticsTests(TestCase):
         self.assertContains(resp, 'id="surveyVizPanel"')
         self.assertContains(resp, "init-analytics.js")
         self.assertContains(resp, f"/api/pink/surveys/{survey.pk}/results/")
+
+
+class ManageStatusControlTests(TestCase):
+    def _staff(self):
+        return User.objects.create(username="admin", oidc_sub="s-st", is_staff=True)
+
+    def test_staff_can_publish_from_list(self):
+        survey = make_survey(slug="p1", status=Survey.Status.DRAFT)
+        self.client.force_login(self._staff())
+        resp = self.client.post(
+            f"/manage/surveys/{survey.pk}/status/", {"status": "published"}
+        )
+        self.assertEqual(resp.status_code, 302)
+        survey.refresh_from_db()
+        self.assertEqual(survey.status, Survey.Status.PUBLISHED)
+
+    def test_invalid_status_ignored(self):
+        survey = make_survey(slug="p2", status=Survey.Status.DRAFT)
+        self.client.force_login(self._staff())
+        self.client.post(f"/manage/surveys/{survey.pk}/status/", {"status": "bogus"})
+        survey.refresh_from_db()
+        self.assertEqual(survey.status, Survey.Status.DRAFT)
+
+    def test_non_staff_cannot_set_status(self):
+        survey = make_survey(slug="p3", status=Survey.Status.DRAFT)
+        resp = self.client.post(
+            f"/manage/surveys/{survey.pk}/status/", {"status": "published"}
+        )
+        self.assertEqual(resp.status_code, 302)  # bounced to login
+        survey.refresh_from_db()
+        self.assertEqual(survey.status, Survey.Status.DRAFT)

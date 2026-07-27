@@ -24,7 +24,17 @@
         <tr>
           <td>{{ survey.title }}</td>
           <td>{{ survey.slug }}</td>
-          <td>{{ survey.get_status_display }}</td>
+          <td>
+            <form method="post" action="{% url 'manage-survey-status' survey.pk %}">
+              {% csrf_token %}
+              <select name="status">
+                {% for value, label in statuses %}
+                  <option value="{{ value }}" {% if value == survey.status %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit">Set</button>
+            </form>
+          </td>
           <td>{{ survey.get_visibility_display }}</td>
           <td>
             <a href="{% url 'manage-survey-edit' survey.pk %}">Edit</a>
