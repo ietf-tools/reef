@@ -4,7 +4,7 @@ from django.db import models
 
 
 class User(AbstractUser):
-    """Pink user, authenticated through Authentik OIDC.
+    """Reef user, authenticated through Authentik OIDC.
 
     A local superuser (created with createsuperuser) is retained as a
     break-glass account for when the identity provider is unavailable.

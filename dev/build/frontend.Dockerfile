@@ -1,9 +1,9 @@
-# Build context is the repository root (the client needs ../pink_api.yaml to
+# Build context is the repository root (the client needs ../reef_api.yaml to
 # generate its API types during npm install).
 FROM node:22 AS build
 WORKDIR /workspace
 COPY client/ ./client/
-COPY pink_api.yaml ./pink_api.yaml
+COPY reef_api.yaml ./reef_api.yaml
 WORKDIR /workspace/client
 RUN npm install && npm run build
 

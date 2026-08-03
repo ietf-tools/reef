@@ -6,7 +6,7 @@
       "Host": "db",
       "Port": 5432,
       "MaintenanceDB": "postgres",
-      "Username": "pink",
+      "Username": "reef",
       "UseSSHTunnel": 0,
       "TunnelPort": "22",
       "TunnelAuthentication": 0,

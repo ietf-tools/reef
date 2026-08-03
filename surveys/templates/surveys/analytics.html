@@ -12,7 +12,7 @@
 {% block content %}
   <h1>{{ survey.title }} <small>({{ survey.slug }})</small></h1>
   <p>Responses: <span id="responseCount">…</span></p>
-  {{ config|json_script:"pink-config" }}
+  {{ config|json_script:"reef-config" }}
   <div id="surveyVizPanel"></div>
 {% endblock %}
 

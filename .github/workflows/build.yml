@@ -29,10 +29,10 @@ jobs:
           context: .
           file: dev/build/backend.Dockerfile
           push: true
-          tags: ghcr.io/ietf-tools/pink-backend:latest
+          tags: ghcr.io/ietf-tools/reef-backend:latest
 
   statics:
-    # Builds FROM pink-backend, so it runs after the backend image is pushed.
+    # Builds FROM reef-backend, so it runs after the backend image is pushed.
     needs: backend
     runs-on: ubuntu-latest
     permissions:
@@ -50,7 +50,7 @@ jobs:
           context: .
           file: dev/build/statics.Dockerfile
           push: true
-          tags: ghcr.io/ietf-tools/pink-statics:latest
+          tags: ghcr.io/ietf-tools/reef-statics:latest
 
   frontend:
     runs-on: ubuntu-latest
@@ -69,4 +69,4 @@ jobs:
           context: .
           file: dev/build/frontend.Dockerfile
           push: true
-          tags: ghcr.io/ietf-tools/pink-frontend:latest
+          tags: ghcr.io/ietf-tools/reef-frontend:latest

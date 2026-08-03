@@ -7,10 +7,10 @@ from django.test import TestCase, override_settings
 from rest_framework import exceptions
 from rest_framework.test import APIRequestFactory
 
-from pinkauth.authentication import BearerTokenAuthentication
+from reefauth.authentication import BearerTokenAuthentication
 
-_ISSUER = "https://account.ietf.org/application/o/pink/"
-_AUDIENCE = "pink-client"
+_ISSUER = "https://account.ietf.org/application/o/reef/"
+_AUDIENCE = "reef-client"
 
 
 def _make_key():
@@ -34,7 +34,7 @@ def _make_token(private_key, **overrides):
 
 @override_settings(
     OIDC_OP_ISSUER_ID=_ISSUER,
-    PINK_OIDC_AUDIENCE=_AUDIENCE,
+    REEF_OIDC_AUDIENCE=_AUDIENCE,
     OIDC_RP_SIGN_ALGO="RS256",
 )
 class BearerTokenAuthenticationTests(TestCase):
@@ -46,12 +46,12 @@ class BearerTokenAuthenticationTests(TestCase):
         self.auth.get_signing_key = lambda token: self.key.public_key()
 
     def test_no_header_returns_none(self):
-        request = self.factory.get("/api/pink/surveys/open/")
+        request = self.factory.get("/api/reef/surveys/open/")
         self.assertIsNone(self.auth.authenticate(request))
 
     def test_malformed_header_fails(self):
         request = self.factory.get(
-            "/api/pink/surveys/open/", HTTP_AUTHORIZATION="Bearer"
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION="Bearer"
         )
         with self.assertRaises(exceptions.AuthenticationFailed):
             self.auth.authenticate(request)
@@ -59,7 +59,7 @@ class BearerTokenAuthenticationTests(TestCase):
     def test_valid_token_authenticates_and_creates_user(self):
         token = _make_token(self.key)
         request = self.factory.get(
-            "/api/pink/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
         )
         user, payload = self.auth.authenticate(request)
         self.assertEqual(user.oidc_sub, "abc-123")
@@ -71,18 +71,18 @@ class BearerTokenAuthenticationTests(TestCase):
     def test_wrong_issuer_fails(self):
         token = _make_token(self.key, iss="https://evil.example/")
         request = self.factory.get(
-            "/api/pink/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
         )
         with self.assertRaises(exceptions.AuthenticationFailed):
             self.auth.authenticate(request)
 
     @override_settings(
-        PINK_OIDC_STAFF_GROUPS=["rpc-staff"], PINK_OIDC_GROUPS_CLAIM="groups"
+        REEF_OIDC_STAFF_GROUPS=["rpc-staff"], REEF_OIDC_GROUPS_CLAIM="groups"
     )
     def test_staff_group_grants_staff(self):
         token = _make_token(self.key, groups=["rpc-staff", "other"])
         request = self.factory.get(
-            "/api/pink/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
         )
         user, _ = self.auth.authenticate(request)
         self.assertTrue(user.is_staff)

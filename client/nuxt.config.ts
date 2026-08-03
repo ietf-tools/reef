@@ -17,13 +17,13 @@ export default defineNuxtConfig({
       // Client-side base. Same NGINX origin as the Django API, so relative works.
       apiBase: "", // NUXT_PUBLIC_API_BASE
       // Authentik OIDC application issuer (discovery is fetched from here).
-      oidcAuthority: "https://account.ietf.org/application/o/pink/", // NUXT_PUBLIC_OIDC_AUTHORITY
+      oidcAuthority: "https://account.ietf.org/application/o/reef/", // NUXT_PUBLIC_OIDC_AUTHORITY
       oidcClientId: "", // NUXT_PUBLIC_OIDC_CLIENT_ID
     },
   },
   app: {
     head: {
-      title: "Pink Surveys",
+      title: "Reef Surveys",
       meta: [{ name: "viewport", content: "width=device-width, initial-scale=1" }],
     },
   },

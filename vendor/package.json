@@ -1,5 +1,5 @@
 {
-  "name": "pink-vendor",
+  "name": "reef-vendor",
   "version": "0.0.0",
   "private": true,
   "description": "Self-hosted SurveyJS UMD bundles for the Django builder and analytics pages. Not a published package; run `npm install && npm run sync` to populate static/vendor/surveyjs/.",

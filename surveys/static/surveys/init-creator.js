@@ -1,11 +1,11 @@
 // Copyright The IETF Trust 2026, All Rights Reserved
 // Mounts the SurveyJS Creator and saves the definition and theme back to the
-// Pink API. Configuration is read from the #pink-config JSON block rendered by
+// Reef API. Configuration is read from the #reef-config JSON block rendered by
 // the template (no inline script, to satisfy the Content Security Policy).
 (function () {
   "use strict";
 
-  var cfgEl = document.getElementById("pink-config");
+  var cfgEl = document.getElementById("reef-config");
   if (!cfgEl) {
     return;
   }

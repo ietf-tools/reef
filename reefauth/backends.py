@@ -6,8 +6,8 @@ from mozilla_django_oidc.auth import OIDCAuthenticationBackend
 from .claims import sync_user_from_claims
 
 
-class PinkOIDCAuthBackend(OIDCAuthenticationBackend):
-    """Authenticate against Authentik and map claims to a Pink User by subject."""
+class ReefOIDCAuthBackend(OIDCAuthenticationBackend):
+    """Authenticate against Authentik and map claims to a Reef User by subject."""
 
     def filter_users_by_claims(self, claims):
         sub = claims.get("sub")

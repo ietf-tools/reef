@@ -10,7 +10,7 @@ import logging
 
 from celery import shared_task
 
-logger = logging.getLogger("pink")
+logger = logging.getLogger("reef")
 
 
 @shared_task(ignore_result=True)

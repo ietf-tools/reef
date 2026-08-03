@@ -27,7 +27,7 @@ class OpenSurveyListTests(APITestCase):
         make_survey(slug="draft", status=Survey.Status.DRAFT)
 
     def test_anonymous_sees_open_published_only(self):
-        resp = self.client.get("/api/pink/surveys/open/")
+        resp = self.client.get("/api/reef/surveys/open/")
         self.assertEqual(resp.status_code, 200)
         slugs = {s["slug"] for s in resp.json()}
         self.assertEqual(slugs, {"open-pub"})
@@ -35,12 +35,12 @@ class OpenSurveyListTests(APITestCase):
     def test_authenticated_also_sees_authenticated_visibility(self):
         user = User.objects.create(username="u1", oidc_sub="sub-1")
         self.client.force_authenticate(user=user)
-        resp = self.client.get("/api/pink/surveys/open/")
+        resp = self.client.get("/api/reef/surveys/open/")
         slugs = {s["slug"] for s in resp.json()}
         self.assertEqual(slugs, {"open-pub", "auth-pub"})
 
     def test_open_item_includes_runner_url(self):
-        resp = self.client.get("/api/pink/surveys/open/")
+        resp = self.client.get("/api/reef/surveys/open/")
         item = resp.json()[0]
         self.assertEqual(item["url"], "/s/open-pub")
 
@@ -48,24 +48,24 @@ class OpenSurveyListTests(APITestCase):
 class DefinitionAndResponseTests(APITestCase):
     def test_definition_public_for_open_survey(self):
         make_survey(slug="s1")
-        resp = self.client.get("/api/pink/surveys/s1/definition/")
+        resp = self.client.get("/api/reef/surveys/s1/definition/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["slug"], "s1")
 
     def test_definition_requires_auth_for_authenticated_survey(self):
         make_survey(slug="s2", visibility=Survey.Visibility.AUTHENTICATED)
-        resp = self.client.get("/api/pink/surveys/s2/definition/")
+        resp = self.client.get("/api/reef/surveys/s2/definition/")
         self.assertEqual(resp.status_code, 403)
 
     def test_definition_404_for_draft(self):
         make_survey(slug="s3", status=Survey.Status.DRAFT)
-        resp = self.client.get("/api/pink/surveys/s3/definition/")
+        resp = self.client.get("/api/reef/surveys/s3/definition/")
         self.assertEqual(resp.status_code, 404)
 
     def test_anonymous_can_submit_open_survey_response(self):
         make_survey(slug="s4")
         resp = self.client.post(
-            "/api/pink/surveys/s4/responses/",
+            "/api/reef/surveys/s4/responses/",
             {"data": {"q1": "yes"}},
             format="json",
         )
@@ -78,7 +78,7 @@ class DefinitionAndResponseTests(APITestCase):
     def test_authenticated_survey_rejects_anonymous_submission(self):
         make_survey(slug="s5", visibility=Survey.Visibility.AUTHENTICATED)
         resp = self.client.post(
-            "/api/pink/surveys/s5/responses/", {"data": {}}, format="json"
+            "/api/reef/surveys/s5/responses/", {"data": {}}, format="json"
         )
         self.assertEqual(resp.status_code, 403)
         self.assertEqual(Response.objects.count(), 0)
@@ -86,14 +86,14 @@ class DefinitionAndResponseTests(APITestCase):
 
 class ManagementPermissionTests(APITestCase):
     def test_anonymous_cannot_list_management(self):
-        resp = self.client.get("/api/pink/surveys/")
+        resp = self.client.get("/api/reef/surveys/")
         self.assertIn(resp.status_code, (401, 403))
 
     def test_non_staff_cannot_create(self):
         user = User.objects.create(username="u2", oidc_sub="sub-2", is_staff=False)
         self.client.force_authenticate(user=user)
         resp = self.client.post(
-            "/api/pink/surveys/",
+            "/api/reef/surveys/",
             {"slug": "new", "title": "New", "definition": {}},
             format="json",
         )
@@ -103,7 +103,7 @@ class ManagementPermissionTests(APITestCase):
         staff = User.objects.create(username="admin", oidc_sub="sub-3", is_staff=True)
         self.client.force_authenticate(user=staff)
         create = self.client.post(
-            "/api/pink/surveys/",
+            "/api/reef/surveys/",
             {
                 "slug": "new",
                 "title": "New",
@@ -117,7 +117,7 @@ class ManagementPermissionTests(APITestCase):
         self.assertEqual(survey.created_by, staff)
 
         Response.objects.create(survey=survey, data={"q1": 1})
-        results = self.client.get(f"/api/pink/surveys/{survey.id}/results/")
+        results = self.client.get(f"/api/reef/surveys/{survey.id}/results/")
         self.assertEqual(results.status_code, 200)
         body = results.json()
         self.assertEqual(body["count"], 1)
@@ -159,7 +159,7 @@ class ManageBuilderTests(TestCase):
         edit = self.client.get(f"/manage/surveys/{survey.pk}/edit/")
         self.assertEqual(edit.status_code, 200)
         self.assertContains(edit, 'id="surveyCreator"')
-        self.assertContains(edit, 'id="pink-config"')
+        self.assertContains(edit, 'id="reef-config"')
         self.assertContains(edit, "init-creator.js")
 
 
@@ -178,7 +178,7 @@ class ManageAnalyticsTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'id="surveyVizPanel"')
         self.assertContains(resp, "init-analytics.js")
-        self.assertContains(resp, f"/api/pink/surveys/{survey.pk}/results/")
+        self.assertContains(resp, f"/api/reef/surveys/{survey.pk}/results/")
 
 
 class ManageStatusControlTests(TestCase):

@@ -1,13 +1,13 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Django settings selector.
 
-The active settings module is chosen by the PINK_DEPLOYMENT_MODE environment
+The active settings module is chosen by the REEF_DEPLOYMENT_MODE environment
 variable: development, staging, production (default), or build.
 """
 
 import os
 
-DEPLOYMENT_MODE = os.environ.get("PINK_DEPLOYMENT_MODE", "production")
+DEPLOYMENT_MODE = os.environ.get("REEF_DEPLOYMENT_MODE", "production")
 
 if DEPLOYMENT_MODE == "development":
     from .development import *

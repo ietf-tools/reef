@@ -27,4 +27,4 @@ jobs:
           context: .
           file: docker/base.Dockerfile
           push: true
-          tags: ghcr.io/ietf-tools/pink-app-base:latest
+          tags: ghcr.io/ietf-tools/reef-app-base:latest

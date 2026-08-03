@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: pink-config
+  name: reef-config
 data:
-  PINK_ALLOWED_HOSTS: "pink.staging.ietf.org"
+  REEF_ALLOWED_HOSTS: "reef.staging.ietf.org"
   # Point the DB host at the staging database service or managed endpoint.
-  PINK_DB_HOST: "postgres"
+  REEF_DB_HOST: "postgres"
   NUXT_PUBLIC_OIDC_CLIENT_ID: "" # staging Authentik client id
-  PINK_OIDC_RP_CLIENT_ID: "" # staging Authentik client id
+  REEF_OIDC_RP_CLIENT_ID: "" # staging Authentik client id

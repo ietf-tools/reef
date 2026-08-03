@@ -63,11 +63,11 @@ def survey_create(request):
 def survey_edit(request, pk):
     survey = get_object_or_404(Survey, pk=pk)
     config = {
-        "apiUrl": f"/api/pink/surveys/{survey.pk}/",
+        "apiUrl": f"/api/reef/surveys/{survey.pk}/",
         "definition": survey.definition or {},
         "theme": survey.theme,
         "csrfToken": get_token(request),
-        "licenseKey": settings.PINK_SURVEYJS_LICENSE_KEY,
+        "licenseKey": settings.REEF_SURVEYJS_LICENSE_KEY,
     }
     return render(request, "surveys/creator.html", {"survey": survey, "config": config})
 
@@ -76,8 +76,8 @@ def survey_edit(request, pk):
 def survey_analytics(request, pk):
     survey = get_object_or_404(Survey, pk=pk)
     config = {
-        "resultsUrl": f"/api/pink/surveys/{survey.pk}/results/",
-        "licenseKey": settings.PINK_SURVEYJS_LICENSE_KEY,
+        "resultsUrl": f"/api/reef/surveys/{survey.pk}/results/",
+        "licenseKey": settings.REEF_SURVEYJS_LICENSE_KEY,
     }
     return render(
         request, "surveys/analytics.html", {"survey": survey, "config": config}

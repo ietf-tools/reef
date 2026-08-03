@@ -1,5 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""Production-mode Django settings for the Pink project."""
+"""Production-mode Django settings for the Reef project."""
 
 import os
 from email.utils import parseaddr
@@ -17,23 +17,23 @@ def _multiline_to_list(value):
 
 
 # SECURITY WARNING: keep the secret key secret.
-SECRET_KEY = os.environ["PINK_DJANGO_SECRET_KEY"]
+SECRET_KEY = os.environ["REEF_DJANGO_SECRET_KEY"]
 assert not SECRET_KEY.startswith("django-insecure")  # never the dev key
 
 DEBUG = False
 
-# PINK_ALLOWED_HOSTS is a newline-separated list of allowed hosts.
-ALLOWED_HOSTS = _multiline_to_list(os.environ["PINK_ALLOWED_HOSTS"])
+# REEF_ALLOWED_HOSTS is a newline-separated list of allowed hosts.
+ALLOWED_HOSTS = _multiline_to_list(os.environ["REEF_ALLOWED_HOSTS"])
 
 # Database
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ["PINK_DB_NAME"],
-        "USER": os.environ["PINK_DB_USER"],
-        "PASSWORD": os.environ["PINK_DB_PASS"],
-        "HOST": os.environ["PINK_DB_HOST"],
-        "PORT": int(os.environ.get("PINK_DB_PORT", "5432")),
+        "NAME": os.environ["REEF_DB_NAME"],
+        "USER": os.environ["REEF_DB_USER"],
+        "PASSWORD": os.environ["REEF_DB_PASS"],
+        "HOST": os.environ["REEF_DB_HOST"],
+        "PORT": int(os.environ.get("REEF_DB_PORT", "5432")),
     }
 }
 
@@ -45,7 +45,7 @@ if _memcached_host is not None:
         "default": {
             "BACKEND": "django.core.cache.backends.memcached.PyMemcacheCache",
             "LOCATION": f"{_memcached_host}:{_memcached_port}",
-            "KEY_PREFIX": "ietf:pink",
+            "KEY_PREFIX": "ietf:reef",
             "KEY_FUNCTION": lambda key, key_prefix, version: (
                 f"{key_prefix}:{version}:{sha384(str(key).encode('utf8')).hexdigest()}"
             ),
@@ -53,12 +53,12 @@ if _memcached_host is not None:
         }
     }
 
-# Email. Configure via PINK_EMAIL_* or fall back to a k8s mailpit service.
-_email_host = os.environ.get("PINK_EMAIL_HOST") or os.environ.get(
+# Email. Configure via REEF_EMAIL_* or fall back to a k8s mailpit service.
+_email_host = os.environ.get("REEF_EMAIL_HOST") or os.environ.get(
     "MAILPIT_SERVICE_HOST"
 )
 if _email_host is not None:
-    _email_port = os.environ.get("PINK_EMAIL_PORT") or os.environ.get(
+    _email_port = os.environ.get("REEF_EMAIL_PORT") or os.environ.get(
         "MAILPIT_SERVICE_PORT"
     )
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
@@ -66,8 +66,8 @@ if _email_host is not None:
     if _email_port is not None:
         EMAIL_PORT = int(_email_port)
 
-# Admins, from a newline-separated PINK_ADMINS value.
-_admins = os.environ.get("PINK_ADMINS")
+# Admins, from a newline-separated REEF_ADMINS value.
+_admins = os.environ.get("REEF_ADMINS")
 if _admins is not None:
     ADMINS = [parseaddr(admin) for admin in _multiline_to_list(_admins)]
 

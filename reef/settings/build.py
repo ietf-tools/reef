@@ -1,5 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""Build-mode Django settings for the Pink project.
+"""Build-mode Django settings for the Reef project.
 
 Minimal settings so management commands (OpenAPI schema generation,
 collectstatic) can run during Docker image builds. Not for running the app.
@@ -9,7 +9,7 @@ import os
 
 from .base import *
 
-if os.environ.get("PINK_DEPLOYMENT_MODE") != "build":
+if os.environ.get("REEF_DEPLOYMENT_MODE") != "build":
     raise RuntimeError("build settings are only for use when building")
 
 SECRET_KEY = "django-insecure-build-only-key"

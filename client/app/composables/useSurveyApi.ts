@@ -1,6 +1,6 @@
-// Typed access to the Pink API. Types come from openapi-typescript, generated
-// from ../pink_api.yaml into app/types/pink-api.ts (see the gen:api script).
-import type { components } from "~/types/pink-api";
+// Typed access to the Reef API. Types come from openapi-typescript, generated
+// from ../reef_api.yaml into app/types/reef-api.ts (see the gen:api script).
+import type { components } from "~/types/reef-api";
 
 type SurveyDefinition = components["schemas"]["SurveyDefinition"];
 type OpenSurvey = components["schemas"]["OpenSurvey"];
@@ -20,21 +20,21 @@ export function useSurveyApi() {
 
   return {
     async getDefinition(slug: string): Promise<SurveyDefinition> {
-      return $fetch<SurveyDefinition>(`/api/pink/surveys/${slug}/definition/`, {
+      return $fetch<SurveyDefinition>(`/api/reef/surveys/${slug}/definition/`, {
         baseURL,
         headers: await authHeaders(),
       });
     },
 
     async openSurveys(): Promise<OpenSurvey[]> {
-      return $fetch<OpenSurvey[]>(`/api/pink/surveys/open/`, {
+      return $fetch<OpenSurvey[]>(`/api/reef/surveys/open/`, {
         baseURL,
         headers: await authHeaders(),
       });
     },
 
     async submitResponse(slug: string, data: unknown): Promise<void> {
-      await $fetch(`/api/pink/surveys/${slug}/responses/`, {
+      await $fetch(`/api/reef/surveys/${slug}/responses/`, {
         method: "POST",
         baseURL,
         headers: await authHeaders(),

@@ -1,8 +1,8 @@
-FROM ghcr.io/ietf-tools/pink-backend:latest AS builder
+FROM ghcr.io/ietf-tools/reef-backend:latest AS builder
 
 # Vendor the self-hosted SurveyJS bundles, then collect all static files.
 RUN cd vendor && npm install && npm run sync
-RUN PINK_DEPLOYMENT_MODE=build ./manage.py collectstatic --no-input
+RUN REEF_DEPLOYMENT_MODE=build ./manage.py collectstatic --no-input
 
 FROM ghcr.io/nginxinc/nginx-unprivileged:1.27
 LABEL maintainer="IETF Tools Team <tools-discuss@ietf.org>"

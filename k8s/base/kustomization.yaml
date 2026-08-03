@@ -13,9 +13,9 @@ resources:
   - ingress.yaml
 
 images:
-  - name: ghcr.io/ietf-tools/pink-backend
+  - name: ghcr.io/ietf-tools/reef-backend
     newTag: latest
-  - name: ghcr.io/ietf-tools/pink-frontend
+  - name: ghcr.io/ietf-tools/reef-frontend
     newTag: latest
-  - name: ghcr.io/ietf-tools/pink-statics
+  - name: ghcr.io/ietf-tools/reef-statics
     newTag: latest

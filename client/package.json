@@ -1,5 +1,5 @@
 {
-  "name": "pink-client",
+  "name": "reef-client",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare && npm run gen:api",
-    "gen:api": "openapi-typescript ../pink_api.yaml -o app/types/pink-api.ts",
+    "gen:api": "openapi-typescript ../reef_api.yaml -o app/types/reef-api.ts",
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {

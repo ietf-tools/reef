@@ -12,7 +12,7 @@ if ! ./manage.py migrate --check; then
     done
 fi
 
-echo "Starting Pink API server..."
+echo "Starting Reef API server..."
 
 cleanup () {
     if [[ -n "${gunicorn_pid}" ]]; then
@@ -25,14 +25,14 @@ trap 'trap "" TERM; cleanup' TERM
 
 gunicorn \
     -c /workspace/gunicorn.conf.py \
-    --workers "${PINK_GUNICORN_WORKERS:-5}" \
-    --max-requests "${PINK_GUNICORN_MAX_REQUESTS:-0}" \
-    --timeout "${PINK_GUNICORN_TIMEOUT:-180}" \
+    --workers "${REEF_GUNICORN_WORKERS:-5}" \
+    --max-requests "${REEF_GUNICORN_MAX_REQUESTS:-0}" \
+    --timeout "${REEF_GUNICORN_TIMEOUT:-180}" \
     --bind :8000 \
-    --log-level "${PINK_GUNICORN_LOG_LEVEL:-info}" \
+    --log-level "${REEF_GUNICORN_LOG_LEVEL:-info}" \
     --capture-output \
     --access-logfile - \
-    ${PINK_GUNICORN_EXTRA_ARGS} \
-    pink.wsgi:application &
+    ${REEF_GUNICORN_EXTRA_ARGS} \
+    reef.wsgi:application &
 gunicorn_pid=$!
 wait "${gunicorn_pid}"

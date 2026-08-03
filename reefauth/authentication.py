@@ -2,7 +2,7 @@
 """DRF resource-server authentication for Authentik bearer tokens.
 
 Validates a JWT access token from the Authorization header against the OP's
-JWKS, then maps it to a Pink User. Returns None when no bearer token is present
+JWKS, then maps it to a Reef User. Returns None when no bearer token is present
 so the same class works on both protected endpoints (paired with
 IsAuthenticated) and public endpoints that merely want to identify a user when
 a token happens to be supplied (for example the open-survey list).
@@ -38,7 +38,7 @@ class BearerTokenAuthentication(authentication.BaseAuthentication):
         return jwks_client.get_signing_key_from_jwt(token).key
 
     def decode(self, token):
-        audience = getattr(settings, "PINK_OIDC_AUDIENCE", "") or None
+        audience = getattr(settings, "REEF_OIDC_AUDIENCE", "") or None
         return jwt.decode(
             token,
             self.get_signing_key(token),
@@ -70,7 +70,7 @@ class BearerTokenAuthentication(authentication.BaseAuthentication):
 class BearerTokenScheme(OpenApiAuthenticationExtension):
     """Document BearerTokenAuthentication as HTTP bearer (JWT) in the schema."""
 
-    target_class = "pinkauth.authentication.BearerTokenAuthentication"
+    target_class = "reefauth.authentication.BearerTokenAuthentication"
     name = "BearerAuth"
 
     def get_security_definition(self, auto_schema):

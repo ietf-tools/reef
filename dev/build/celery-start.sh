@@ -22,7 +22,7 @@ if ! migrations_all_applied; then
     done
 fi
 
-echo "Starting Pink celery container..."
+echo "Starting Reef celery container..."
 
 cleanup () {
   if [[ -n "${celery_pid}" ]]; then
@@ -33,6 +33,6 @@ cleanup () {
 }
 trap 'trap "" TERM; cleanup' TERM
 
-$CELERY --app="${CELERY_APP:-pink}" "$@" &
+$CELERY --app="${CELERY_APP:-reef}" "$@" &
 celery_pid=$!
 wait "${celery_pid}"

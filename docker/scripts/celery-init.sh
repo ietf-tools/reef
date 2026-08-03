@@ -34,7 +34,7 @@ watchmedo auto-restart \
           --recursive \
           --debounce-interval 5 \
           -- \
-          $CELERY --app="${CELERY_APP:-pink}" worker --loglevel=INFO "$@" &
+          $CELERY --app="${CELERY_APP:-reef}" worker --loglevel=INFO "$@" &
 celery_pid=$!
 
 wait "${celery_pid}"

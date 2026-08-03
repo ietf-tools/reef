@@ -13,22 +13,22 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_DB: pink
-          POSTGRES_USER: pink
-          POSTGRES_PASSWORD: pink
+          POSTGRES_DB: reef
+          POSTGRES_USER: reef
+          POSTGRES_PASSWORD: reef
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U pink"
+          --health-cmd "pg_isready -U reef"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     env:
-      PINK_DEPLOYMENT_MODE: development
+      REEF_DEPLOYMENT_MODE: development
       POSTGRES_HOST: localhost
-      POSTGRES_DB: pink
-      POSTGRES_USER: pink
-      POSTGRES_PASSWORD: pink
+      POSTGRES_DB: reef
+      POSTGRES_USER: reef
+      POSTGRES_PASSWORD: reef
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -7,9 +7,9 @@ services:
       - .:/workspace
     restart: unless-stopped
     environment:
-      - POSTGRES_DB=pink
-      - POSTGRES_USER=pink
-      - POSTGRES_PASSWORD=pink
+      - POSTGRES_DB=reef
+      - POSTGRES_USER=reef
+      - POSTGRES_PASSWORD=reef
       - POSTGRES_HOST_AUTH_METHOD=trust
       - DUMPFILE=
 
@@ -17,23 +17,23 @@ services:
     build:
       context: .
       dockerfile: docker/app.Dockerfile
-    image: pink-app
+    image: reef-app
     command: sleep infinity
     volumes:
       - .:/workspace
     environment:
-      - PINK_DEPLOYMENT_MODE=development
-      - POSTGRES_DB=pink
-      - POSTGRES_USER=pink
-      - POSTGRES_PASSWORD=pink
+      - REEF_DEPLOYMENT_MODE=development
+      - POSTGRES_DB=reef
+      - POSTGRES_USER=reef
+      - POSTGRES_PASSWORD=reef
       - POSTGRES_HOST=db
-      - PINK_BROKER_URL=amqp://mq/
+      - REEF_BROKER_URL=amqp://mq/
       # OIDC (Authentik at account.ietf.org). Set these in a local .env file.
-      - PINK_OIDC_APP_SLUG=${PINK_OIDC_APP_SLUG:-pink}
-      - PINK_OIDC_RP_CLIENT_ID=${PINK_OIDC_RP_CLIENT_ID:-}
-      - PINK_OIDC_RP_CLIENT_SECRET=${PINK_OIDC_RP_CLIENT_SECRET:-}
-      - PINK_OIDC_STAFF_GROUPS=${PINK_OIDC_STAFF_GROUPS:-}
-      - PINK_SURVEYJS_LICENSE_KEY=${PINK_SURVEYJS_LICENSE_KEY:-}
+      - REEF_OIDC_APP_SLUG=${REEF_OIDC_APP_SLUG:-reef}
+      - REEF_OIDC_RP_CLIENT_ID=${REEF_OIDC_RP_CLIENT_ID:-}
+      - REEF_OIDC_RP_CLIENT_SECRET=${REEF_OIDC_RP_CLIENT_SECRET:-}
+      - REEF_OIDC_STAFF_GROUPS=${REEF_OIDC_STAFF_GROUPS:-}
+      - REEF_SURVEYJS_LICENSE_KEY=${REEF_SURVEYJS_LICENSE_KEY:-}
       # Public client id for the Nuxt runner's browser OIDC login.
       - NUXT_PUBLIC_OIDC_CLIENT_ID=${NUXT_PUBLIC_OIDC_CLIENT_ID:-}
     depends_on:
@@ -43,19 +43,19 @@ services:
       - "host.docker.internal:host-gateway"
 
   celery:
-    image: pink-app
+    image: reef-app
     command: ["/celery-init.sh"]
     volumes:
       - .:/workspace
     restart: unless-stopped
     environment:
-      - PINK_DEPLOYMENT_MODE=development
-      - POSTGRES_DB=pink
-      - POSTGRES_USER=pink
-      - POSTGRES_PASSWORD=pink
+      - REEF_DEPLOYMENT_MODE=development
+      - POSTGRES_DB=reef
+      - POSTGRES_USER=reef
+      - POSTGRES_PASSWORD=reef
       - POSTGRES_HOST=db
-      - PINK_BROKER_URL=amqp://mq/
-      - CELERY_APP=pink
+      - REEF_BROKER_URL=amqp://mq/
+      - CELERY_APP=reef
     depends_on:
       - db
       - mq
@@ -66,7 +66,7 @@ services:
     image: axllent/mailpit:v1.27
     environment:
       - MP_DISABLE_VERSION_CHECK=true
-      - MP_LABEL=PinkMail
+      - MP_LABEL=ReefMail
     ports:
       - "1025:1025"
       - "8025:8025"

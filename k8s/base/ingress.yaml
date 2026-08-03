@@ -1,60 +1,60 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: pink
+  name: reef
   labels:
-    app.kubernetes.io/part-of: pink
+    app.kubernetes.io/part-of: reef
 spec:
   rules:
-    - host: pink.example.org # overridden per environment
+    - host: reef.example.org # overridden per environment
       http:
         paths:
           - path: /static
             pathType: Prefix
             backend:
               service:
-                name: pink-statics
+                name: reef-statics
                 port:
                   number: 8042
           - path: /api
             pathType: Prefix
             backend:
               service:
-                name: pink-backend
+                name: reef-backend
                 port:
                   number: 8000
           - path: /admin
             pathType: Prefix
             backend:
               service:
-                name: pink-backend
+                name: reef-backend
                 port:
                   number: 8000
           - path: /oidc
             pathType: Prefix
             backend:
               service:
-                name: pink-backend
+                name: reef-backend
                 port:
                   number: 8000
           - path: /manage
             pathType: Prefix
             backend:
               service:
-                name: pink-backend
+                name: reef-backend
                 port:
                   number: 8000
           - path: /health
             pathType: Prefix
             backend:
               service:
-                name: pink-backend
+                name: reef-backend
                 port:
                   number: 8000
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: pink-frontend
+                name: reef-frontend
                 port:
                   number: 3000

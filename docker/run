@@ -4,10 +4,10 @@
 show_help() {
     cat << EOF
 Usage: ${0##*/} [-h] [-p PORT] [-r]
-Run the Pink dev environment using docker compose.
+Run the Reef dev environment using docker compose.
 
     -h          display this help and exit
-    -p PORT     use a custom HTTP port for Pink
+    -p PORT     use a custom HTTP port for Reef
     -r          force rebuild the app container
 
 EOF

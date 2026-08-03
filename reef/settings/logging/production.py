@@ -1,19 +1,22 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""Human-readable console logging for development."""
+"""Structured JSON console logging for staging and production."""
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "default": {
-            "format": "[{asctime}] ({levelname}) {message} ({name})",
-            "style": "{",
+        "json": {
+            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+            "format": (
+                "%(asctime)s %(levelname)s %(name)s %(message)s "
+                "%(pathname)s %(lineno)s %(funcName)s %(process)s"
+            ),
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "default",
+            "formatter": "json",
         },
     },
     "loggers": {
@@ -27,9 +30,9 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
-        "pink": {
+        "reef": {
             "handlers": ["console"],
-            "level": "DEBUG",
+            "level": "INFO",
             "propagate": False,
         },
     },

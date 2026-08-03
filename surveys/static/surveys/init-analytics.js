@@ -1,10 +1,10 @@
 // Copyright The IETF Trust 2026, All Rights Reserved
-// Mounts the SurveyJS Analytics dashboard over the Pink results API. Config is
-// read from the #pink-config JSON block (no inline script, for the CSP).
+// Mounts the SurveyJS Analytics dashboard over the Reef results API. Config is
+// read from the #reef-config JSON block (no inline script, for the CSP).
 (function () {
   "use strict";
 
-  var cfgEl = document.getElementById("pink-config");
+  var cfgEl = document.getElementById("reef-config");
   if (!cfgEl) {
     return;
   }

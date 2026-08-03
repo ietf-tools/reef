@@ -1,5 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""Celery application for the Pink project."""
+"""Celery application for the Reef project."""
 
 import os
 
@@ -13,9 +13,9 @@ def on_setup_logging(**kwargs):
     pass
 
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pink.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "reef.settings")
 
-app = Celery("pink")
+app = Celery("reef")
 
 # Configuration keys are read from Django settings with a CELERY_ prefix.
 app.config_from_object("django.conf:settings", namespace="CELERY")

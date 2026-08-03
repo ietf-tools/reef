@@ -1,6 +1,6 @@
 // For format details, see https://aka.ms/devcontainer.json.
 {
-  "name": "Pink",
+  "name": "Reef",
   "dockerComposeFile": [
     "../docker-compose.yml",
     "docker-compose.extend.yml",

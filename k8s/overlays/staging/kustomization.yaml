@@ -1,7 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: pink-staging
+namespace: reef-staging
 
 resources:
   - ../../base
@@ -11,16 +11,16 @@ patches:
   # Replace only the Ingress host (a strategic merge would drop the path rules).
   - target:
       kind: Ingress
-      name: pink
+      name: reef
     patch: |-
       - op: replace
         path: /spec/rules/0/host
-        value: pink.staging.ietf.org
+        value: reef.staging.ietf.org
 
 images:
-  - name: ghcr.io/ietf-tools/pink-backend
+  - name: ghcr.io/ietf-tools/reef-backend
     newTag: staging
-  - name: ghcr.io/ietf-tools/pink-frontend
+  - name: ghcr.io/ietf-tools/reef-frontend
     newTag: staging
-  - name: ghcr.io/ietf-tools/pink-statics
+  - name: ghcr.io/ietf-tools/reef-statics
     newTag: staging

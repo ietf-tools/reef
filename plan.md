@@ -1,13 +1,13 @@
-# Pink: Survey and Engagement Service Implementation Plan
+# Reef: Survey and Engagement Service Implementation Plan
 
 ## Context
 
-Pink is an IETF-tools project in the "RFC Modernization Phase 2" program, alongside
-Red (the public RFC website). Pink is the self-hosted survey and engagement service.
+Reef is an IETF-tools project in the "RFC Modernization Phase 2" program, alongside
+Red (the public RFC website). Reef is the self-hosted survey and engagement service.
 It self-hosts SurveyJS (rather than the SurveyJS hosted service) plus a set of
 engagement APIs consumed by Red.
 
-Pink follows the conventions of Purple (https://github.com/ietf-tools/purple):
+Reef follows the conventions of Purple (https://github.com/ietf-tools/purple):
 Django 5 with Django REST Framework and PostgreSQL, Docker and devcontainers,
 dev/staging/prod modes, the docker/ plus dev/build/ plus k8s/ layout, an NGINX front
 proxy, and OIDC authentication against the IETF Authentik instance at
@@ -15,17 +15,17 @@ https://account.ietf.org/.
 
 ### Responsibilities
 
-- Surveys, full stack in Pink:
+- Surveys, full stack in Reef:
   - The Django site hosts the SurveyJS Creator (builder) and Analytics (dashboard).
     Login is required (staff and authors).
-  - The Pink Nuxt site hosts the themed survey runner where visitors fill out
+  - The Reef Nuxt site hosts the themed survey runner where visitors fill out
     surveys. It supports both anonymous and logged-in surveys.
-  - Red calls a Pink API for open surveys, then shows a popover linking to the
-    survey on the Pink Nuxt runner. Red renders no survey UI.
-- Ratings, API only. Red renders the star widget; Pink stores and aggregates.
-- Popularity, API only. Pink serves a curated "most popular" list; Red consumes it.
+  - Red calls a Reef API for open surveys, then shows a popover linking to the
+    survey on the Reef Nuxt runner. Red renders no survey UI.
+- Ratings, API only. Red renders the star widget; Reef stores and aggregates.
+- Popularity, API only. Reef serves a curated "most popular" list; Red consumes it.
 - Subscriptions and notifications, API only plus email delivery. Red has the
-  subscribe UI; Pink stores subscriptions, ingests RFC-change events from
+  subscribe UI; Reef stores subscriptions, ingests RFC-change events from
   datatracker, and sends notification emails.
 
 ### Scope of this plan
@@ -38,20 +38,20 @@ scaffolded as an interface and an async task rather than fully wired.
 ### Ticket alignment
 
 The Zenhub tickets match this plan. Tickets #119, #120, and #122 read "Build front
-end at Pink for managing surveys / viewing survey results / displaying survey to user
-and capturing results", and #113 reads "Provide an API to Pink for storing survey
+end at Reef for managing surveys / viewing survey results / displaying survey to user
+and capturing results", and #113 reads "Provide an API to Reef for storing survey
 results". Mapping: #119 to the Django builder, #120 to the Django analytics, #122 to
-the Nuxt runner, #113 and #116 to the results-storage API consumed by the Pink Nuxt
+the Nuxt runner, #113 and #116 to the results-storage API consumed by the Reef Nuxt
 runner, #112 and #115 to the open/offer list queried by Red, #111 to the manage API,
 and #118 to the view-results API. Ticket #225 covers Red's survey popover and link-out
-(link-out only; Red never authors or captures), and depends on the Pink open-surveys
+(link-out only; Red never authors or captures), and depends on the Reef open-surveys
 API shape.
 
 ### Prerequisites (not code tasks)
 
 - A SurveyJS commercial license for Creator and Analytics in production. The runner
   and storage are MIT. Development works unlicensed with a watermark.
-- A `pink` OIDC application registered in Authentik (account.ietf.org): one
+- A `reef` OIDC application registered in Authentik (account.ietf.org): one
   confidential client for the Django site (server-side code flow) and one public
   client for the Nuxt runner (PKCE), with dev/staging/prod redirect URIs registered.
 
@@ -62,10 +62,10 @@ covers the builder and analytics site; the Nuxt runner and all APIs use OIDC bea
 tokens.
 
 ```
-                         +----------------- Pink -----------------+
+                         +----------------- Reef -----------------+
 Browser -> NGINX :8088 -+- /manage,/admin,/oidc,/api,/static -> Django + DRF :8001 -> PostgreSQL
                         +- /,/s/*  ------------------------------> Nuxt survey runner :3000
-Red  --------------------  GET /api/pink/... (bearer / anon) ---> Django + DRF
+Red  --------------------  GET /api/reef/... (bearer / anon) ---> Django + DRF
 All logins ----------------------------------------------------> Authentik (account.ietf.org)
 Celery worker: subscription emails <- datatracker RFC-change feed
 ```
@@ -76,7 +76,7 @@ Celery worker: subscription emails <- datatracker RFC-change feed
 - Nuxt runner (client/, SSR enabled): themed survey pages (survey-vue3-ui plus a
   per-survey theme JSON). Browser OIDC uses oidc-client-ts (PKCE), the same library
   Red uses. Protected surveys require login; open surveys are anonymous.
-- DRF APIs (/api/pink/): Pink acts as an OIDC resource server, validating Authentik
+- DRF APIs (/api/reef/): Reef acts as an OIDC resource server, validating Authentik
   bearer (JWT) access tokens. Anonymous access is allowed for public reads.
 - Break-glass: one local Django superuser for admin access if Authentik is
   unavailable.
@@ -89,12 +89,12 @@ Celery worker: subscription emails <- datatracker RFC-change feed
 | Django /manage builder and analytics | mozilla_django_oidc code flow to a Django session; login required |
 | Django /admin fallback | local superuser (break-glass) |
 | Nuxt survey runner | oidc-client-ts (Auth Code plus PKCE) to an access token; required only for protected surveys |
-| Pink DRF APIs | resource server: validate Authentik bearer JWT. Optional on the open-survey list (adds user-specific surveys when present), required for rating submit and subscriptions, anonymous for popularity and open surveys |
+| Reef DRF APIs | resource server: validate Authentik bearer JWT. Optional on the open-survey list (adds user-specific surveys when present), required for rating submit and subscriptions, anonymous for popularity and open surveys |
 
 ### Repository layout (Purple-shaped)
 
 ```
-pink/
+reef/
   .devcontainer/           service "app", forwards :8088; init/start hooks and extend overlays
   .github/workflows/       build.yml, build-base-app.yml, test.yml
   docker/                  dev env: base/app/db.Dockerfile, configs/nginx-proxy.conf,
@@ -103,11 +103,11 @@ pink/
   dev/build/               prod images: backend.Dockerfile, frontend.Dockerfile,
                              statics.Dockerfile, celery, gunicorn.conf.py, *-start.sh
   manage.py  pyproject.toml  requirements.txt
-  pink/                    Django project
+  reef/                    Django project
     settings/{__init__,base,development,staging,production,build}.py
     settings/logging/{development,production}.py
     celery.py  urls.py  wsgi.py  openapi.py
-  pinkauth/                OIDC RP login (mozilla_django_oidc) plus DRF bearer resource-server
+  reefauth/                OIDC RP login (mozilla_django_oidc) plus DRF bearer resource-server
                              auth plus custom User: models, backends, authentication, apps, utils, migrations
   surveys/                 full build
     models.py              Survey, Response
@@ -146,7 +146,7 @@ pink/
 - subscriptions.Subscription (scaffold): user or email, kind (new_rfc, by_status,
   obsoleted, subject_tag, and similar), params (JSON), verified flag.
 
-### API surface (/api/pink/, DRF plus drf-spectacular)
+### API surface (/api/reef/, DRF plus drf-spectacular)
 
 Surveys (built):
 
@@ -155,9 +155,9 @@ Surveys (built):
 - GET /surveys/open/: open-survey list for Red (tickets #112 and #115; consumed by the
   Red popover and modal, #225). Bearer optional: include user-specific surveys (for
   example from subscriptions) when a user is identified, otherwise open/anonymous only.
-  Returns per survey: id, slug, title, description, url (link to the runner on the Pink
+  Returns per survey: id, slug, title, description, url (link to the runner on the Reef
   Nuxt site). Stateless with respect to taken/dismissed state: Red tracks that
-  client-side in localStorage; Pink returns the full targeted list. The shape must be
+  client-side in localStorage; Reef returns the full targeted list. The shape must be
   agreed with #225.
 - GET /surveys/{slug}/definition/: definition plus theme for the Nuxt runner (bearer
   required only when visibility is authenticated).
@@ -176,23 +176,23 @@ Scaffolded (models and endpoints stubbed, returning minimal real data):
 ### API contract
 
 drf-spectacular is the single source of truth for the API contract. It serves
-/api/pink/schema/ and Swagger at runtime, and manage.py spectacular exports the
-schema to pink_api.yaml, which is committed as the published contract. Both
+/api/reef/schema/ and Swagger at runtime, and manage.py spectacular exports the
+schema to reef_api.yaml, which is committed as the published contract. Both
 consumers work from that schema rather than hand-agreed shapes:
 
-- Pink's Nuxt runner generates TypeScript types from pink_api.yaml with
+- Reef's Nuxt runner generates TypeScript types from reef_api.yaml with
   openapi-typescript (pure npm, no Java toolchain) and calls the API with typed
   fetch helpers.
-- Red consumes the same published pink_api.yaml to generate its own client
+- Red consumes the same published reef_api.yaml to generate its own client
   independently in its repository.
 
-This keeps the /api/pink/surveys/open/ contract with Red (#225) and the runner
+This keeps the /api/reef/surveys/open/ contract with Red (#225) and the runner
 contract machine-checkable on both sides. The heavier openapi-generator client
 used by Purple is intentionally avoided so the base image needs no Java.
 
 ### dev / staging / prod modes
 
-PINK_DEPLOYMENT_MODE (development, staging, production, build) selects the settings
+REEF_DEPLOYMENT_MODE (development, staging, production, build) selects the settings
 module. staging.py imports from production.py and adds staging hosts. build.py is
 offline-only for schema and static generation at image build time.
 
@@ -202,8 +202,8 @@ Each step ends with a commit.
 
 1. Django scaffold: pyproject.toml (ruff), requirements.txt (Django, DRF,
    drf-spectacular, mozilla-django-oidc, PyJWT/jwcrypto for bearer validation, psycopg,
-   celery, rules), manage.py, pink/. Commit: "Scaffold Django project".
-2. Settings package and modes: pink/settings/* plus logging plus celery.py. Commit:
+   celery, rules), manage.py, reef/. Commit: "Scaffold Django project".
+2. Settings package and modes: reef/settings/* plus logging plus celery.py. Commit:
    "Add settings package with deployment modes".
 3. Dev Docker and compose: docker/{base,app,db}.Dockerfile, configs/nginx-proxy.conf
    (8088 to Django for /manage, /admin, /oidc, /api, /static; to Nuxt for / and /s/*),
@@ -211,13 +211,13 @@ Each step ends with a commit.
    docker-compose.yml (db, app, mailpit, pgadmin, mq, celery). Commit: "Add Docker dev
    environment".
 4. Devcontainer: .devcontainer/ mirroring Purple. Commit: "Add VS Code devcontainer".
-5. Auth (pinkauth): custom User; mozilla_django_oidc RP login (Django site) to
+5. Auth (reefauth): custom User; mozilla_django_oidc RP login (Django site) to
    Authentik; DRF authentication.py validating Authentik bearer JWTs (resource server)
    with optional-auth support; break-glass superuser; /oidc/ urls. Commit: "Add
    Authentik OIDC login and bearer resource-server auth".
 6. Surveys models and API: Survey and Response plus migrations, serializers, DRF
    endpoints (manage, open/, definition/, responses/, results/), rules.py,
-   drf-spectacular. Export the schema to pink_api.yaml and commit it as the
+   drf-spectacular. Export the schema to reef_api.yaml and commit it as the
    published contract. Commit: "Add surveys models and REST API".
 7. Vendored SurveyJS bundles: vendor/package.json (survey-core, survey-js-ui,
    survey-creator-core/js, survey-analytics plus plotly) into Django static plus
@@ -230,7 +230,7 @@ Each step ends with a commit.
    Django-hosted survey analytics".
 10. Nuxt runner and OIDC: client/ Nuxt 4 SPA, useOidc.ts (oidc-client-ts, PKCE),
     s/[slug].vue, SurveyRunner.client.vue (survey-vue3-ui plus theme). Generate TS
-    types from pink_api.yaml with openapi-typescript and call the API with typed
+    types from reef_api.yaml with openapi-typescript and call the API with typed
     fetch helpers in useSurveyApi.ts (bearer when logged in); submit responses.
     Commit: "Add themed Nuxt survey runner with OIDC".
 11. Scaffold ratings, popularity, subscriptions: three Django apps with models plus
@@ -249,19 +249,19 @@ Each step ends with a commit.
 
 - Dev bring-up: devcontainer (or docker/run); migrate and collectstatic run; tmux
   shows Django (:8001), Nuxt (:3000), nginx (:8088), and celery. http://localhost:8088/
-  serves the runner; /api/pink/schema/ responds; mailpit catches mail.
+  serves the runner; /api/reef/schema/ responds; mailpit catches mail.
 - Auth:
   - /manage/ redirects to OIDC login at account.ietf.org and returns a session;
     unauthorized users are blocked; the break-glass superuser works at /admin/ when
     Authentik is unavailable.
   - Nuxt: an open survey loads anonymously; a survey with visibility authenticated
     triggers oidc-client-ts login before rendering.
-  - GET /api/pink/surveys/open/ with no token returns open surveys only; with a user
+  - GET /api/reef/surveys/open/ with no token returns open surveys only; with a user
     bearer it also returns that user's targeted surveys.
 - Core survey flow (author, offer, fill, analyze):
   1. /manage/surveys/new/ builds and saves a survey in the embedded Creator; publish,
      set theme and visibility.
-  2. GET /surveys/open/ returns it; a visitor opens the popover link to the Pink Nuxt
+  2. GET /surveys/open/ returns it; a visitor opens the popover link to the Reef Nuxt
      /s/<slug> runner and submits.
   3. A Response row is stored (POST .../responses/ returns 201) and is visible in
      /admin/.
@@ -271,7 +271,7 @@ Each step ends with a commit.
   subscription and enqueues a confirmation caught by mailpit.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
-- Modes: build images; run with PINK_DEPLOYMENT_MODE=production and real env;
+- Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
   Creator and Analytics load without a watermark; CSP serves only self-hosted bundles.
 - k8s: kubectl kustomize k8s/overlays/staging renders and dry-run applies.
 
@@ -279,7 +279,7 @@ Each step ends with a commit.
 
 - open/ API contract with Red (#225): agree the exact response shape (id, slug, title,
   description, url) and user-targeting semantics. Red owns taken/dismissed tracking, so
-  Pink stays stateless there. This is a cross-repo dependency.
+  Reef stays stateless there. This is a cross-repo dependency.
 - Subscriptions depth: datatracker change-feed ingestion (#139) and email templates are
   scaffolded here; full wiring is a follow-up phase.
 - Nuxt OIDC client registration: confirm a public (PKCE) Authentik client for the runner

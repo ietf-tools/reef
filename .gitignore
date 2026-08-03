@@ -25,7 +25,7 @@ logs
 secrets.env
 
 # Local settings
-pink/settings/development_local.py
+reef/settings/development_local.py
 
 # Python
 *.pyc
@@ -42,9 +42,9 @@ celerybeat-schedule
 celerybeat-schedule-shm
 celerybeat-schedule-wal
 
-# Generated TypeScript API types (regenerated from pink_api.yaml by openapi-typescript).
-# The contract itself, pink_api.yaml, is committed.
-client/app/types/pink-api.ts
+# Generated TypeScript API types (regenerated from reef_api.yaml by openapi-typescript).
+# The contract itself, reef_api.yaml, is committed.
+client/app/types/reef-api.ts
 
 # Collected static
 /static

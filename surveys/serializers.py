@@ -36,7 +36,7 @@ class OpenSurveySerializer(serializers.ModelSerializer):
         fields = ["id", "slug", "title", "description", "url"]
 
     def get_url(self, obj) -> str:
-        base = getattr(settings, "PINK_SURVEY_RUNNER_BASE_URL", "") or ""
+        base = getattr(settings, "REEF_SURVEY_RUNNER_BASE_URL", "") or ""
         return f"{base}/s/{obj.slug}"
 
 
