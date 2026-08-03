@@ -1,6 +1,6 @@
-# Reef
+# REEF
 
-Reef is the IETF self-hosted survey and engagement service, part of the RFC
+REEF (RFC Editor Engagement Features) is the IETF self-hosted survey and engagement service, part of the RFC
 Modernization Phase 2 program alongside Red (the public RFC website). It hosts
 SurveyJS on our own infrastructure and exposes engagement APIs that Red consumes.
 
