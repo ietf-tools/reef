@@ -6,8 +6,9 @@ Reef runs in Docker. Use the VS Code Dev Container, or run `docker/run` for a
 tmux-based session. Both bring up:
 
 - `db` - PostgreSQL
-- `app` - Django (`runserver` on 8001), the Nuxt dev server (3000), and NGINX
-  (8088) which fronts both
+- `app` - Django (`runserver` on 8001), the Nuxt dev server (3001), and NGINX
+  (8088) which fronts both. The Nuxt dev server uses 3001 rather than the Nuxt
+  default of 3000 to avoid colliding with Red's dev server.
 - `celery` - background worker
 - `mq` - RabbitMQ broker
 - `mailpit` - captures outgoing email (web UI on 8025)
@@ -71,6 +72,30 @@ It can sign in at `/admin/`.
 - API: Reef validates Authentik bearer tokens as a resource server; the
   open-survey list treats a token as optional (it adds user-specific surveys
   when present) and popularity and open surveys are anonymous.
+
+Logging staff into the Django site and validating API callers' tokens are two
+separate roles, configured separately. The `OIDC_*` settings (derived from
+`REEF_OIDC_APP_SLUG`) are the relying-party login. Which callers the API accepts
+is `REEF_API_OIDC_APP_SLUGS`, `REEF_API_OIDC_AUDIENCES` and
+`REEF_API_OIDC_ALGORITHMS`, because each calling Authentik application — the
+survey runner under `reef`, Red under `rfc-editor` — has its own issuer, JWKS,
+client id and signing key. A caller whose application slug is not listed is
+rejected with a message naming the issuer it presented, and each token is
+verified against its own issuer's JWKS, so one accepted application's token
+cannot be presented as another's.
+
+Note the algorithm is per application and is not `OIDC_RP_SIGN_ALGO`: Authentik
+signs with whatever key the application was given, and rfc-editor uses ES256
+where RS256 is the more usual default. Symmetric algorithms are refused whatever
+is configured, since the verifying key is a published public key and accepting
+HS* would let a caller sign its own tokens with it.
+
+To see what an application actually signs with, read its Authentik metadata:
+
+```
+curl -s https://account.ietf.org/application/o/<slug>/.well-known/openid-configuration \
+  | jq .id_token_signing_alg_values_supported
+```
 
 ## The API contract
 

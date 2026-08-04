@@ -64,7 +64,7 @@ tokens.
 ```
                          +----------------- Reef -----------------+
 Browser -> NGINX :8088 -+- /manage,/admin,/oidc,/api,/static -> Django + DRF :8001 -> PostgreSQL
-                        +- /,/s/*  ------------------------------> Nuxt survey runner :3000
+                        +- /,/s/*  ------------------------------> Nuxt survey runner :3001
 Red  --------------------  GET /api/reef/... (bearer / anon) ---> Django + DRF
 All logins ----------------------------------------------------> Authentik (account.ietf.org)
 Celery worker: subscription emails <- datatracker RFC-change feed
@@ -122,7 +122,7 @@ reef/
   subscriptions/           scaffold: Subscription model, API, email task, datatracker-feed ingest interface
   vendor/                  package.json for self-hosted SurveyJS Creator/Analytics bundles into Django static
   client/                  Nuxt 4 survey runner (themed)
-    nuxt.config.ts         ssr enabled, :3000; server-side API base for render-time fetches
+    nuxt.config.ts         ssr enabled, :3001; server-side API base for render-time fetches
     app/pages/{index,s/[slug]}.vue
     app/components/SurveyRunner.client.vue
     app/composables/{useOidc,useSurveyApi}.ts
@@ -248,7 +248,7 @@ Each step ends with a commit.
 ## Verification
 
 - Dev bring-up: devcontainer (or docker/run); migrate and collectstatic run; tmux
-  shows Django (:8001), Nuxt (:3000), nginx (:8088), and celery. http://localhost:8088/
+  shows Django (:8001), Nuxt (:3001), nginx (:8088), and celery. http://localhost:8088/
   serves the runner; /api/reef/schema/ responds; mailpit catches mail.
 - Auth:
   - /manage/ redirects to OIDC login at account.ietf.org and returns a session;

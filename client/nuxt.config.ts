@@ -4,7 +4,9 @@ export default defineNuxtConfig({
   ssr: true,
   devtools: { enabled: true },
   devServer: {
-    port: 3000,
+    // 3001, not the Nuxt default of 3000, so the dev server does not collide
+    // with Red's Nuxt server when both projects are running.
+    port: 3001,
   },
   modules: ["@nuxtjs/tailwindcss", "reka-ui/nuxt"],
   css: ["~/assets/css/tailwind.css"],

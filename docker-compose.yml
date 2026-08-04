@@ -29,11 +29,16 @@ services:
       - POSTGRES_HOST=db
       - REEF_BROKER_URL=amqp://mq/
       # OIDC (Authentik at account.ietf.org). Set these in a local .env file.
+      # Reef as a relying party, logging its own staff into the builder site:
       - REEF_OIDC_APP_SLUG=${REEF_OIDC_APP_SLUG:-reef}
       - REEF_OIDC_RP_CLIENT_ID=${REEF_OIDC_RP_CLIENT_ID:-}
       - REEF_OIDC_RP_CLIENT_SECRET=${REEF_OIDC_RP_CLIENT_SECRET:-}
       - REEF_OIDC_STAFF_GROUPS=${REEF_OIDC_STAFF_GROUPS:-}
       - REEF_SURVEYJS_LICENSE_KEY=${REEF_SURVEYJS_LICENSE_KEY:-}
+      # Reef as a resource server: whose API access tokens it accepts.
+      - REEF_API_OIDC_APP_SLUGS=${REEF_API_OIDC_APP_SLUGS:-}
+      - REEF_API_OIDC_AUDIENCES=${REEF_API_OIDC_AUDIENCES:-}
+      - REEF_API_OIDC_ALGORITHMS=${REEF_API_OIDC_ALGORITHMS:-}
       # Public client id for the Nuxt runner's browser OIDC login.
       - NUXT_PUBLIC_OIDC_CLIENT_ID=${NUXT_PUBLIC_OIDC_CLIENT_ID:-}
     depends_on:

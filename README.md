@@ -30,7 +30,7 @@ Red consume.
 
 ```
 Browser -> NGINX :8088 -> Django + DRF :8001 -> PostgreSQL
-                       -> Nuxt runner :3000
+                       -> Nuxt runner :3001
 Red -> /api/reef/... (bearer / anonymous) -> Django + DRF
 ```
 

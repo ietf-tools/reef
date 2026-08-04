@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "drf_spectacular",
+    "corsheaders",
     "rules.apps.AutodiscoverRulesConfig",
     "reefauth",
     "surveys",
@@ -26,6 +27,9 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # First: it answers CORS preflights and must run before any middleware that
+    # can generate a response of its own (CommonMiddleware, SecurityMiddleware).
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "csp.middleware.CSPMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -66,6 +70,12 @@ AUTHENTICATION_BACKENDS = (
 
 # OIDC (Authentik at account.ietf.org). Endpoints are derived from the host and
 # the per-application slug; credentials come from the environment.
+#
+# Two distinct roles, deliberately configured apart (see REEF_API_OIDC_* below):
+# these OIDC_* settings are Reef as a *relying party*, logging its own staff into
+# the builder/analytics site. Validating access tokens from API callers is a
+# separate role with a separate application, because a caller like Red is its own
+# Authentik application and so presents a different issuer, JWKS and client id.
 REEF_OIDC_HOST = os.environ.get("REEF_OIDC_HOST", "https://account.ietf.org")
 REEF_OIDC_APP_SLUG = os.environ.get("REEF_OIDC_APP_SLUG", "reef")
 _oidc_app = f"{REEF_OIDC_HOST}/application/o"
@@ -96,8 +106,60 @@ REEF_SURVEYJS_LICENSE_KEY = os.environ.get("REEF_SURVEYJS_LICENSE_KEY", "")
 REEF_SURVEY_RUNNER_BASE_URL = os.environ.get("REEF_SURVEY_RUNNER_BASE_URL", "")
 
 # Bearer (resource-server) validation of Authentik access tokens.
-# Audience defaults to the RP client id; the groups claim maps to staff access.
-REEF_OIDC_AUDIENCE = os.environ.get("REEF_OIDC_AUDIENCE", "") or OIDC_RP_CLIENT_ID
+#
+# Independent of the RP login settings above, and list-valued, because more than
+# one Authentik application calls this API: the survey runner lives under
+# REEF_OIDC_APP_SLUG, while Red is the separate "rfc-editor" application. Each
+# application has its own issuer and JWKS, so accepting a caller means naming its
+# slug here; each also mints access tokens whose `aud` is its own client id, so
+# that id has to be listed as an accepted audience.
+#
+# Both settings fall back with `or` rather than an os.environ.get default,
+# because compose passes them through as empty strings when they are absent from
+# the .env file: an unset variable arrives as "" and a get() default is never
+# reached.
+#
+# REEF_API_OIDC_APP_SLUGS: comma-separated Authentik application slugs whose
+# tokens are accepted. Defaults to Reef's own application alone, so an unlisted
+# caller is rejected rather than silently trusted.
+REEF_API_OIDC_APP_SLUGS = [
+    s.strip()
+    for s in (
+        os.environ.get("REEF_API_OIDC_APP_SLUGS", "") or REEF_OIDC_APP_SLUG
+    ).split(",")
+    if s.strip()
+]
+# Issuer -> JWKS endpoint for those applications. The issuer is what the token
+# actually carries, so this doubles as the trusted-issuer allowlist and as the
+# lookup that pairs a token with the right verification keys.
+REEF_API_OIDC_JWKS_ENDPOINTS = {
+    f"{_oidc_app}/{slug}/": f"{_oidc_app}/{slug}/jwks/"
+    for slug in REEF_API_OIDC_APP_SLUGS
+}
+# Accepted signature algorithms, as a set rather than the single
+# OIDC_RP_SIGN_ALGO used for RP login: Authentik chooses the signing key per
+# application, so callers legitimately differ. The rfc-editor application signs
+# with ES256 while RS256 is the more common default, so both are accepted.
+# Symmetric and unsigned algorithms are rejected by the authenticator whatever
+# is configured here — see reefauth.authentication.
+REEF_API_OIDC_ALGORITHMS = [
+    a.strip()
+    for a in (os.environ.get("REEF_API_OIDC_ALGORITHMS", "") or "RS256,ES256").split(
+        ","
+    )
+    if a.strip()
+]
+# Accepted `aud` values. Defaults to the RP client id to preserve the previous
+# single-caller behaviour. An empty list disables audience verification.
+REEF_API_OIDC_AUDIENCES = [
+    a.strip()
+    for a in os.environ.get(
+        "REEF_API_OIDC_AUDIENCES", os.environ.get("REEF_OIDC_AUDIENCE", "")
+    ).split(",")
+    if a.strip()
+] or ([OIDC_RP_CLIENT_ID] if OIDC_RP_CLIENT_ID else [])
+
+# The groups claim maps to staff access.
 REEF_OIDC_GROUPS_CLAIM = os.environ.get("REEF_OIDC_GROUPS_CLAIM", "groups")
 REEF_OIDC_STAFF_GROUPS = [
     g.strip()
@@ -132,6 +194,21 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.BrowsableAPIRenderer",
     ],
 }
+
+# CORS. Red is served from its own origin and calls the Reef API from the
+# browser, so those responses need Access-Control-Allow-Origin. Only the API is
+# cross-origin; the builder, admin and Nuxt runner all share the NGINX origin,
+# so confine the headers to /api/reef/ rather than the whole site.
+CORS_URLS_REGEX = r"^/api/reef/.*$"
+
+# Set per environment: dev allows Red's dev server, production reads the
+# deployment's origins from the environment. Empty means no cross-origin access.
+CORS_ALLOWED_ORIGINS = []
+
+# The APIs authenticate as a resource server via an Authorization bearer JWT
+# (see REST_FRAMEWORK above), never via the Django session cookie. Leaving
+# credentials off keeps browsers from attaching Reef cookies to Red's requests.
+CORS_ALLOW_CREDENTIALS = False
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Reef",

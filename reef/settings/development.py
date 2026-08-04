@@ -23,6 +23,12 @@ MIDDLEWARE += [
 ]
 INTERNAL_IPS = ["127.0.0.1", "localhost"]
 
+# Red's dev server calls the Reef API from the browser.
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
 # Email via mailpit in the dev environment.
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.environ.get("REEF_EMAIL_HOST", "mailpit")

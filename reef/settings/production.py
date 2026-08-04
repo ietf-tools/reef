@@ -71,5 +71,11 @@ _admins = os.environ.get("REEF_ADMINS")
 if _admins is not None:
     ADMINS = [parseaddr(admin) for admin in _multiline_to_list(_admins)]
 
+# REEF_CORS_ALLOWED_ORIGINS is a newline-separated list of origins allowed to
+# call the API from a browser (Red). Unset means no cross-origin access.
+_cors_origins = os.environ.get("REEF_CORS_ALLOWED_ORIGINS")
+if _cors_origins is not None:
+    CORS_ALLOWED_ORIGINS = _multiline_to_list(_cors_origins)
+
 # Behind a TLS-terminating proxy in staging and production.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

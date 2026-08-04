@@ -14,6 +14,17 @@
       "label": "Django",
       "onAutoForward": "ignore"
     },
+    "3001": {
+      "label": "Nuxt",
+      "onAutoForward": "ignore"
+    },
+    // Nuxt should never be here, but get-port-please falls back to the
+    // 3000-3100 range if 3001 is taken. Don't forward it to the host, where
+    // it would collide with Red.
+    "3000": {
+      "label": "Nuxt (stray)",
+      "onAutoForward": "ignore"
+    },
     "8088": {
       "label": "NGINX",
       "onAutoForward": "notify"
