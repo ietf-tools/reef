@@ -20,6 +20,7 @@ urlpatterns = [
     path("api/reef/", include("surveys.urls")),
     path("api/reef/", include("ratings.urls")),
     path("api/reef/", include("popularity.urls")),
+    path("api/reef/", include("docsets.urls")),
     path("api/reef/", include("subscriptions.urls")),
     path("manage/", include("surveys.manage_urls")),
 ]

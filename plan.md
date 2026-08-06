@@ -24,6 +24,10 @@ https://account.ietf.org/.
     survey on the Reef Nuxt runner. Red renders no survey UI.
 - Ratings, API only. Red renders the star widget; Reef stores and aggregates.
 - Popularity, API only. Reef serves a curated "most popular" list; Red consumes it.
+- Document sets, API only. Red has the UI for creating a set, titling and describing
+  it, and adding documents to it; Reef stores the sets and their membership. A set is
+  a subscribable thing, which is the reason it exists here rather than in Red's own
+  storage.
 - Subscriptions and notifications, API only plus email delivery. Red has the
   subscribe UI; Reef stores subscriptions, ingests RFC-change events from
   datatracker, and sends notification emails.
@@ -34,6 +38,13 @@ Surveys are built end to end. Ratings, popularity, and subscriptions are scaffol
 as Django API app modules (models, endpoints, and test stubs) to be completed in a
 later phase. Subscription email delivery and the datatracker change-feed are
 scaffolded as an interface and an async task rather than fully wired.
+
+Document sets are built: models, the owner-scoped API, the public read path, and
+subscribing to a set. They were new scope rather than a gap in the scaffold, so they
+still need a ticket of their own and a cross-repo agreement with Red on the UI, in
+the way the open-survey list did. What is not built is delivery: matching a set to a
+change event is written and tested, but nothing sends mail, and the subseries
+question under open items is unanswered.
 
 ### Ticket alignment
 
@@ -107,6 +118,7 @@ reef/
     settings/{__init__,base,development,staging,production,build}.py
     settings/logging/{development,production}.py
     celery.py  urls.py  wsgi.py  openapi.py
+    docids.py              shared document-identifier parsing and canonical form
   reefauth/                OIDC RP login (mozilla_django_oidc) plus DRF bearer resource-server
                              auth plus custom User: models, backends, authentication, apps, utils, migrations
   surveys/                 full build
@@ -119,6 +131,7 @@ reef/
     rules.py  factories.py  tests.py  migrations/
   ratings/                 scaffold: Rating model, aggregate/submit API, test stub
   popularity/              scaffold: curated-list model/config, read API, test stub
+  docsets/                 DocumentSet and DocumentSetEntry, owner-scoped API, public read
   subscriptions/           scaffold: Subscription model, API, email task, datatracker-feed ingest interface
   vendor/                  package.json for self-hosted SurveyJS Creator/Analytics bundles into Django static
   client/                  Nuxt 4 survey runner (themed)
@@ -143,8 +156,70 @@ reef/
   timestamps. Aggregate is average plus count per rfc.
 - popularity (scaffold): a curated ordered list of RFC ids (manually managed JSON,
   per ticket #1), served read-only.
+- docsets.DocumentSet: owner (FK), title, slug, description, visibility
+  (private or public), timestamps, unique (owner, slug). docsets.DocumentSetEntry:
+  set FK, doc (a canonical identifier), rank for display order, added_at, unique
+  (set, doc). A set is a user's own list of documents, made in Red, and the unit a
+  notification can be about.
+
+  Sets are private by default and can be published: a set title and its membership say
+  what someone is tracking, so publishing is a choice the owner makes rather than a
+  default they have to find and turn off. Publishing is in scope for the first cut on
+  the understanding that shareable public sets were discussed; confirm that before
+  building the public read path, because dropping it removes the visibility field, the
+  anonymous endpoint, and the moderation question below.
+
+  A set holds series documents generally, not only RFCs, so DOC_SERIES grows to rfc,
+  bcp, std and fyi. This is what the series-prefixed identifier form was for: bcp14
+  and rfc14 are different documents and a set has to be able to hold both.
+
+  Reef stores identifiers and nothing else about a document: no title, no status, no
+  existence check. Red is the RFC website and already has that metadata, so a second
+  copy here would only go stale. Identifiers are validated for syntax, as ratings and
+  popularity already do.
+- Document identifiers, shared: ratings.Rating.rfc and popularity.PopularEntry.rfc
+  store whatever string they are handed, while subscriptions canonicalizes through
+  normalize_doc_id. Sets would be a third rule in a fourth place, and a set cannot be
+  joined to its documents' ratings or subscriptions unless all of them agree. So
+  normalize_doc_id, DOC_SERIES and the length bound move to reef/docids.py, and
+  ratings and popularity adopt them with a data migration that backfills existing
+  rows. Doing this before sets exist is the cheap moment; afterwards it is a
+  four-table backfill.
 - subscriptions.Subscription (scaffold): user or email, kind (new_rfc, by_status,
-  obsoleted, subject_tag, and similar), params (JSON), verified flag.
+  obsoleted, subject_tag, rfc, set, and similar), params (JSON), verified flag. The
+  rfc kind watches one RFC, identified by params {"rfc": "rfc9110"}; matching it
+  against an event is an equality test on that id, where the other kinds are
+  predicates over the event. Unique on (user, kind, params).
+
+  The set kind is the one that does not fit that pattern, in two ways.
+  It points at a DocumentSet, so it takes a nullable set FK on Subscription rather
+  than an identifier in params: params has no referential integrity, and a slug in
+  JSON would break on rename and leave silently dead subscriptions on delete. The FK
+  joins the uniqueness constraint, which puts two nullable identity columns in one
+  constraint and needs nulls_distinct=False (see open items). And its matching is a
+  join, event to entries to sets to subscribers, over membership that changes under
+  the subscription, rather than a test against the event alone. ingest_rfc_change is
+  currently written as though equality on params were the whole story.
+
+  Because the uniqueness constraint compares stored JSON, params has one canonical
+  form, defined by subscriptions.models.normalize_params and applied in
+  Subscription.save() as well as in the serializer, so the admin and the ingest task
+  cannot write a shape the constraint would miss. The rules:
+
+  - Each kind declares the keys it takes (Subscription.PARAMS_KEYS). Every declared
+    key is required and any other key is rejected, rather than ignored: a stray key
+    would make a duplicate subscription look distinct. new_rfc and obsoleted take no
+    params at all.
+  - Values are scalar strings, one subscription per value. Nothing takes a list,
+    because JSON array order is significant and ["a","b"] would not equal ["b","a"].
+  - Document identifiers carry their series, so "rfc9110" rather than "9110", which
+    is what lets the subseries ("bcp14", "std66") join DOC_SERIES without any
+    identifier becoming ambiguous. Input is accepted in the shapes people paste
+    ("RFC 9110", "rfc-0791") and stored in one form; a bare number is rejected.
+  - Other values are stripped and lowercased.
+
+  Key order needs no normalizing: params is jsonb, which sorts keys, so the constraint
+  already treats {"a":1,"b":2} and {"b":2,"a":1} as one value.
 
 ### API surface (/api/reef/, DRF plus drf-spectacular)
 
@@ -170,8 +245,31 @@ Scaffolded (models and endpoints stubbed, returning minimal real data):
 
 - GET /ratings/{rfc}/ (anonymous aggregate), PUT /ratings/{rfc}/ (bearer). Ticket #108.
 - GET /popularity/ (anonymous curated list). Tickets #101 and #102.
-- GET/POST/DELETE /subscriptions/ (bearer) plus an internal ingest task hook. Tickets
-  #126, #127, and #133.
+- GET/POST/DELETE /subscriptions/ (bearer) plus an internal ingest task hook. Kinds:
+  new_rfc, by_status, obsoleted, subject_tag, and rfc (one named RFC). POST is
+  idempotent: a repeat returns 201 with the existing subscription rather than a
+  duplicate, so Red's subscribe button needs no error branch for a double click, a
+  resubmit, or a second tab. Tickets #126, #127, and #133.
+
+Document sets (built, no ticket yet):
+
+- GET/POST /sets/ and GET/PATCH/DELETE /sets/{id}/ (bearer, owner only): a user's own
+  sets, with title, description, visibility and the document list. PATCH covers
+  retitling and redescribing.
+- PUT/DELETE /sets/{id}/documents/{doc}/ (bearer, owner only): add or remove one
+  document. PUT is idempotent for the same reason the subscribe POST is, and the
+  identifier is canonicalized before it is stored, so /sets/3/documents/RFC%209110/
+  and /sets/3/documents/rfc9110/ are the same entry.
+- PUT /sets/{id}/order/ (bearer, owner only): reorder in one request. Ranks are
+  rewritten as a block rather than patched per entry, so a drag-and-drop in Red is one
+  call and cannot half-apply.
+- GET /sets/{id}/{slug}/ (anonymous): read a public set. Private sets 404 rather than
+  403 for anonymous callers, so the endpoint does not confirm that a private set
+  exists. The id carries identity and the slug is decorative: a shared link survives a
+  retitle, and a wrong or stale slug redirects to the current one rather than 404s.
+  The owner is not in the URL because the username is an opaque authentik-<sub>
+  string, which is neither meaningful in a link nor something to publish. Red can
+  render the owner's display name from the response.
 
 ### API contract
 
@@ -245,6 +343,20 @@ Each step ends with a commit.
 14. Docs: README.md dev quickstart, docs/, .env.example. Commit: "Add README and
     developer docs".
 
+Then, for document sets:
+
+15. Shared document identifiers: move normalize_doc_id and DOC_SERIES from
+    subscriptions to reef/docids.py, add bcp, std and fyi, and backfill
+    ratings.Rating.rfc and popularity.PopularEntry.rfc to the canonical form. This
+    lands first: it is a two-table backfill now and a four-table one later. Commit:
+    "Share document identifier normalization".
+16. Document sets: docsets app with DocumentSet and DocumentSetEntry plus migrations,
+    owner-scoped DRF endpoints, public read by (id, slug), admin, tests. Export the
+    schema. Commit: "Add user document sets".
+17. Set subscriptions: the set kind, the nullable set FK in the uniqueness constraint,
+    and join-based matching in ingest_rfc_change. Commit: "Add subscriptions to
+    document sets".
+
 ## Verification
 
 - Dev bring-up: devcontainer (or docker/run); migrate and collectstatic run; tmux
@@ -269,6 +381,12 @@ Each step ends with a commit.
 - Scaffolds: GET /popularity/ returns the curated list; PUT /ratings/{rfc}/ with a
   bearer stores a rating and the aggregate updates; POST /subscriptions/ stores a
   subscription and enqueues a confirmation caught by mailpit.
+- Document sets: a set is created with a title and description, an RFC and a BCP are
+  added and reordered, a second add of the same document in another spelling does not
+  duplicate it, a private set is invisible to an anonymous GET, and a subscription to
+  the set is matched by a change to a document added after it was made. All covered by
+  manage.py test. Not yet verifiable: that a batch of changes produces one digest
+  rather than one mail per document, because nothing sends mail yet.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
@@ -281,7 +399,46 @@ Each step ends with a commit.
   description, url) and user-targeting semantics. Red owns taken/dismissed tracking, so
   Reef stays stateless there. This is a cross-repo dependency.
 - Subscriptions depth: datatracker change-feed ingestion (#139) and email templates are
-  scaffolded here; full wiring is a follow-up phase.
+  scaffolded here; full wiring is a follow-up phase. Two things to confirm as it
+  lands: the param keys for by_status ("status") and subject_tag ("tag") are named
+  ahead of their matching logic, since the uniqueness constraint needs every kind to
+  have a settled shape; and unsubscribe is a hard delete, so the constraint is
+  unconditional. If a soft unsubscribed_at or a pending-verification state is ever
+  added, the constraint has to become partial or it will block resubscribing.
+- Email subscriptions: the data model above says "user or email" but Subscription is
+  user-only. Adding an email column puts two nullable identity columns in the
+  uniqueness constraint, and Postgres counts NULLs as distinct, so it would need
+  nulls_distinct=False (Django 5.0+, PG15+). Decide before the constraint is relied on.
+  A set FK on Subscription is the same problem, so decide the two together.
+- Subseries in a subscribable set: a BCP or STD is a container whose membership
+  changes (BCP 14 is currently RFC 2119 plus RFC 8174). "Updates to bcp14" therefore
+  means two different things: a change to a constituent RFC, and a change to which
+  RFCs constitute it. Decide whether ingest expands a subseries to its RFCs at match
+  time, treats a constitution change as its own event, or both. Reef holds no document
+  metadata, so whichever way it goes, the expansion has to come from the datatracker
+  feed rather than from Reef's own tables. This is the substantive unknown in the sets
+  proposal.
+- Subscribing to someone else's public set: the first cut restricts subscriptions to
+  your own sets. Opening it up means deciding what happens when the owner makes a set
+  private, empties it, or deletes it. Continuing to mail a subscriber about a set they
+  can no longer see leaks its membership, so visibility has to be rechecked at send
+  time and not only at subscribe time.
+- Notification volume: a set turns one event into potentially many mails, and a
+  subscriber holding both a set and an overlapping rfc subscription gets a duplicate.
+  Both need solving before sets ship, and the second is already possible today with
+  obsoleted plus rfc. This makes send_subscription_email(subscription_id, event) the
+  wrong shape: delivery has to coalesce per subscriber over a window, and deduplicate
+  per user per event. Cheap to reshape now, expensive once templates exist.
+- Public sets are user-generated content on an ietf.org origin: a title and
+  description are free text, published, and attributable to an IETF account. Staff
+  need a way to unpublish one without deleting a user's data. The cheap version is the
+  existing admin plus a staff-only hidden state distinct from the owner's private, so
+  that unpublishing is visible as a staff action and the owner cannot simply flip it
+  back. Decide whether that is enough, or whether this needs a real report-and-review
+  path.
+- Public sets also bring the cross-user subscription question forward: a public set is
+  exactly the thing another person would want to subscribe to, which makes the
+  own-sets-only restriction in the first cut a stopgap rather than a settled position.
 - Nuxt OIDC client registration: confirm a public (PKCE) Authentik client for the runner
   versus reusing Red's client configuration.
 - Survey targeting: the audience and user-specific-offer rules (subscription-driven)

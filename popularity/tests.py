@@ -11,3 +11,8 @@ class PopularityApiTests(APITestCase):
         resp = self.client.get("/api/reef/popularity/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual([e["rfc"] for e in resp.json()], ["rfc1", "rfc2"])
+
+    def test_entries_are_stored_canonically(self):
+        entry = PopularEntry.objects.create(rfc="RFC 0791", rank=1)
+        entry.refresh_from_db()
+        self.assertEqual(entry.rfc, "rfc791")

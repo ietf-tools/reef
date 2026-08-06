@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     "surveys",
     "ratings",
     "popularity",
+    "docsets",
     "subscriptions",
 ]
 
@@ -215,6 +216,15 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "Backend API for the Reef survey and engagement service",
     "VERSION": "0.1.0",
     "SCHEMA_PATH_PREFIX": "/api/reef/",
+    # Surveys and document sets both have a "visibility", with different
+    # choices, and drf-spectacular resolves that collision by naming both after
+    # a hash of their choices. Pinned here instead: VisibilityEnum is the name
+    # Red and the Nuxt client already generate from, and a hashed name would
+    # change again the next time either set of choices did.
+    "ENUM_NAME_OVERRIDES": {
+        "VisibilityEnum": "surveys.models.SURVEY_VISIBILITY_CHOICES",
+        "DocumentSetVisibilityEnum": "docsets.models.DOCUMENT_SET_VISIBILITY_CHOICES",
+    },
 }
 
 # Internationalization

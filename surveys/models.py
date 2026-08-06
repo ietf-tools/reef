@@ -73,6 +73,12 @@ class Survey(models.Model):
         return self.visibility == self.Visibility.AUTHENTICATED
 
 
+# Pinned for SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"]. DocumentSet also has a
+# visibility field, and without an override drf-spectacular renames both to a
+# hash of their choices, silently breaking the name Red already generates from.
+SURVEY_VISIBILITY_CHOICES = Survey.Visibility.choices
+
+
 class Response(models.Model):
     """A single set of answers submitted for a survey."""
 

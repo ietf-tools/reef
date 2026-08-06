@@ -15,7 +15,7 @@ log Reef's own staff into the builder site, which is an unrelated role that
 happens to involve the same identity provider.
 """
 
-from functools import lru_cache
+from functools import cache
 
 import jwt
 from django.conf import settings
@@ -23,7 +23,6 @@ from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import authentication, exceptions
 
 from .claims import sync_user_from_claims
-
 
 # Asymmetric algorithms only, enforced regardless of configuration. Accepting an
 # HS* algorithm alongside these is the classic key-confusion attack: the verifying
@@ -46,7 +45,7 @@ _ASYMMETRIC_ALGORITHMS = frozenset(
 )
 
 
-@lru_cache(maxsize=None)
+@cache
 def _jwks_client(jwks_endpoint):
     """One JWKS client per endpoint, reused across requests.
 
