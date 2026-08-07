@@ -31,7 +31,23 @@ if [ -n "$EDITOR_VSCODE" ]; then
   # we moved off to avoid colliding with Red. Refuse to start a second dev
   # server rather than let it drift onto 3000 while nginx keeps proxying to
   # the configured port.
-  if ss -ltn 2>/dev/null | grep -qE ":${CLIENT_PORT}[[:space:]]"; then
+  port_in_use() {
+    [ -n "$(ss -ltnH "sport = :$CLIENT_PORT" 2>/dev/null)" ]
+  }
+
+  # On a window reload VS Code restarts this task while the previous dev server
+  # is still shutting down, so the port is often held for a second or two by a
+  # process already on its way out. Wait for it rather than refusing straight
+  # away, which sends the user off to hunt for a server that no longer exists.
+  if port_in_use; then
+    echo "Port $CLIENT_PORT is busy (previous dev server shutting down?), waiting..."
+    for _ in {1..30}; do
+      sleep 0.5
+      port_in_use || break
+    done
+  fi
+
+  if port_in_use; then
     echo "====== CLIENT DEV SERVER ======\n"
     echo "  Port $CLIENT_PORT is already in use, so a dev server is already running."
     echo "  Find it with:  ss -ltnp | grep $CLIENT_PORT    (or: tmux ls)\n"
