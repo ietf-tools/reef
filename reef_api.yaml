@@ -27,7 +27,11 @@ paths:
   /api/reef/ratings/{rfc}/:
     get:
       operationId: ratings_retrieve
-      description: GET the public aggregate (anonymous); PUT the caller's rating (bearer).
+      description: |-
+        GET the aggregate plus the caller's own rating; PUT the caller's rating.
+
+        GET stays open to anonymous callers, and a credential only adds
+        ``your_rating`` to the response.
       parameters:
       - in: path
         name: rfc
@@ -49,7 +53,11 @@ paths:
           description: ''
     put:
       operationId: ratings_update
-      description: GET the public aggregate (anonymous); PUT the caller's rating (bearer).
+      description: |-
+        GET the aggregate plus the caller's own rating; PUT the caller's rating.
+
+        GET stays open to anonymous callers, and a credential only adds
+        ``your_rating`` to the response.
       parameters:
       - in: path
         name: rfc
@@ -1114,10 +1122,14 @@ components:
           nullable: true
         count:
           type: integer
+        your_rating:
+          type: integer
+          nullable: true
       required:
       - average
       - count
       - rfc
+      - your_rating
     RatingWrite:
       type: object
       properties:

@@ -11,7 +11,10 @@ class RatingApiTests(APITestCase):
     def test_anonymous_aggregate_empty(self):
         resp = self.client.get("/api/reef/ratings/rfc9999/")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json(), {"rfc": "rfc9999", "average": None, "count": 0})
+        self.assertEqual(
+            resp.json(),
+            {"rfc": "rfc9999", "average": None, "count": 0, "your_rating": None},
+        )
 
     def test_put_requires_auth(self):
         resp = self.client.put("/api/reef/ratings/rfc1/", {"value": 4}, format="json")
@@ -53,6 +56,48 @@ class RatingApiTests(APITestCase):
         resp = self.client.get("/api/reef/ratings/9110/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["rfc"], "rfc9110")
+
+    def test_get_returns_the_callers_own_rating(self):
+        mine = User.objects.create(username="mine", oidc_sub="mine")
+        theirs = User.objects.create(username="theirs", oidc_sub="theirs")
+        Rating.objects.create(rfc="rfc9110", user=mine, value=5)
+        Rating.objects.create(rfc="rfc9110", user=theirs, value=1)
+
+        self.client.force_authenticate(user=mine)
+        body = self.client.get("/api/reef/ratings/rfc9110/").json()
+        self.assertEqual(body["your_rating"], 5)
+        self.assertEqual(body["count"], 2)
+        self.assertEqual(body["average"], 3.0)
+
+    def test_own_rating_is_null_when_unrated_or_anonymous(self):
+        rater = User.objects.create(username="rater", oidc_sub="rater")
+        Rating.objects.create(rfc="rfc9110", user=rater, value=4)
+
+        # Authenticated, but has not rated this one.
+        bystander = User.objects.create(username="by", oidc_sub="by")
+        self.client.force_authenticate(user=bystander)
+        self.assertIsNone(
+            self.client.get("/api/reef/ratings/rfc9110/").json()["your_rating"]
+        )
+
+        # Anonymous sees the aggregate and nobody's individual rating.
+        self.client.force_authenticate(user=None)
+        body = self.client.get("/api/reef/ratings/rfc9110/").json()
+        self.assertIsNone(body["your_rating"])
+        self.assertEqual(body["average"], 4.0)
+
+    def test_get_varies_on_credentials(self):
+        # A shared cache must not hand one user's rating to the next caller.
+        resp = self.client.get("/api/reef/ratings/rfc9110/")
+        vary = {v.strip().lower() for v in resp.headers.get("Vary", "").split(",")}
+        self.assertIn("authorization", vary)
+        self.assertIn("cookie", vary)
+
+    def test_put_echoes_the_value_just_set(self):
+        user = User.objects.create(username="u4", oidc_sub="s4")
+        self.client.force_authenticate(user=user)
+        resp = self.client.put("/api/reef/ratings/rfc1/", {"value": 3}, format="json")
+        self.assertEqual(resp.json()["your_rating"], 3)
 
     def test_unparseable_identifier_rejected(self):
         resp = self.client.get("/api/reef/ratings/not-a-document/")

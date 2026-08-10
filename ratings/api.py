@@ -1,6 +1,7 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Avg, Count
+from django.utils.cache import patch_vary_headers
 from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -26,15 +27,31 @@ def _canonical(rfc):
         raise ValidationError({"rfc": exc.messages}) from exc
 
 
-def _aggregate(rfc):
+def _aggregate(rfc, user=None):
     agg = Rating.objects.filter(rfc=rfc).aggregate(
         average=Avg("value"), count=Count("id")
     )
-    return {"rfc": rfc, "average": agg["average"], "count": agg["count"]}
+    own = None
+    if user is not None and user.is_authenticated:
+        own = (
+            Rating.objects.filter(rfc=rfc, user=user)
+            .values_list("value", flat=True)
+            .first()
+        )
+    return {
+        "rfc": rfc,
+        "average": agg["average"],
+        "count": agg["count"],
+        "your_rating": own,
+    }
 
 
 class RatingDetail(APIView):
-    """GET the public aggregate (anonymous); PUT the caller's rating (bearer)."""
+    """GET the aggregate plus the caller's own rating; PUT the caller's rating.
+
+    GET stays open to anonymous callers, and a credential only adds
+    ``your_rating`` to the response.
+    """
 
     def get_permissions(self):
         if self.request.method == "PUT":
@@ -43,7 +60,14 @@ class RatingDetail(APIView):
 
     @extend_schema(responses=RatingAggregateSerializer)
     def get(self, request, rfc):
-        return Response(RatingAggregateSerializer(_aggregate(_canonical(rfc))).data)
+        data = _aggregate(_canonical(rfc), request.user)
+        response = Response(RatingAggregateSerializer(data).data)
+        # The body now depends on who is asking, so it must not be served from
+        # a shared cache to the next caller. Nothing caches /api/reef/ today;
+        # this is here so that adding a cache later cannot leak one user's
+        # rating to another.
+        patch_vary_headers(response, ("Authorization", "Cookie"))
+        return response
 
     @extend_schema(request=RatingWriteSerializer, responses=RatingAggregateSerializer)
     def put(self, request, rfc):
@@ -55,4 +79,4 @@ class RatingDetail(APIView):
             user=request.user,
             defaults={"value": serializer.validated_data["value"]},
         )
-        return Response(RatingAggregateSerializer(_aggregate(rfc)).data)
+        return Response(RatingAggregateSerializer(_aggregate(rfc, request.user)).data)
