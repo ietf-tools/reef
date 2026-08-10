@@ -28,10 +28,10 @@ paths:
     get:
       operationId: ratings_retrieve
       description: |-
-        GET the aggregate plus the caller's own rating; PUT the caller's rating.
+        Return the public average and count of ratings for one RFC. Open to anonymous callers. A credential adds nothing but `your_rating`, the caller's own 1-5 rating of this RFC, which is null if they have not rated it; for an anonymous caller it is always null.
 
-        GET stays open to anonymous callers, and a credential only adds
-        ``your_rating`` to the response.
+        The identifier is canonicalized, so `9110`, `rfc9110` and `RFC 9110` all address the same document.
+      summary: Read an RFC's rating
       parameters:
       - in: path
         name: rfc
@@ -53,11 +53,11 @@ paths:
           description: ''
     put:
       operationId: ratings_update
-      description: |-
-        GET the aggregate plus the caller's own rating; PUT the caller's rating.
-
-        GET stays open to anonymous callers, and a credential only adds
-        ``your_rating`` to the response.
+      description: Record the authenticated caller's 1-5 rating of one RFC, replacing
+        their previous rating of it if there is one. Requires a credential. Returns
+        the same body as GET, so the response carries the recomputed average and count
+        along with `your_rating` echoing the value just set.
+      summary: Set the caller's rating of an RFC
       parameters:
       - in: path
         name: rfc

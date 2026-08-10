@@ -47,10 +47,11 @@ def _aggregate(rfc, user=None):
 
 
 class RatingDetail(APIView):
-    """GET the aggregate plus the caller's own rating; PUT the caller's rating.
+    """One RFC's rating: the public aggregate, plus the caller's own.
 
-    GET stays open to anonymous callers, and a credential only adds
-    ``your_rating`` to the response.
+    The two methods differ in permission and in audience, so each carries its
+    own ``extend_schema`` wording rather than sharing this docstring, which
+    drf-spectacular would otherwise publish as the description of both.
     """
 
     def get_permissions(self):
@@ -58,7 +59,18 @@ class RatingDetail(APIView):
             return [IsAuthenticated()]
         return [AllowAny()]
 
-    @extend_schema(responses=RatingAggregateSerializer)
+    @extend_schema(
+        summary="Read an RFC's rating",
+        description=(
+            "Return the public average and count of ratings for one RFC. Open "
+            "to anonymous callers. A credential adds nothing but `your_rating`, "
+            "the caller's own 1-5 rating of this RFC, which is null if they "
+            "have not rated it; for an anonymous caller it is always null.\n\n"
+            "The identifier is canonicalized, so `9110`, `rfc9110` and "
+            "`RFC 9110` all address the same document."
+        ),
+        responses=RatingAggregateSerializer,
+    )
     def get(self, request, rfc):
         data = _aggregate(_canonical(rfc), request.user)
         response = Response(RatingAggregateSerializer(data).data)
@@ -69,7 +81,18 @@ class RatingDetail(APIView):
         patch_vary_headers(response, ("Authorization", "Cookie"))
         return response
 
-    @extend_schema(request=RatingWriteSerializer, responses=RatingAggregateSerializer)
+    @extend_schema(
+        summary="Set the caller's rating of an RFC",
+        description=(
+            "Record the authenticated caller's 1-5 rating of one RFC, "
+            "replacing their previous rating of it if there is one. Requires a "
+            "credential. Returns the same body as GET, so the response carries "
+            "the recomputed average and count along with `your_rating` echoing "
+            "the value just set."
+        ),
+        request=RatingWriteSerializer,
+        responses=RatingAggregateSerializer,
+    )
     def put(self, request, rfc):
         rfc = _canonical(rfc)
         serializer = RatingWriteSerializer(data=request.data)
