@@ -513,6 +513,48 @@ paths:
               schema:
                 $ref: '#/components/schemas/DocumentSet'
           description: ''
+  /api/reef/stats/:
+    get:
+      operationId: stats_list
+      description: |-
+        Rating, subscriber and set numbers per document.
+
+        Public and unpaginated: Red precomputes the whole series in one call at
+        build time, which is too many identifiers to name in a query string.
+        Filtering with doc is for one-off lookups.
+      parameters:
+      - in: query
+        name: doc
+        schema:
+          type: array
+          items:
+            type: string
+        description: Document identifier, repeatable. Omit to get every document that
+          has any engagement at all. A named document is always returned, with zeros
+          if it has none.
+      - in: query
+        name: set
+        schema:
+          type: integer
+        description: Document set id. Returns a row per document the set holds, including
+          members with no engagement. Public sets resolve for anyone; a private set
+          resolves only for its owner, and 404s otherwise. Combines with doc as an
+          intersection.
+      tags:
+      - stats
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DocumentStats'
+          description: ''
   /api/reef/subscriptions/:
     get:
       operationId: subscriptions_list
@@ -913,6 +955,28 @@ components:
       description: |-
         * `private` - Private
         * `public` - Public
+    DocumentStats:
+      type: object
+      description: Public engagement numbers for one document.
+      properties:
+        doc:
+          type: string
+        rating_average:
+          type: number
+          format: double
+          nullable: true
+        rating_count:
+          type: integer
+        subscriber_count:
+          type: integer
+        set_count:
+          type: integer
+      required:
+      - doc
+      - rating_average
+      - rating_count
+      - set_count
+      - subscriber_count
     KindEnum:
       enum:
       - new_rfc

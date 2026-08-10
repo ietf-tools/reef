@@ -31,6 +31,9 @@ https://account.ietf.org/.
 - Subscriptions and notifications, API only plus email delivery. Red has the
   subscribe UI; Reef stores subscriptions, ingests RFC-change events from
   datatracker, and sends notification emails.
+- Per-document statistics, API only. Reef serves the rating aggregate, subscriber
+  count and set count for a document; Red precomputes the whole series in one call
+  at build time and renders the numbers on its RFC pages.
 
 ### Scope of this plan
 
@@ -133,6 +136,7 @@ reef/
   popularity/              scaffold: curated-list model/config, read API, test stub
   docsets/                 DocumentSet and DocumentSetEntry, owner-scoped API, public read
   subscriptions/           scaffold: Subscription model, API, email task, datatracker-feed ingest interface
+  stats/                   per-document engagement numbers for Red; no models of its own
   vendor/                  package.json for self-hosted SurveyJS Creator/Analytics bundles into Django static
   client/                  Nuxt 4 survey runner (themed)
     nuxt.config.ts         ssr enabled, :3001; server-side API base for render-time fetches
@@ -271,6 +275,34 @@ Document sets (built, no ticket yet):
   string, which is neither meaningful in a link nor something to publish. Red can
   render the owner's display name from the response.
 
+Per-document statistics (built, no ticket yet):
+
+- GET /stats/ (anonymous, unpaginated): a row per document, with rating_average,
+  rating_count, subscriber_count and set_count. Red's build-time precompute fetches
+  the whole thing in one call, which is why it is neither paginated nor keyed by a
+  list of identifiers: naming the RFC series in a query string is thousands of
+  parameters. Filtering with a repeated doc parameter is for one-off lookups, and a
+  named document always comes back, with zeros if it has no engagement. Unfiltered,
+  only documents that have some engagement appear.
+- Filtering with set returns a row per document the set holds, including members with
+  no engagement, which is what a set page in Red needs. It combines with doc as an
+  intersection. The filter is visibility-aware: a public set resolves for anyone, a
+  private one only for its owner, and otherwise 404s rather than 403s, as the public
+  set read does. Without that, an anonymous caller could read a private set's
+  membership off the rows returned. That is a different order of disclosure from the
+  counts below: those name nobody, whereas a membership listing says what a named
+  person is tracking.
+- subscriber_count is distinct users across the two kinds that name a document, rfc
+  and set. The predicate kinds are excluded: new_rfc would otherwise add all of its
+  subscribers to every recent RFC and flatten the number into noise. One user holding
+  both an rfc subscription and a subscription to a set containing it counts once.
+- set_count counts distinct sets, private ones included. The numbers are aggregate
+  and name nobody, and counting only public sets was rejected because sets are
+  private by default, so the figure would sit at zero indefinitely. The residual
+  signal is that a count of one says somebody tracks this document, not who.
+- Rows cover every series a set can hold, so bcp14 and std66 appear alongside RFCs
+  even though only RFCs can currently be rated.
+
 ### API contract
 
 drf-spectacular is the single source of truth for the API contract. It serves
@@ -356,6 +388,9 @@ Then, for document sets:
 17. Set subscriptions: the set kind, the nullable set FK in the uniqueness constraint,
     and join-based matching in ingest_rfc_change. Commit: "Add subscriptions to
     document sets".
+18. Per-document statistics: the stats app, one anonymous unpaginated endpoint
+    aggregating ratings, subscribers and sets for Red's build-time precompute.
+    Commit: "Add per-document statistics API".
 
 ## Verification
 
@@ -387,6 +422,10 @@ Then, for document sets:
   the set is matched by a change to a document added after it was made. All covered by
   manage.py test. Not yet verifiable: that a batch of changes produces one digest
   rather than one mail per document, because nothing sends mail yet.
+- Statistics: GET /stats/ with no token returns a row per engaged document; adding a
+  rating, a subscription and a set entry for one document moves all three numbers; a
+  user subscribed both directly and through a set counts once; ?set= returns the
+  members of a public set to anyone and of a private set only to its owner.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
@@ -439,6 +478,10 @@ Then, for document sets:
 - Public sets also bring the cross-user subscription question forward: a public set is
   exactly the thing another person would want to subscribe to, which makes the
   own-sets-only restriction in the first cut a stopgap rather than a settled position.
+- Statistics freshness and cost: /stats/ aggregates on every request, which is fine
+  for a build-time caller and wrong for a hot public endpoint. If Red ever fetches it
+  per page view, or the tables grow, this wants caching or a materialized counter
+  rather than a live aggregate. Decide when Red's usage is known, not before.
 - Nuxt OIDC client registration: confirm a public (PKCE) Authentik client for the runner
   versus reusing Red's client configuration.
 - Survey targeting: the audience and user-specific-offer rules (subscription-driven)

@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     "popularity",
     "docsets",
     "subscriptions",
+    "stats",
 ]
 
 MIDDLEWARE = [
