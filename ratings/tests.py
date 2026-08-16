@@ -99,6 +99,63 @@ class RatingApiTests(APITestCase):
         resp = self.client.put("/api/reef/ratings/rfc1/", {"value": 3}, format="json")
         self.assertEqual(resp.json()["your_rating"], 3)
 
+    def test_delete_requires_auth(self):
+        resp = self.client.delete("/api/reef/ratings/rfc1/")
+        self.assertIn(resp.status_code, (401, 403))
+
+    def test_delete_withdraws_own_rating_only(self):
+        mine = User.objects.create(username="mine", oidc_sub="mine")
+        theirs = User.objects.create(username="theirs", oidc_sub="theirs")
+        Rating.objects.create(rfc="rfc9110", user=mine, value=5)
+        Rating.objects.create(rfc="rfc9110", user=theirs, value=1)
+
+        self.client.force_authenticate(user=mine)
+        resp = self.client.delete("/api/reef/ratings/rfc9110/")
+        self.assertEqual(resp.status_code, 200)
+        # The caller's rating is gone and no longer counts towards the average.
+        self.assertEqual(
+            resp.json(),
+            {"rfc": "rfc9110", "average": 1.0, "count": 1, "your_rating": None},
+        )
+        self.assertFalse(Rating.objects.filter(user=mine).exists())
+        self.assertTrue(Rating.objects.filter(user=theirs).exists())
+
+    def test_delete_is_idempotent(self):
+        user = User.objects.create(username="u5", oidc_sub="s5")
+        self.client.force_authenticate(user=user)
+        self.client.put("/api/reef/ratings/rfc1/", {"value": 3}, format="json")
+        first = self.client.delete("/api/reef/ratings/rfc1/")
+        second = self.client.delete("/api/reef/ratings/rfc1/")
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json(), second.json())
+        self.assertEqual(second.json()["count"], 0)
+        self.assertIsNone(second.json()["average"])
+
+    def test_delete_accepts_any_spelling_of_the_identifier(self):
+        user = User.objects.create(username="u6", oidc_sub="s6")
+        Rating.objects.create(rfc="rfc9110", user=user, value=5)
+        self.client.force_authenticate(user=user)
+        resp = self.client.delete("/api/reef/ratings/9110/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["rfc"], "rfc9110")
+        self.assertEqual(Rating.objects.count(), 0)
+
+    def test_rating_can_be_set_again_after_deletion(self):
+        user = User.objects.create(username="u7", oidc_sub="s7")
+        self.client.force_authenticate(user=user)
+        self.client.put("/api/reef/ratings/rfc1/", {"value": 3}, format="json")
+        self.client.delete("/api/reef/ratings/rfc1/")
+        resp = self.client.put("/api/reef/ratings/rfc1/", {"value": 5}, format="json")
+        self.assertEqual(resp.json()["your_rating"], 5)
+        self.assertEqual(Rating.objects.count(), 1)
+
+    def test_delete_rejects_unparseable_identifier(self):
+        user = User.objects.create(username="u8", oidc_sub="s8")
+        self.client.force_authenticate(user=user)
+        resp = self.client.delete("/api/reef/ratings/not-a-document/")
+        self.assertEqual(resp.status_code, 400)
+
     def test_unparseable_identifier_rejected(self):
         resp = self.client.get("/api/reef/ratings/not-a-document/")
         self.assertEqual(resp.status_code, 400)

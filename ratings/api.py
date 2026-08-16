@@ -55,7 +55,7 @@ class RatingDetail(APIView):
     """
 
     def get_permissions(self):
-        if self.request.method == "PUT":
+        if self.request.method in ("PUT", "DELETE"):
             return [IsAuthenticated()]
         return [AllowAny()]
 
@@ -102,4 +102,27 @@ class RatingDetail(APIView):
             user=request.user,
             defaults={"value": serializer.validated_data["value"]},
         )
+        return Response(RatingAggregateSerializer(_aggregate(rfc, request.user)).data)
+
+    @extend_schema(
+        summary="Withdraw the caller's rating of an RFC",
+        description=(
+            "Remove the authenticated caller's rating of one RFC, so it no "
+            "longer counts towards the average. Requires a credential. "
+            "Idempotent: a caller who has not rated this RFC gets the same "
+            "response as one whose rating was just removed. Returns the same "
+            "body as GET, so the response carries the recomputed average and "
+            "count, with `your_rating` now null."
+        ),
+        request=None,
+        # Keyed by status: for DELETE, drf-spectacular otherwise assumes the
+        # usual bodyless 204 and drops the serializer from the schema.
+        responses={200: RatingAggregateSerializer},
+    )
+    def delete(self, request, rfc):
+        rfc = _canonical(rfc)
+        # 200 with the recomputed aggregate rather than 204, matching PUT: the
+        # client redraws the same widget after either call, and a withdrawal
+        # moves the public average it is displaying.
+        Rating.objects.filter(rfc=rfc, user=request.user).delete()
         return Response(RatingAggregateSerializer(_aggregate(rfc, request.user)).data)
