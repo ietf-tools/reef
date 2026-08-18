@@ -5,13 +5,11 @@ convention in Purple.
 
 Context: subscription, events (each with doc_display, change, url), watched_doc
 (the rfc kind's document, in prose form), subscriptions_url (may be empty).
-The wording per kind lives here rather than in the task because it is prose.
 
-Anything holding text this project does not control is wrapped: a set title is
-up to 200 characters of the owner's choosing, and a change line comes from the
-datatracker feed, so neither can be trusted to fit a plain-text line.
-{% endcomment %}{% filter wordwrap:78 %}{% if subscription.kind == "rfc" %}You asked to be notified about changes to {{ watched_doc }}.{% elif subscription.kind == "set" %}You asked to be notified about changes to anything in your document set "{{ subscription.document_set.title }}".{% elif subscription.kind == "new_rfc" %}You asked to be notified about every new RFC.{% elif subscription.kind == "by_status" %}You asked to be notified about new RFCs with the status "{{ subscription.params.status }}".{% elif subscription.kind == "obsoleted" %}You asked to be notified when an RFC is obsoleted or made historic.{% elif subscription.kind == "subject_tag" %}You asked to be notified about RFCs with the subject tag "{{ subscription.params.tag }}".{% endif %}{% endfilter %}
-
+Every kind of subscription produces this same message and differs only in the
+opening sentence, which is why there is one template and not six. That sentence
+is an include because the confirmation needs it too.
+{% endcomment %}{% include "subscriptions/mail/_subscription_line.txt" with lead="You asked to be notified about" %}
 {% if events|length > 1 %}There have been {{ events|length }} changes since the last notification.
 
 {% endif %}{% for event in events %}{% filter wordwrap:78 %}{% if event.doc_display %}{{ event.doc_display }}{% if event.change %}: {% endif %}{% endif %}{{ event.change }}{% endfilter %}

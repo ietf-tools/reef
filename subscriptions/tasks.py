@@ -1,11 +1,15 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Async notification delivery.
 
-Delivery of a matched subscription is built: send_subscription_digest renders
-the mail template and sends it, retrying on a transient failure. What is still
-scaffolded is the other half, ingestion of RFC-change events from the
-datatracker (ticket #139), which is what decides which subscriptions a change
-matches and coalesces them per subscriber before enqueuing anything here.
+Two messages go to a subscriber, both rendered from templates/subscriptions/mail
+and both sent on a retrying celery task. send_subscription_confirmation goes
+once, when the subscription is created, and is a courtesy rather than a
+verification: the subscriber authenticated through Authentik, so the address is
+already known good. send_subscription_digest goes whenever a change matches.
+
+What is still scaffolded is ingestion of RFC-change events from the datatracker
+(ticket #139), which is what decides which subscriptions a change matches and
+coalesces them per subscriber before enqueuing a digest.
 
 An event is a dict, because it arrives as one from the feed. Delivery reads
 three keys and ignores the rest, so that the feed's shape can settle without
@@ -39,7 +43,10 @@ logger = logging.getLogger("reef")
 # series and has no reason to know which service sent the mail.
 DIGEST_SUBJECT_PREFIX = "RFC series updates"
 
+CONFIRMATION_SUBJECT = "You are now subscribed to RFC series updates"
+
 DIGEST_TEMPLATE = "subscriptions/mail/digest.txt"
+CONFIRMATION_TEMPLATE = "subscriptions/mail/confirmation.txt"
 
 
 def subscriptions_for_document(doc):
@@ -72,8 +79,8 @@ def subscriptions_for_document(doc):
     )
 
 
-class SendDigestError(Exception):
-    """A digest could not be handed to the mail server. Retryable."""
+class SendEmailError(Exception):
+    """A message could not be handed to the mail server. Retryable."""
 
 
 def digest_subject(events):
@@ -92,13 +99,24 @@ def digest_subject(events):
     return DIGEST_SUBJECT_PREFIX
 
 
+def _subscriber_context(subscription, **extra):
+    """The context every message about a subscription needs."""
+    return {
+        "subscription": subscription,
+        # Only the rfc kind has one, and the template only asks for it there.
+        "watched_doc": display_doc_id(subscription.params.get("rfc", "")),
+        "subscriptions_url": settings.REEF_SUBSCRIPTIONS_URL,
+        **extra,
+    }
+
+
 def render_digest(subscription, events):
     """Render the digest body for one subscription."""
     return render_to_string(
         DIGEST_TEMPLATE,
-        context={
-            "subscription": subscription,
-            "events": [
+        context=_subscriber_context(
+            subscription,
+            events=[
                 {
                     "doc_display": (
                         display_doc_id(event["doc"]) if event.get("doc") else ""
@@ -108,15 +126,63 @@ def render_digest(subscription, events):
                 }
                 for event in events
             ],
-            "watched_doc": display_doc_id(subscription.params.get("rfc", "")),
-            "subscriptions_url": settings.REEF_SUBSCRIPTIONS_URL,
-        },
+        ),
+    )
+
+
+def render_confirmation(subscription):
+    """Render the confirmation body for one subscription."""
+    return render_to_string(
+        CONFIRMATION_TEMPLATE, context=_subscriber_context(subscription)
+    )
+
+
+def _subscriber_to_mail(subscription_id, what):
+    """The subscription to send to, or None when there is nothing to send.
+
+    Both of the ways this returns None are permanent for the arguments given,
+    so a caller that gets None must not retry. Raising instead would spend
+    three days of retries rediscovering the same answer.
+    """
+    try:
+        subscription = Subscription.objects.select_related("user", "document_set").get(
+            pk=subscription_id
+        )
+    except Subscription.DoesNotExist:
+        # Unsubscribing is a hard delete, so a subscription disappearing
+        # between the enqueue and the send is ordinary, not an error.
+        logger.info("%s: subscription=%s no longer exists", what, subscription_id)
+        return None
+    if not subscription.user.email:
+        logger.warning(
+            "%s: subscription=%s user=%s has no email address",
+            what,
+            subscription_id,
+            subscription.user_id,
+        )
+        return None
+    return subscription
+
+
+def _send(message, what, subscription_id, detail=""):
+    """Send a built message, turning a delivery failure into a retry."""
+    try:
+        message.send()
+    except Exception as err:
+        logger.error("%s: subscription=%s send failed: %s", what, subscription_id, err)
+        raise SendEmailError from err
+    logger.info(
+        "%s: subscription=%s %smessage-id=%s",
+        what,
+        subscription_id,
+        f"{detail} " if detail else "",
+        message.extra_headers.get("Message-ID"),
     )
 
 
 @shared_task(
     base=RetryTask,
-    autoretry_for=(SendDigestError,),
+    autoretry_for=(SendEmailError,),
     # Purple's judgement for mail, and it applies more strongly here: a
     # notification that finally goes out a week after the change is worse than
     # one that does not go out at all.
@@ -132,58 +198,63 @@ def send_subscription_digest(subscription_id: int, events: list[dict]) -> None:
     subscriber's overlapping subscriptions belongs to the caller, which is the
     only place that can see that a set subscription and an rfc subscription
     cover the same document.
-
-    The three ways this gives up rather than retrying are all cases where the
-    same attempt would fail identically forever: the subscription is gone, it
-    has no address to send to, or there is nothing to say.
     """
     if not events:
         logger.warning(
             "send_subscription_digest: no events for subscription=%s", subscription_id
         )
         return
-
-    try:
-        subscription = Subscription.objects.select_related("user", "document_set").get(
-            pk=subscription_id
-        )
-    except Subscription.DoesNotExist:
-        # Unsubscribing is a hard delete, so this is the normal outcome of
-        # unsubscribing between the match and the send, not an error.
-        logger.info(
-            "send_subscription_digest: subscription=%s no longer exists",
-            subscription_id,
-        )
+    subscription = _subscriber_to_mail(subscription_id, "send_subscription_digest")
+    if subscription is None:
         return
-
-    to = subscription.user.email
-    if not to:
-        logger.warning(
-            "send_subscription_digest: subscription=%s user=%s has no email address",
-            subscription_id,
-            subscription.user_id,
-        )
-        return
-
-    message = EmailMessage(
-        subject=digest_subject(events),
-        body=render_digest(subscription, events),
-        to=[to],
-    )
-    try:
-        message.send()
-    except Exception as err:
-        logger.error(
-            "send_subscription_digest: subscription=%s send failed: %s",
-            subscription_id,
-            err,
-        )
-        raise SendDigestError from err
-    logger.info(
-        "send_subscription_digest: subscription=%s events=%s message-id=%s",
+    _send(
+        EmailMessage(
+            subject=digest_subject(events),
+            body=render_digest(subscription, events),
+            to=[subscription.user.email],
+        ),
+        "send_subscription_digest",
         subscription_id,
-        len(events),
-        message.extra_headers.get("Message-ID"),
+        detail=f"events={len(events)}",
+    )
+
+
+@shared_task(
+    base=RetryTask,
+    autoretry_for=(SendEmailError,),
+    # Shorter than a digest's: this message says "your subscription exists",
+    # which the subscriber can already see in Red, and which stops being worth
+    # saying long before three days are up.
+    max_retries=4 * 24,  # every 15 minutes for a day, at the tail rate
+    ignore_result=True,
+)
+def send_subscription_confirmation(subscription_id: int) -> None:
+    """Tell a subscriber their new subscription exists.
+
+    Enqueued by the create endpoint, and only when a subscription was actually
+    created: POST is idempotent, so a second click must not send a second
+    message.
+
+    A courtesy, not a verification. The subscriber authenticated through
+    Authentik and the address comes from that account, so there is nothing to
+    prove; nothing waits on this message and a failure to send it never stops a
+    digest. If subscribing by bare email is ever built, that case needs a real
+    verification message and Subscription.verified starting False, which is a
+    different message from this one rather than a flag on it.
+    """
+    subscription = _subscriber_to_mail(
+        subscription_id, "send_subscription_confirmation"
+    )
+    if subscription is None:
+        return
+    _send(
+        EmailMessage(
+            subject=CONFIRMATION_SUBJECT,
+            body=render_confirmation(subscription),
+            to=[subscription.user.email],
+        ),
+        "send_subscription_confirmation",
+        subscription_id,
     )
 
 

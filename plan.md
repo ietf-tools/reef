@@ -39,11 +39,17 @@ https://account.ietf.org/.
 
 Surveys are built end to end. Ratings, popularity, and subscriptions are scaffolded
 as Django API app modules (models, endpoints, and test stubs) to be completed in a
-later phase. Subscription email delivery is built: reef.mail carries the project's
-mail defaults, templates/subscriptions/mail/digest.txt is the notification body, and
-send_subscription_digest renders and sends it on a retrying celery task. The
-datatracker change-feed remains scaffolded, so nothing yet calls that task in
-production.
+later phase. Subscription email is built: reef.mail carries the project's mail
+defaults, templates/subscriptions/mail holds the two message bodies and the sentence
+they share, and both send on a retrying celery task. A confirmation goes out when a
+subscription is created, which is the one of the two that is wired end to end. The
+digest has no caller yet, because the datatracker change-feed remains scaffolded.
+
+The confirmation is a courtesy rather than a verification: subscribers authenticate
+through Authentik, so the address is already known good and nothing waits on the
+message. Subscribe-by-bare-email, if it is ever built, needs a real verification
+message and Subscription.verified starting False; that is a second message, not a
+flag on this one.
 
 Document sets are built: models, the owner-scoped API, the public read path, and
 subscribing to a set. They were new scope rather than a gap in the scaffold, so they
@@ -419,7 +425,8 @@ Then, for document sets:
   4. /manage/surveys/<id>/analytics/ renders the results.
 - Scaffolds: GET /popularity/ returns the curated list; PUT /ratings/{rfc}/ with a
   bearer stores a rating and the aggregate updates; POST /subscriptions/ stores a
-  subscription and enqueues a confirmation caught by mailpit.
+  subscription and enqueues a confirmation caught by mailpit, and a second POST of the
+  same subscription does not send a second one.
 - Document sets: a set is created with a title and description, an RFC and a BCP are
   added and reordered, a second add of the same document in another spelling does not
   duplicate it, a private set is invisible to an anonymous GET, and a subscription to

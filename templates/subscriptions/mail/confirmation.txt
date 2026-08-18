@@ -1,0 +1,17 @@
+{% autoescape off %}{% comment %}
+Sent once, when a subscription is created. A courtesy, not a verification: the
+subscriber authenticated through Authentik and the address is the one on that
+account, so there is nothing to prove and no link to click. Saying so is most
+of the point of the message, since a reader who has met double opt-in
+elsewhere will otherwise wait for one.
+
+Context: subscription, watched_doc, subscriptions_url (may be empty).
+{% endcomment %}{% include "subscriptions/mail/_subscription_line.txt" with lead="You are now subscribed to" %}
+There is nothing to confirm. You will get an email when something changes, and
+nothing in between.
+{% if subscriptions_url %}
+To change or stop these notifications, see
+    {{ subscriptions_url }}
+{% endif %}
+The RFC Editor Team
+{% endautoescape %}
