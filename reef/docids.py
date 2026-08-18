@@ -29,6 +29,11 @@ _DOC_ID_RE = re.compile(
     re.IGNORECASE,
 )
 
+# The canonical form itself, for reading one back apart. Anchored and
+# case-sensitive, unlike _DOC_ID_RE, because what it matches is this module's
+# own output rather than what someone typed.
+_CANONICAL_DOC_ID_RE = re.compile(rf"^({'|'.join(DOC_SERIES)})(\d+)$")
+
 
 def normalize_doc_id(value, default_series=None):
     """Return value in canonical form, or raise ValidationError.
@@ -65,3 +70,17 @@ def normalize_doc_id(value, default_series=None):
             f"A document identifier must be at most {DOC_ID_MAX_LENGTH} characters."
         )
     return doc_id
+
+
+def display_doc_id(value):
+    """Return a canonical identifier as prose writes it: rfc9110 -> "RFC 9110".
+
+    The canonical form exists so that storage and joins have one spelling; it
+    is not how the series is written in a sentence. Anything that does not
+    parse comes back unchanged, so that a caller rendering a value from an
+    external feed shows it as given rather than losing it.
+    """
+    match = _CANONICAL_DOC_ID_RE.match(value or "")
+    if not match:
+        return value
+    return f"{match[1].upper()} {match[2]}"

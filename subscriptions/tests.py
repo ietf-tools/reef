@@ -1,13 +1,23 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+from unittest import mock
+
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.test import override_settings
 from rest_framework.test import APITestCase
 
 from docsets.models import DocumentSet, DocumentSetEntry
+from reef.mail import EmailMessage
 
 from .models import Subscription
-from .tasks import subscriptions_for_document
+from .tasks import (
+    SendDigestError,
+    digest_subject,
+    send_subscription_digest,
+    subscriptions_for_document,
+)
 
 User = get_user_model()
 
@@ -300,3 +310,175 @@ class DocumentMatchingTests(APITestCase):
             user=self.user, kind=Subscription.Kind.SET, document_set=self.set
         )
         self.assertEqual(list(subscriptions_for_document("rfc2119")), [])
+
+
+class DigestSubjectTests(APITestCase):
+    def test_one_document_is_named(self):
+        self.assertEqual(
+            digest_subject([{"doc": "rfc9110", "change": "Published"}]),
+            "RFC series updates: RFC 9110",
+        )
+
+    def test_many_documents_are_counted(self):
+        events = [{"doc": doc} for doc in ("rfc9110", "rfc9111", "bcp14")]
+        self.assertEqual(digest_subject(events), "RFC series updates: 3 documents")
+
+    def test_the_same_document_twice_counts_once(self):
+        events = [{"doc": "rfc9110", "change": "a"}, {"doc": "rfc9110", "change": "b"}]
+        self.assertEqual(digest_subject(events), "RFC series updates: RFC 9110")
+
+    def test_events_with_no_document(self):
+        # A predicate kind can match something that is not about one document.
+        self.assertEqual(
+            digest_subject([{"change": "BCP 14 now includes RFC 8174"}]),
+            "RFC series updates",
+        )
+
+
+@override_settings(MESSAGE_ID_DOMAIN="example.org", REEF_SUBSCRIPTIONS_URL="")
+class SendSubscriptionDigestTests(APITestCase):
+    def setUp(self):
+        mail.outbox = []
+        self.user = User.objects.create(
+            username="u", oidc_sub="s", email="reader@example.org"
+        )
+
+    def test_one_mail_for_an_rfc_subscription(self):
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+        )
+        send_subscription_digest(
+            subscription.pk,
+            [
+                {
+                    "doc": "rfc9110",
+                    "change": "Obsoleted by RFC 9999",
+                    "url": "https://www.rfc-editor.org/info/rfc9110",
+                }
+            ],
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, ["reader@example.org"])
+        self.assertEqual(sent.subject, "RFC series updates: RFC 9110")
+        self.assertIn("changes to RFC 9110", sent.body)
+        self.assertIn("RFC 9110: Obsoleted by RFC 9999", sent.body)
+        self.assertIn("https://www.rfc-editor.org/info/rfc9110", sent.body)
+        self.assertEqual(sent.extra_headers["Auto-Submitted"], "auto-generated")
+        self.assertTrue(sent.extra_headers["Message-ID"].endswith("@example.org>"))
+
+    def test_a_batch_is_one_mail_not_one_per_document(self):
+        # The scenario plan.md calls out as unverifiable while nothing sent mail.
+        document_set = DocumentSet.objects.create(owner=self.user, title="HTTP")
+        for doc in ("rfc9110", "rfc9111", "rfc9112"):
+            DocumentSetEntry.objects.create(document_set=document_set, doc=doc)
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SET, document_set=document_set
+        )
+        send_subscription_digest(
+            subscription.pk,
+            [
+                {"doc": doc, "change": "Published"}
+                for doc in ("rfc9110", "rfc9111", "rfc9112")
+            ],
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.subject, "RFC series updates: 3 documents")
+        # The sentence wraps, so look for the title rather than the whole phrase.
+        self.assertIn('"HTTP"', sent.body)
+        self.assertIn("your document set", sent.body)
+        self.assertIn("There have been 3 changes", sent.body)
+        for expected in ("RFC 9110", "RFC 9111", "RFC 9112"):
+            self.assertIn(expected, sent.body)
+
+    def test_prose_is_wrapped_for_plain_text(self):
+        # A set title is up to 200 characters of the owner's choosing and a
+        # change line comes from the datatracker feed, so neither can be
+        # trusted to fit a line.
+        document_set = DocumentSet.objects.create(
+            owner=self.user, title="Everything the HTTP working group has ever " * 4
+        )
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SET, document_set=document_set
+        )
+        send_subscription_digest(
+            subscription.pk,
+            [{"doc": "rfc9110", "change": "Obsoleted by RFC 9999, " * 8}],
+        )
+        for line in mail.outbox[0].body.split("\n"):
+            self.assertLessEqual(len(line), 78, line)
+
+    def test_each_kind_says_what_was_subscribed_to(self):
+        cases = [
+            (Subscription.Kind.NEW_RFC, {}, "every new RFC"),
+            (
+                Subscription.Kind.BY_STATUS,
+                {"status": "internet standard"},
+                'status "internet standard"',
+            ),
+            (Subscription.Kind.OBSOLETED, {}, "obsoleted or made historic"),
+            (
+                Subscription.Kind.SUBJECT_TAG,
+                {"tag": "security"},
+                'subject tag "security"',
+            ),
+        ]
+        for kind, params, expected in cases:
+            with self.subTest(kind=kind):
+                mail.outbox = []
+                subscription = Subscription.objects.create(
+                    user=self.user, kind=kind, params=params
+                )
+                send_subscription_digest(
+                    subscription.pk, [{"doc": "rfc9110", "change": "Published"}]
+                )
+                self.assertIn(expected, mail.outbox[0].body)
+                subscription.delete()
+
+    @override_settings(REEF_SUBSCRIPTIONS_URL="https://example.org/subscriptions")
+    def test_the_reader_is_told_how_to_stop(self):
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.NEW_RFC
+        )
+        send_subscription_digest(subscription.pk, [{"doc": "rfc9110"}])
+        sent = mail.outbox[0]
+        self.assertIn("https://example.org/subscriptions", sent.body)
+        self.assertEqual(
+            sent.extra_headers["List-Unsubscribe"],
+            "<https://example.org/subscriptions>",
+        )
+
+    def test_nothing_is_sent_for_an_empty_batch(self):
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.NEW_RFC
+        )
+        send_subscription_digest(subscription.pk, [])
+        self.assertEqual(mail.outbox, [])
+
+    def test_a_deleted_subscription_is_not_an_error(self):
+        # Unsubscribing is a hard delete, so it can happen between the match
+        # and the send. Retrying would never find it.
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.NEW_RFC
+        )
+        pk = subscription.pk
+        subscription.delete()
+        send_subscription_digest(pk, [{"doc": "rfc9110"}])
+        self.assertEqual(mail.outbox, [])
+
+    def test_nothing_is_sent_without_an_address(self):
+        user = User.objects.create(username="noaddr", oidc_sub="s2", email="")
+        subscription = Subscription.objects.create(
+            user=user, kind=Subscription.Kind.NEW_RFC
+        )
+        send_subscription_digest(subscription.pk, [{"doc": "rfc9110"}])
+        self.assertEqual(mail.outbox, [])
+
+    def test_a_send_failure_is_retryable(self):
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.NEW_RFC
+        )
+        with mock.patch.object(EmailMessage, "send", side_effect=OSError("no relay")):
+            with self.assertRaises(SendDigestError):
+                send_subscription_digest(subscription.pk, [{"doc": "rfc9110"}])

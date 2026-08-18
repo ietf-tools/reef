@@ -39,15 +39,19 @@ https://account.ietf.org/.
 
 Surveys are built end to end. Ratings, popularity, and subscriptions are scaffolded
 as Django API app modules (models, endpoints, and test stubs) to be completed in a
-later phase. Subscription email delivery and the datatracker change-feed are
-scaffolded as an interface and an async task rather than fully wired.
+later phase. Subscription email delivery is built: reef.mail carries the project's
+mail defaults, templates/subscriptions/mail/digest.txt is the notification body, and
+send_subscription_digest renders and sends it on a retrying celery task. The
+datatracker change-feed remains scaffolded, so nothing yet calls that task in
+production.
 
 Document sets are built: models, the owner-scoped API, the public read path, and
 subscribing to a set. They were new scope rather than a gap in the scaffold, so they
 still need a ticket of their own and a cross-repo agreement with Red on the UI, in
-the way the open-survey list did. What is not built is delivery: matching a set to a
-change event is written and tested, but nothing sends mail, and the subseries
-question under open items is unanswered.
+the way the open-survey list did. Matching a set to a change event is written and
+tested, and sending the resulting digest now is too. What is still missing between
+them is ingestion: nothing turns a datatracker feed record into an event, coalesces a
+subscriber's matches, or answers the subseries question under open items.
 
 ### Ticket alignment
 
@@ -419,9 +423,11 @@ Then, for document sets:
 - Document sets: a set is created with a title and description, an RFC and a BCP are
   added and reordered, a second add of the same document in another spelling does not
   duplicate it, a private set is invisible to an anonymous GET, and a subscription to
-  the set is matched by a change to a document added after it was made. All covered by
-  manage.py test. Not yet verifiable: that a batch of changes produces one digest
-  rather than one mail per document, because nothing sends mail yet.
+  the set is matched by a change to a document added after it was made, and a batch of
+  three changes to a subscribed set produces one mail naming all three rather than one
+  mail per document. All covered by manage.py test. Not yet verifiable end to end:
+  that a real datatracker change arrives as such a batch, because ingestion is still a
+  stub.
 - Statistics: GET /stats/ with no token returns a row per engaged document; adding a
   rating, a subscription and a set entry for one document moves all three numbers; a
   user subscribed both directly and through a set counts once; ?set= returns the
@@ -462,12 +468,21 @@ Then, for document sets:
   private, empties it, or deletes it. Continuing to mail a subscriber about a set they
   can no longer see leaks its membership, so visibility has to be rechecked at send
   time and not only at subscribe time.
-- Notification volume: a set turns one event into potentially many mails, and a
-  subscriber holding both a set and an overlapping rfc subscription gets a duplicate.
-  Both need solving before sets ship, and the second is already possible today with
-  obsoleted plus rfc. This makes send_subscription_email(subscription_id, event) the
-  wrong shape: delivery has to coalesce per subscriber over a window, and deduplicate
-  per user per event. Cheap to reshape now, expensive once templates exist.
+- Notification volume: half of this is now settled and half is not. The shape is
+  settled, ahead of the templates as intended: delivery is
+  send_subscription_digest(subscription_id, events), one call is one mail, and a batch
+  of changes to a set arrives as one digest. What is not settled is who batches. A
+  subscriber holding both a set and an overlapping rfc subscription still gets two
+  mails, because the task sees one subscription and cannot know about the other, so
+  coalescing per subscriber over a window and deduplicating per user per event have to
+  happen in ingest_rfc_change before it enqueues anything. That is the remaining work
+  here, and it is already reachable today with obsoleted plus rfc.
+- One-click unsubscribe: notifications carry List-Unsubscribe pointing at
+  REEF_SUBSCRIPTIONS_URL, but not List-Unsubscribe-Post, because RFC 8058 one-click
+  needs an unauthenticated tokenized endpoint to POST to and Reef's unsubscribe is an
+  authenticated delete. Mailbox providers increasingly weight one-click support, so
+  decide whether to add a signed-token endpoint. It is the same token machinery the
+  unbuilt subscribe-by-bare-email case needs, so decide the two together.
 - Public sets are user-generated content on an ietf.org origin: a title and
   description are free text, published, and attributable to an IETF account. Staff
   need a way to unpublish one without deleting a user's data. The cheap version is the

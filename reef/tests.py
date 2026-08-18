@@ -2,7 +2,7 @@
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
-from reef.docids import normalize_doc_id
+from reef.docids import display_doc_id, normalize_doc_id
 
 
 class NormalizeDocIdTests(SimpleTestCase):
@@ -48,3 +48,23 @@ class NormalizeDocIdTests(SimpleTestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValidationError):
                     normalize_doc_id(value, default_series="rfc")
+
+
+class DisplayDocIdTests(SimpleTestCase):
+    def test_prose_form(self):
+        cases = {
+            "rfc9110": "RFC 9110",
+            "bcp14": "BCP 14",
+            "std66": "STD 66",
+            "fyi36": "FYI 36",
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(display_doc_id(value), expected)
+
+    def test_anything_unparsed_comes_back_as_given(self):
+        # A caller rendering a value from the datatracker feed shows what it
+        # was given rather than dropping it.
+        for value in ("", None, "RFC 9110", "draft-ietf-httpbis-semantics"):
+            with self.subTest(value=value):
+                self.assertEqual(display_doc_id(value), value)

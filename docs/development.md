@@ -40,6 +40,29 @@ values:
 Production adds environment-driven `REEF_DJANGO_SECRET_KEY`, `REEF_ALLOWED_HOSTS`,
 and `REEF_DB_*`; see `reef/settings/production.py`.
 
+## Email
+
+`base.py` sets the dummy backend, so a mode that has not configured mail sends
+nothing rather than sending it somewhere unintended. Development points SMTP at the
+`mailpit` container (web UI on 8025) and production configures it from
+`REEF_EMAIL_HOST` / `REEF_EMAIL_PORT`, falling back to a mailpit Kubernetes service.
+
+`reef.mail` is where the project's mail defaults live, so that no caller has to
+remember them: the from address, a Message-ID in `REEF_MESSAGE_ID_DOMAIN` rather than
+in the local hostname, and the headers that mark a notification as automatically
+generated. Notification bodies are plain-text Django templates under `templates/`,
+one per kind of message, with the subject composed in Python; both conventions come
+from Purple.
+
+- `REEF_DEFAULT_FROM_EMAIL` - from address. Defaults to `reef@ietf.org`.
+- `REEF_MESSAGE_ID_DOMAIN` - domain for generated Message-IDs. Defaults to
+  `ietf.org`. Without it Django would use the pod hostname.
+- `REEF_SUBSCRIPTIONS_URL` - Red's subscription management page. A notification
+  links to it and sets `List-Unsubscribe` to it. Empty leaves both out rather than
+  linking nowhere, so set it in any deployment that sends notifications.
+- `REEF_ADMINS` - newline-separated addresses told when a task gives up after its
+  retries. Optional; without it the failure is only logged.
+
 ## Authentik setup
 
 Register a `reef` application in Authentik (account.ietf.org). Reef uses two

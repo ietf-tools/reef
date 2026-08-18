@@ -90,6 +90,7 @@ uses Kustomize: `k8s/base` with `k8s/overlays/staging` and
 - `reefauth/` - custom user and OIDC (login backend plus bearer resource-server auth)
 - `surveys/` - survey models, API, and the `/manage/` builder and analytics
 - `ratings/`, `popularity/`, `subscriptions/` - engagement API apps
+- `templates/` - Django templates, currently the notification email bodies
 - `client/` - Nuxt survey runner
 - `vendor/` - self-hosted SurveyJS bundles
 - `docker/` - dev container and compose tooling

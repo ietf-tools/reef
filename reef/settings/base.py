@@ -267,6 +267,14 @@ CACHES = {
 # Email. Per-environment modules configure a real backend.
 EMAIL_BACKEND = "django.core.mail.backends.dummy.EmailBackend"
 DEFAULT_FROM_EMAIL = os.environ.get("REEF_DEFAULT_FROM_EMAIL", "reef@ietf.org")
+# The domain Message-IDs are generated in. Without it Django uses the local
+# hostname, which is a pod name under Kubernetes. See reef.mail.
+MESSAGE_ID_DOMAIN = os.environ.get("REEF_MESSAGE_ID_DOMAIN", "ietf.org")
+# Where a notification tells its reader to go to change or stop it. Red owns
+# the subscription UI, so this is Red's page rather than a Reef route. Empty
+# leaves the line and the List-Unsubscribe header out rather than linking
+# nowhere.
+REEF_SUBSCRIPTIONS_URL = os.environ.get("REEF_SUBSCRIPTIONS_URL", "")
 ADMINS = []
 
 # Celery
