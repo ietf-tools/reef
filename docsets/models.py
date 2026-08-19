@@ -1,4 +1,6 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+import uuid
+
 from django.conf import settings
 from django.db import models
 from django.utils.text import slugify
@@ -20,6 +22,11 @@ class DocumentSet(models.Model):
         PRIVATE = "private", "Private"
         PUBLIC = "public", "Public"
 
+    # A random id, not a sequence: a set is public by default and its URL is
+    # handed around, so a sequential id would let anyone walk /sets/1, /sets/2
+    # and read every set in the system. Unguessability is the only thing
+    # standing between a published set and enumeration of all of them.
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -31,9 +38,9 @@ class DocumentSet(models.Model):
     visibility = models.CharField(
         max_length=16,
         choices=Visibility.choices,
-        default=Visibility.PRIVATE,
-        help_text="A set title and its membership say what someone is tracking, "
-        "so publishing is the owner's choice.",
+        default=Visibility.PUBLIC,
+        help_text="Sets are public: a title and its membership are readable by "
+        "anyone with the link. Private is kept for staff to unpublish one.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

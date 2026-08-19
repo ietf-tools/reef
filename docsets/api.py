@@ -36,7 +36,11 @@ class DocumentSetListCreate(OwnedSetMixin, generics.ListCreateAPIView):
 
 
 class DocumentSetDetail(OwnedSetMixin, generics.RetrieveUpdateDestroyAPIView):
-    """Read, retitle, redescribe, publish, or delete one of the caller's sets."""
+    """Read, retitle, redescribe, or delete one of the caller's sets.
+
+    Not unpublish: sets made through the API are public, so visibility takes
+    only that one value here. See DocumentSetSerializer.validate_visibility.
+    """
 
     serializer_class = DocumentSetSerializer
 

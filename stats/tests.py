@@ -1,4 +1,6 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+import uuid
+
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
@@ -64,8 +66,9 @@ class DocumentStatsTests(APITestCase):
 
     def test_set_count_counts_distinct_sets_including_private(self):
         for owner, title in ((self.a, "One"), (self.b, "Two")):
-            document_set = DocumentSet.objects.create(owner=owner, title=title)
-            self.assertEqual(document_set.visibility, "private")
+            document_set = DocumentSet.objects.create(
+                owner=owner, title=title, visibility=DocumentSet.Visibility.PRIVATE
+            )
             DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
         self.assertEqual(self.stats()["rfc9110"]["set_count"], 2)
 
@@ -124,7 +127,9 @@ class DocumentStatsTests(APITestCase):
     def test_private_set_is_not_readable_by_a_stranger(self):
         # Otherwise the filter would list a private set's membership to anyone
         # who guessed its id.
-        document_set = DocumentSet.objects.create(owner=self.a, title="Mine")
+        document_set = DocumentSet.objects.create(
+            owner=self.a, title="Mine", visibility=DocumentSet.Visibility.PRIVATE
+        )
         DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
 
         self.assertEqual(
@@ -136,17 +141,25 @@ class DocumentStatsTests(APITestCase):
         )
 
     def test_owner_can_filter_by_their_own_private_set(self):
-        document_set = DocumentSet.objects.create(owner=self.a, title="Mine")
+        document_set = DocumentSet.objects.create(
+            owner=self.a, title="Mine", visibility=DocumentSet.Visibility.PRIVATE
+        )
         DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
 
         self.client.force_authenticate(user=self.a)
         self.assertEqual(list(self.stats(f"?set={document_set.pk}")), ["rfc9110"])
 
     def test_unknown_set_is_not_found(self):
-        self.assertEqual(self.client.get("/api/reef/stats/?set=9999").status_code, 404)
+        self.assertEqual(
+            self.client.get(f"/api/reef/stats/?set={uuid.uuid4()}").status_code, 404
+        )
 
-    def test_set_filter_rejects_a_non_numeric_id(self):
-        self.assertEqual(self.client.get("/api/reef/stats/?set=abc").status_code, 400)
+    def test_set_filter_rejects_an_id_that_is_not_a_uuid(self):
+        for raw in ("abc", "9999", ""):
+            with self.subTest(set=raw):
+                self.assertEqual(
+                    self.client.get(f"/api/reef/stats/?set={raw}").status_code, 400
+                )
 
     def test_empty_set_returns_no_rows(self):
         document_set = DocumentSet.objects.create(

@@ -43,6 +43,25 @@ class DocumentSetSerializer(serializers.ModelSerializer):
         # the documents endpoints rather than by rewriting the set.
         read_only_fields = ["id", "slug", "documents", "created_at", "updated_at"]
 
+    def validate_visibility(self, value):
+        """Refuse private, on create and on update alike.
+
+        Rejected rather than silently coerced: a client that asked for a private
+        set and got a 201 would have no way to tell that what it made is
+        published. Checked here rather than in perform_create so that the
+        update paths are covered by the same rule, since otherwise a set could
+        be created public and immediately made private.
+
+        An omitted visibility needs nothing here: the model default is public,
+        so the private that remains is only reachable through the admin.
+        """
+        if value != DocumentSet.Visibility.PUBLIC:
+            raise serializers.ValidationError(
+                "Sets are public through the API. Private sets are not offered "
+                "here, so visibility can only be set to public."
+            )
+        return value
+
 
 class DocumentSetOrderSerializer(serializers.Serializer):
     """The set's documents, in the order they should be shown."""

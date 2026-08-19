@@ -1,4 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+import uuid
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -205,7 +206,7 @@ class SetSubscriptionTests(APITestCase):
     def test_subscribe_to_a_set(self):
         response = self.subscribe(kind="set", set=self.set.pk)
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["set"], self.set.pk)
+        self.assertEqual(response.json()["set"], str(self.set.pk))
 
     def test_set_kind_requires_a_set(self):
         self.assertEqual(self.subscribe(kind="set").status_code, 400)
@@ -222,7 +223,9 @@ class SetSubscriptionTests(APITestCase):
         # Public, but not yet subscribable: a set that is not yours reads the
         # same as one that does not exist.
         self.assertEqual(self.subscribe(kind="set", set=theirs.pk).status_code, 400)
-        self.assertEqual(self.subscribe(kind="set", set=9999).status_code, 400)
+        unknown = str(uuid.uuid4())
+        self.assertEqual(self.subscribe(kind="set", set=unknown).status_code, 400)
+        self.assertEqual(self.subscribe(kind="set", set="not-a-uuid").status_code, 400)
 
     def test_repeat_subscribe_to_a_set_is_idempotent(self):
         first = self.subscribe(kind="set", set=self.set.pk)

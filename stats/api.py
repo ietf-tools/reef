@@ -1,11 +1,13 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Per-document engagement numbers, for Red's build-time precompute."""
 
+import uuid
 from collections import defaultdict
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Avg, Count, Q
 from django.db.models.fields.json import KeyTextTransform
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import AllowAny
@@ -33,9 +35,9 @@ def _set_counts():
     """Sets holding each document, private ones included.
 
     The numbers are aggregate and name nobody: a count of one says that
-    somebody tracks this document, not who. Counting only public sets was
-    considered and rejected, because sets are private by default and the
-    number would stay at zero indefinitely.
+    somebody tracks this document, not who. Private sets are counted too, so
+    that the number does not move when staff unpublish one and thereby say
+    something about that set.
     """
     return dict(
         DocumentSetEntry.objects.values("doc")
@@ -97,7 +99,7 @@ class DocumentStatsList(APIView):
             ),
             OpenApiParameter(
                 "set",
-                int,
+                OpenApiTypes.UUID,
                 description=(
                     "Document set id. Returns a row per document the set "
                     "holds, including members with no engagement. Public sets "
@@ -144,17 +146,17 @@ class DocumentStatsList(APIView):
     def _documents_in_set(request, raw_id):
         """The documents a set holds, if the caller may know what they are.
 
-        This endpoint is anonymous and sets are private by default, so an
-        unguarded set filter would let anyone read a private set's membership
-        off the rows it returned. Aggregate counts naming nobody is one thing;
-        listing what a named person is tracking is another.
+        This endpoint is anonymous, so an unguarded set filter would let anyone
+        read an unpublished set's membership off the rows it returned.
+        Aggregate counts naming nobody is one thing; listing what a named
+        person is tracking is another.
 
         A private set 404s rather than 403s, matching the public set read, so
         the filter does not confirm that one exists.
         """
         try:
-            set_id = int(raw_id)
-        except (TypeError, ValueError):
+            set_id = uuid.UUID(raw_id)
+        except (AttributeError, TypeError, ValueError):
             raise ValidationError({"set": "Must be a document set id."}) from None
 
         visible = Q(visibility=DocumentSet.Visibility.PUBLIC)

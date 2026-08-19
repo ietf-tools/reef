@@ -1,4 +1,6 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+import uuid
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from rest_framework.test import APITestCase
@@ -29,9 +31,58 @@ class DocumentSetApiTests(APITestCase):
         self.assertEqual(body["title"], "HTTP core")
         self.assertEqual(body["description"], "The documents I am reviewing.")
         self.assertEqual(body["slug"], "http-core")
-        self.assertEqual(body["visibility"], "private")  # not public by default
+        self.assertEqual(body["visibility"], "public")  # the only value on offer
         self.assertEqual(body["documents"], [])
         self.assertEqual(body["owner_name"], "A Person")
+
+    def test_id_is_a_random_uuid(self):
+        # Sets are public by default and their URLs are handed around, so the
+        # id has to be unguessable: a sequential one would let anyone walk the
+        # range and read every set in the system.
+        ids = [uuid.UUID(self.create_set(title=f"Set {n}").json()["id"]) for n in range(3)]
+        self.assertEqual(len({str(i) for i in ids}), 3)
+        self.assertTrue(all(i.version == 4 for i in ids))
+
+    def test_create_accepts_an_explicit_public(self):
+        response = self.create_set(visibility="public")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["visibility"], "public")
+
+    def test_create_refuses_private(self):
+        response = self.create_set(visibility="private")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("visibility", response.json())
+        self.assertFalse(DocumentSet.objects.exists())
+
+    def test_update_refuses_private(self):
+        set_id = self.create_set().json()["id"]
+        for method in (self.client.patch, self.client.put):
+            with self.subTest(method=method.__name__):
+                response = method(
+                    f"/api/reef/sets/{set_id}/",
+                    {"title": "HTTP core", "visibility": "private"},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            DocumentSet.objects.get(pk=set_id).visibility,
+            DocumentSet.Visibility.PUBLIC,
+        )
+
+    def test_a_put_that_omits_visibility_does_not_publish_a_private_set(self):
+        # A set the admin has unpublished keeps its visibility: a retitle by its
+        # owner is not a decision to publish it again.
+        private = DocumentSet.objects.create(
+            owner=self.user,
+            title="Older",
+            visibility=DocumentSet.Visibility.PRIVATE,
+        )
+        response = self.client.put(
+            f"/api/reef/sets/{private.pk}/", {"title": "Renamed"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        private.refresh_from_db()
+        self.assertEqual(private.visibility, DocumentSet.Visibility.PRIVATE)
 
     def test_retitle_moves_the_slug(self):
         set_id = self.create_set().json()["id"]
@@ -171,16 +222,16 @@ class PublicDocumentSetTests(APITestCase):
         slug = slug or self.document_set.slug
         return f"/api/reef/sets/{self.document_set.pk}/{slug}/"
 
-    def publish(self):
-        self.document_set.visibility = DocumentSet.Visibility.PUBLIC
+    def unpublish(self):
+        self.document_set.visibility = DocumentSet.Visibility.PRIVATE
         self.document_set.save()
 
     def test_private_set_is_not_found_rather_than_forbidden(self):
+        self.unpublish()
         response = self.client.get(self.url())
         self.assertEqual(response.status_code, 404)
 
     def test_public_set_reads_anonymously(self):
-        self.publish()
         response = self.client.get(self.url())
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -189,14 +240,11 @@ class PublicDocumentSetTests(APITestCase):
         self.assertEqual([e["doc"] for e in body["documents"]], ["rfc9110"])
 
     def test_stale_slug_redirects_to_the_current_url(self):
-        self.publish()
         response = self.client.get(self.url(slug="old-title"))
         self.assertEqual(response.status_code, 301)
         self.assertEqual(response["Location"], self.url())
 
     def test_unpublishing_stops_public_reads(self):
-        self.publish()
         self.assertEqual(self.client.get(self.url()).status_code, 200)
-        self.document_set.visibility = DocumentSet.Visibility.PRIVATE
-        self.document_set.save()
+        self.unpublish()
         self.assertEqual(self.client.get(self.url()).status_code, 404)
