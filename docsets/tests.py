@@ -31,13 +31,14 @@ class DocumentSetApiTests(APITestCase):
         body = response.json()
         self.assertEqual(body["title"], "HTTP core")
         self.assertEqual(body["description"], "The documents I am reviewing.")
-        self.assertNotIn("visibility", body)  # not part of the API
+        self.assertNotIn("visibility", body)  # no such thing, here or on the model
         self.assertNotIn("slug", body)  # the id is the whole of a set's identity
         self.assertEqual(body["documents"], [])
         self.assertEqual(body["owner_name"], "A Person")
 
     def test_id_is_a_random_uuid(self):
-        # Sets are public by default and their URLs are handed around, so the
+        # A set is readable by anyone holding its id, and that id is handed
+        # around, so the
         # id has to be unguessable: a sequential one would let anyone walk the
         # range and read every set in the system.
         ids = [
@@ -46,38 +47,18 @@ class DocumentSetApiTests(APITestCase):
         self.assertEqual(len({str(i) for i in ids}), 3)
         self.assertTrue(all(i.version == 4 for i in ids))
 
-    def test_visibility_cannot_be_set_through_the_api(self):
-        # Not a 400: visibility is not a field here, so DRF ignores it like any
-        # other unknown key. What matters is that the set is still public and
-        # that no client can talk itself into a private one.
+    def test_a_set_has_no_visibility_to_ask_for(self):
+        # Not a 400: there is no such field, so DRF ignores it like any other
+        # unknown key. A set is readable by whoever holds its id, and no client
+        # can talk its way into some other arrangement.
         response = self.create_set(visibility="private")
         self.assertEqual(response.status_code, 201)
         self.assertNotIn("visibility", response.json())
-        self.assertEqual(
-            DocumentSet.objects.get(pk=response.json()["id"]).visibility,
-            DocumentSet.Visibility.PUBLIC,
-        )
 
-    def test_an_update_cannot_republish_a_set_staff_have_unpublished(self):
-        # A set the admin has taken down keeps its visibility through anything
-        # its owner does: a retitle is not a decision to publish it again, and
-        # the API offers no way to ask for one.
-        private = DocumentSet.objects.create(
-            owner=self.user,
-            title="Older",
-            visibility=DocumentSet.Visibility.PRIVATE,
-        )
-        for method, payload in (
-            (self.client.put, {"title": "Renamed", "visibility": "public"}),
-            (self.client.patch, {"visibility": "public"}),
-        ):
-            with self.subTest(method=method.__name__):
-                response = method(
-                    f"/api/reef/sets/{private.pk}/", payload, format="json"
-                )
-                self.assertEqual(response.status_code, 200)
-                private.refresh_from_db()
-                self.assertEqual(private.visibility, DocumentSet.Visibility.PRIVATE)
+        set_id = response.json()["id"]
+        self.assertEqual(self.client.get(f"/api/reef/sets/{set_id}/").status_code, 200)
+        self.client.force_authenticate(user=None)
+        self.assertEqual(self.client.get(f"/api/reef/sets/{set_id}/").status_code, 200)
 
     def test_retitling_leaves_the_url_alone(self):
         # The id is a set's identity, so a link that was shared before the
@@ -100,14 +81,11 @@ class DocumentSetApiTests(APITestCase):
         self.assertEqual(self.create_set(title="!!!").status_code, 201)
 
     def test_sets_are_scoped_to_their_owner(self):
-        # The listing and every write are the owner's; reading a public set is
-        # not, because that is the shared link. Their private set is a 404, and
-        # so is a write to either, whether it is public or not.
+        # The listing and every write are the owner's. Reading is not, because
+        # that is the shared link: a write to someone else's set 404s rather
+        # than 403s, so the refusal says nothing about whose it is.
         other = User.objects.create(username="o", oidc_sub="s2")
         theirs = DocumentSet.objects.create(owner=other, title="Theirs")
-        theirs_private = DocumentSet.objects.create(
-            owner=other, title="Also theirs", visibility=DocumentSet.Visibility.PRIVATE
-        )
 
         self.create_set()
         listing = self.client.get("/api/reef/sets/").json()
@@ -116,19 +94,14 @@ class DocumentSetApiTests(APITestCase):
             self.client.get(f"/api/reef/sets/{theirs.pk}/").status_code, 200
         )
         self.assertEqual(
-            self.client.get(f"/api/reef/sets/{theirs_private.pk}/").status_code, 404
+            self.client.delete(f"/api/reef/sets/{theirs.pk}/").status_code, 404
         )
-        for pk in (theirs.pk, theirs_private.pk):
-            with self.subTest(set=pk):
-                self.assertEqual(
-                    self.client.delete(f"/api/reef/sets/{pk}/").status_code, 404
-                )
-                self.assertEqual(
-                    self.client.put(
-                        f"/api/reef/sets/{pk}/documents/rfc9110/"
-                    ).status_code,
-                    404,
-                )
+        self.assertEqual(
+            self.client.put(
+                f"/api/reef/sets/{theirs.pk}/documents/rfc9110/"
+            ).status_code,
+            404,
+        )
 
 
 class DocumentSetMembershipTests(APITestCase):
@@ -227,7 +200,7 @@ class DocumentSetMembershipTests(APITestCase):
 
 
 class PublicDocumentSetTests(APITestCase):
-    """The shared-link read: one URL per set, no token needed for a public one."""
+    """The shared-link read: one URL per set, and no token needed to follow it."""
 
     def setUp(self):
         self.owner = User.objects.create(username="u", oidc_sub="s", name="A Person")
@@ -240,11 +213,7 @@ class PublicDocumentSetTests(APITestCase):
     def url(self):
         return f"/api/reef/sets/{self.document_set.pk}/"
 
-    def unpublish(self):
-        self.document_set.visibility = DocumentSet.Visibility.PRIVATE
-        self.document_set.save()
-
-    def test_public_set_reads_anonymously(self):
+    def test_a_set_reads_anonymously(self):
         response = self.client.get(self.url())
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -252,21 +221,20 @@ class PublicDocumentSetTests(APITestCase):
         self.assertEqual(body["owner_name"], "A Person")
         self.assertEqual([e["doc"] for e in body["documents"]], ["rfc9110"])
 
-    def test_private_set_is_not_found_rather_than_forbidden(self):
-        self.unpublish()
-        self.assertEqual(self.client.get(self.url()).status_code, 404)
-        self.client.force_authenticate(user=self.stranger)
-        self.assertEqual(self.client.get(self.url()).status_code, 404)
+    def test_the_answer_is_the_same_whoever_asks(self):
+        # There is no visibility to condition on: the id is the permission, so
+        # the owner, a stranger and an anonymous caller get one answer. Only a
+        # staff takedown changes it, and it changes it for all three.
+        anonymous = self.client.get(self.url()).json()
+        for user in (self.owner, self.stranger):
+            with self.subTest(user=user.username):
+                self.client.force_authenticate(user=user)
+                self.assertEqual(self.client.get(self.url()).json(), anonymous)
 
-    def test_the_owner_still_reads_their_own_unpublished_set(self):
-        self.unpublish()
-        self.client.force_authenticate(user=self.owner)
-        self.assertEqual(self.client.get(self.url()).status_code, 200)
-
-    def test_unpublishing_stops_public_reads(self):
-        self.assertEqual(self.client.get(self.url()).status_code, 200)
-        self.unpublish()
-        self.assertEqual(self.client.get(self.url()).status_code, 404)
+    def test_an_id_that_names_no_set_is_a_404(self):
+        self.assertEqual(
+            self.client.get(f"/api/reef/sets/{uuid.uuid4()}/").status_code, 404
+        )
 
     def test_reading_a_set_is_not_permission_to_change_it(self):
         # The same URL serves the read and the writes, so the writes have to

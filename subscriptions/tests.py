@@ -217,11 +217,9 @@ class SetSubscriptionTests(APITestCase):
 
     def test_cannot_subscribe_to_someone_elses_set(self):
         other = User.objects.create(username="o", oidc_sub="s2")
-        theirs = DocumentSet.objects.create(
-            owner=other, title="Theirs", visibility=DocumentSet.Visibility.PUBLIC
-        )
-        # Public, but not yet subscribable: a set that is not yours reads the
-        # same as one that does not exist.
+        theirs = DocumentSet.objects.create(owner=other, title="Theirs")
+        # Readable, but not yet subscribable: a set that is not yours is, to
+        # the subscription endpoint, the same as one that does not exist.
         self.assertEqual(self.subscribe(kind="set", set=theirs.pk).status_code, 400)
         unknown = str(uuid.uuid4())
         self.assertEqual(self.subscribe(kind="set", set=unknown).status_code, 400)

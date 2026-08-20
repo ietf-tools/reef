@@ -32,12 +32,10 @@ def _rating_stats():
 
 
 def _set_counts():
-    """Sets holding each document, private ones included, deleted ones not.
+    """Sets holding each document, minus the ones staff have taken down.
 
     The numbers are aggregate and name nobody: a count of one says that
-    somebody tracks this document, not who. Private sets are counted too, so
-    that the number does not move when staff unpublish one and thereby say
-    something about that set.
+    somebody tracks this document, not who.
 
     A set staff have taken down is excluded, because it is meant to read as one
     that never existed and this is the last place it would otherwise show. The
@@ -113,10 +111,9 @@ class DocumentStatsList(APIView):
                 OpenApiTypes.UUID,
                 description=(
                     "Document set id. Returns a row per document the set "
-                    "holds, including members with no engagement. Public sets "
-                    "resolve for anyone; a private set resolves only for its "
-                    "owner, and 404s otherwise. Combines with doc as an "
-                    "intersection."
+                    "holds, including members with no engagement. Any set "
+                    "resolves for any caller holding its id; an id that names "
+                    "no set 404s. Combines with doc as an intersection."
                 ),
             ),
         ],
@@ -170,9 +167,7 @@ class DocumentStatsList(APIView):
         except (AttributeError, TypeError, ValueError):
             raise ValidationError({"set": "Must be a document set id."}) from None
 
-        document_set = (
-            DocumentSet.objects.readable_by(request.user).filter(pk=set_id).first()
-        )
+        document_set = DocumentSet.objects.filter(pk=set_id).first()
         if document_set is None:
             raise NotFound("No such document set.")
         return set(document_set.entries.values_list("doc", flat=True))

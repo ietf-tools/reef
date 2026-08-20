@@ -64,11 +64,9 @@ class DocumentStatsTests(APITestCase):
         Subscription.objects.create(user=self.b, kind=Subscription.Kind.OBSOLETED)
         self.assertEqual(self.stats()["rfc9110"]["subscriber_count"], 0)
 
-    def test_set_count_counts_distinct_sets_including_private(self):
+    def test_set_count_counts_distinct_sets(self):
         for owner, title in ((self.a, "One"), (self.b, "Two")):
-            document_set = DocumentSet.objects.create(
-                owner=owner, title=title, visibility=DocumentSet.Visibility.PRIVATE
-            )
+            document_set = DocumentSet.objects.create(owner=owner, title=title)
             DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
         self.assertEqual(self.stats()["rfc9110"]["set_count"], 2)
 
@@ -132,9 +130,7 @@ class DocumentStatsTests(APITestCase):
         self.assertEqual(self.client.get("/api/reef/stats/?doc=9110").status_code, 400)
 
     def test_filter_by_set_returns_a_row_per_member(self):
-        document_set = DocumentSet.objects.create(
-            owner=self.a, title="Mine", visibility=DocumentSet.Visibility.PUBLIC
-        )
+        document_set = DocumentSet.objects.create(owner=self.a, title="Mine")
         for doc in ("rfc9110", "bcp14"):
             DocumentSetEntry.objects.create(document_set=document_set, doc=doc)
         Rating.objects.create(rfc="rfc9110", user=self.b, value=4)
@@ -146,39 +142,30 @@ class DocumentStatsTests(APITestCase):
         self.assertEqual(rows["bcp14"]["rating_count"], 0)  # member, no engagement
 
     def test_filter_by_set_and_doc_intersects(self):
-        document_set = DocumentSet.objects.create(
-            owner=self.a, title="Mine", visibility=DocumentSet.Visibility.PUBLIC
-        )
+        document_set = DocumentSet.objects.create(owner=self.a, title="Mine")
         for doc in ("rfc9110", "bcp14"):
             DocumentSetEntry.objects.create(document_set=document_set, doc=doc)
 
         rows = self.stats(f"?set={document_set.pk}&doc=bcp14&doc=std66")
         self.assertEqual(list(rows), ["bcp14"])  # std66 is not in the set
 
-    def test_private_set_is_not_readable_by_a_stranger(self):
-        # Otherwise the filter would list a private set's membership to anyone
-        # who guessed its id.
-        document_set = DocumentSet.objects.create(
-            owner=self.a, title="Mine", visibility=DocumentSet.Visibility.PRIVATE
+    def test_an_id_that_names_no_set_is_a_404(self):
+        self.assertEqual(
+            self.client.get(f"/api/reef/stats/?set={uuid.uuid4()}").status_code, 404
         )
+
+    def test_the_filter_answers_the_same_whoever_asks(self):
+        # Holding the set's id is the whole of the permission here, as it is on
+        # the set read: there is no visibility left to condition on.
+        document_set = DocumentSet.objects.create(owner=self.a, title="Mine")
         DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
 
-        self.assertEqual(
-            self.client.get(f"/api/reef/stats/?set={document_set.pk}").status_code, 404
-        )
-        self.client.force_authenticate(user=self.b)
-        self.assertEqual(
-            self.client.get(f"/api/reef/stats/?set={document_set.pk}").status_code, 404
-        )
-
-    def test_owner_can_filter_by_their_own_private_set(self):
-        document_set = DocumentSet.objects.create(
-            owner=self.a, title="Mine", visibility=DocumentSet.Visibility.PRIVATE
-        )
-        DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
-
-        self.client.force_authenticate(user=self.a)
-        self.assertEqual(list(self.stats(f"?set={document_set.pk}")), ["rfc9110"])
+        for user in (None, self.a, self.b):
+            with self.subTest(user=user):
+                self.client.force_authenticate(user=user)
+                self.assertEqual(
+                    list(self.stats(f"?set={document_set.pk}")), ["rfc9110"]
+                )
 
     def test_unknown_set_is_not_found(self):
         self.assertEqual(
@@ -193,9 +180,7 @@ class DocumentStatsTests(APITestCase):
                 )
 
     def test_empty_set_returns_no_rows(self):
-        document_set = DocumentSet.objects.create(
-            owner=self.a, title="Mine", visibility=DocumentSet.Visibility.PUBLIC
-        )
+        document_set = DocumentSet.objects.create(owner=self.a, title="Mine")
         Rating.objects.create(rfc="rfc9110", user=self.b, value=4)
         self.assertEqual(self.stats(f"?set={document_set.pk}"), {})
 

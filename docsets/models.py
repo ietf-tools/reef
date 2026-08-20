@@ -11,26 +11,17 @@ TITLE_MAX_LENGTH = 200
 
 
 class DocumentSetQuerySet(models.QuerySet):
-    """The filters the read paths share: which sets exist, and for whom."""
+    """Which sets exist, as far as a caller is concerned.
+
+    Existing is the only question there is: a set is readable by anyone holding
+    its id, so nothing here has to ask who is asking.
+    """
 
     def live(self):
         return self.filter(deleted_at__isnull=True)
 
     def deleted(self):
         return self.filter(deleted_at__isnull=False)
-
-    def readable_by(self, user):
-        """The sets this caller may read: the public ones, and their own.
-
-        One rule in one place, because two read paths need it and they have to
-        agree: the set endpoint and the stats set filter. A set the caller may
-        not read is left out rather than refused, so that both 404 rather than
-        confirming that it exists.
-        """
-        readable = models.Q(visibility=DocumentSet.Visibility.PUBLIC)
-        if user is not None and user.is_authenticated:
-            readable |= models.Q(owner=user)
-        return self.filter(readable)
 
 
 class LiveDocumentSetManager(models.Manager.from_queryset(DocumentSetQuerySet)):
@@ -57,15 +48,11 @@ class DocumentSet(models.Model):
     change afterwards without the subscriber doing anything.
     """
 
-    class Visibility(models.TextChoices):
-        PRIVATE = "private", "Private"
-        PUBLIC = "public", "Public"
-
     # A random id, not a sequence, and the whole of a set's identity: a set is
-    # public by default and its URL is handed around, so a sequential id would
-    # let anyone walk /sets/1, /sets/2 and read every set in the system.
-    # Unguessability is the only thing standing between a published set and
-    # enumeration of all of them.
+    # readable by anyone holding its id and that id is handed around, so a
+    # sequential one would let anyone walk /sets/1, /sets/2 and read every set
+    # in the system. Unguessability is the only thing standing between one
+    # shared set and enumeration of all of them.
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -74,20 +61,11 @@ class DocumentSet(models.Model):
     )
     title = models.CharField(max_length=TITLE_MAX_LENGTH)
     description = models.TextField(blank=True)
-    visibility = models.CharField(
-        max_length=16,
-        choices=Visibility.choices,
-        default=Visibility.PUBLIC,
-        help_text="Sets are public: a title and its membership are readable by "
-        "anyone with the link. Private is not offered through the API; it is "
-        "kept for staff to unpublish a set from here.",
-    )
-    # Soft delete is the staff takedown, and it is a third state, not a
-    # stronger private: an unpublished set is still the owner's to read and
-    # edit, whereas a deleted one is gone for everybody, the owner included,
-    # and every read path answers as if it had never existed. The rows are kept
-    # so that a takedown can be reviewed and reversed, and so that enforcing
-    # one does not destroy a user's data.
+    # Soft delete is the whole of staff moderation, and the only state a set
+    # has besides existing: a deleted set is gone for everybody, the owner
+    # included, and every read path answers as if it had never existed. The
+    # rows are kept so that a takedown can be reviewed and reversed, and so
+    # that enforcing one does not destroy a user's data.
     deleted_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -114,10 +92,6 @@ class DocumentSet(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.owner_id})"
-
-    @property
-    def is_public(self):
-        return self.visibility == self.Visibility.PUBLIC
 
     @property
     def is_deleted(self):

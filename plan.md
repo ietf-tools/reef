@@ -170,19 +170,21 @@ reef/
   timestamps. Aggregate is average plus count per rfc.
 - popularity (scaffold): a curated ordered list of RFC ids (manually managed JSON,
   per ticket #1), served read-only.
-- docsets.DocumentSet: owner (FK), title, description, visibility
-  (private or public), deleted_at and deleted_reason, timestamps.
-  docsets.DocumentSetEntry:
+- docsets.DocumentSet: owner (FK), title, description, deleted_at and
+  deleted_reason, timestamps. docsets.DocumentSetEntry:
   set FK, doc (a canonical identifier), rank for display order, added_at, unique
   (set, doc). A set is a user's own list of documents, made in Red, and the unit a
   notification can be about.
 
-  Sets are public, and the API carries no visibility at all: a set is made to be
-  shared, so a client can neither ask for a private one nor read a field that would
-  always say "public". The unguessable id is what keeps a set from being found by
-  anyone who was not given the link. The private value stays on the model as the
-  staff unpublish state, reachable only from the admin, so a set taken down cannot be
-  republished by its owner. See the moderation open item below.
+  A set has no visibility, on the model or in the API: it is made to be shared, and
+  holding its id is the whole of the permission to read it. The unguessable id is
+  what keeps a set from being found by anyone who was not given the link. Private was
+  in the first cut, as the owner's choice, and was then kept briefly as a staff
+  unpublish state after the API stopped offering it; both are gone. Two staff states
+  were one too many, and the leftover column stranded any set created under the old
+  private-by-default: its owner could no longer publish it, because the API had no
+  field to do it with, so a set of theirs was readable by nobody but them with no way
+  out. Staff moderation is the soft delete alone. See the moderation open item.
 
   The id is the whole of a set's identity: there is no slug. A slug was in the first
   cut, as a readable second path segment with a redirect when it went stale, and it
@@ -279,8 +281,8 @@ Document sets (built, no ticket yet):
 
 - GET/POST /sets/ (bearer, owner only) and PATCH/PUT/DELETE /sets/{id}/ (bearer,
   owner only): a user's own sets, with title, description and the document list.
-  PATCH covers retitling and redescribing. There is no visibility field: sets made
-  here are public. The GET on /sets/{id}/ is the public read below.
+  PATCH covers retitling and redescribing. There is no visibility field, because
+  there is no visibility. The GET on /sets/{id}/ is the public read below.
 - PUT/DELETE /sets/{id}/documents/{doc}/ (bearer, owner only): add or remove one
   document. PUT is idempotent for the same reason the subscribe POST is, and the
   identifier is canonicalized before it is stored, so /sets/3/documents/RFC%209110/
@@ -288,15 +290,15 @@ Document sets (built, no ticket yet):
 - PUT /sets/{id}/order/ (bearer, owner only): reorder in one request. Ranks are
   rewritten as a block rather than patched per entry, so a drag-and-drop in Red is one
   call and cannot half-apply.
-- GET /sets/{id}/ (anonymous for a public set): the same URL the owner reads, since
-  the id is a set's whole identity and a shared link should not depend on who
-  follows it. Private and soft-deleted sets 404 rather than 403, so the endpoint
-  does not confirm that such a set exists; the writes on this URL stay owner-only
-  and 404 on someone else's set whether it is public or not. Which sets a caller may
-  read is one queryset method, shared with the stats set filter, so the two cannot
-  drift apart. The owner is not in the URL because the username is an opaque
-  authentik-<sub> string, which is neither meaningful in a link nor something to
-  publish. Red can render the owner's display name from the response.
+- GET /sets/{id}/ (anonymous): the same URL the owner reads, since the id is a set's
+  whole identity and a shared link should not depend on who follows it. Every caller
+  gets the same answer, which is the point: holding the id is the permission. A set
+  staff have taken down 404s rather than 403s, for everyone alike, so nothing
+  confirms it exists. The writes on this URL stay owner-only and 404 on someone
+  else's set, so a refusal says nothing about whose it is. The owner is not in the
+  URL because the username is an opaque authentik-<sub> string, which is neither
+  meaningful in a link nor something to publish. Red can render the owner's display
+  name from the response.
 
 Per-document statistics (built, no ticket yet):
 
@@ -309,21 +311,17 @@ Per-document statistics (built, no ticket yet):
   only documents that have some engagement appear.
 - Filtering with set returns a row per document the set holds, including members with
   no engagement, which is what a set page in Red needs. It combines with doc as an
-  intersection. The filter is visibility-aware: a public set resolves for anyone, a
-  private one only for its owner, and otherwise 404s rather than 403s, as the public
-  set read does. Without that, an anonymous caller could read a private set's
-  membership off the rows returned. That is a different order of disclosure from the
-  counts below: those name nobody, whereas a membership listing says what a named
-  person is tracking.
+  intersection. Any set resolves for any caller holding its id, as on the set read
+  itself, and an id that names no set 404s rather than 403s, a taken-down set
+  included. The disclosure is the same either way: the rows list what the set holds,
+  which is what following the link already shows.
 - subscriber_count is distinct users across the two kinds that name a document, rfc
   and set. The predicate kinds are excluded: new_rfc would otherwise add all of its
   subscribers to every recent RFC and flatten the number into noise. One user holding
   both an rfc subscription and a subscription to a set containing it counts once.
-- set_count counts distinct sets, private ones included, soft-deleted ones not. The
-  numbers are aggregate and name nobody, and counting only public sets was rejected
-  because sets are private by default, so the figure would sit at zero indefinitely.
-  The residual signal is that a count of one says somebody tracks this document, not
-  who. A set staff have taken down is left out, along with subscriptions to it,
+- set_count counts distinct sets, minus the ones staff have taken down. The numbers
+  are aggregate and name nobody: a count of one says somebody tracks this document,
+  not who. A set staff have taken down is left out, along with subscriptions to it,
   because the counts would otherwise be the last place a deleted set still showed.
 - Rows cover every series a set can hold, so bcp14 and std66 appear alongside RFCs
   even though only RFCs can currently be rated.
@@ -408,8 +406,8 @@ Then, for document sets:
     lands first: it is a two-table backfill now and a four-table one later. Commit:
     "Share document identifier normalization".
 16. Document sets: docsets app with DocumentSet and DocumentSetEntry plus migrations,
-    owner-scoped DRF endpoints, anonymous read of a public set by id, admin, tests.
-    Export the schema. Commit: "Add user document sets".
+    owner-scoped DRF endpoints, anonymous read by id, admin, tests. Export the
+    schema. Commit: "Add user document sets".
 17. Set subscriptions: the set kind, the nullable set FK in the uniqueness constraint,
     and join-based matching in ingest_rfc_change. Commit: "Add subscriptions to
     document sets".
@@ -444,7 +442,7 @@ Then, for document sets:
   same subscription does not send a second one.
 - Document sets: a set is created with a title and description, an RFC and a BCP are
   added and reordered, a second add of the same document in another spelling does not
-  duplicate it, a private set is invisible to an anonymous GET, and a subscription to
+  duplicate it, a taken-down set is invisible to every GET, and a subscription to
   the set is matched by a change to a document added after it was made, and a batch of
   three changes to a subscribed set produces one mail naming all three rather than one
   mail per document. All covered by manage.py test. Not yet verifiable end to end:
@@ -453,7 +451,7 @@ Then, for document sets:
 - Statistics: GET /stats/ with no token returns a row per engaged document; adding a
   rating, a subscription and a set entry for one document moves all three numbers; a
   user subscribed both directly and through a set counts once; ?set= returns the
-  members of a public set to anyone and of a private set only to its owner.
+  members of a set to any caller holding its id, and 404s for an id that names none.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
@@ -485,11 +483,11 @@ Then, for document sets:
   metadata, so whichever way it goes, the expansion has to come from the datatracker
   feed rather than from Reef's own tables. This is the substantive unknown in the sets
   proposal.
-- Subscribing to someone else's public set: the first cut restricts subscriptions to
-  your own sets. Opening it up means deciding what happens when the owner makes a set
-  private, empties it, or deletes it. Continuing to mail a subscriber about a set they
-  can no longer see leaks its membership, so visibility has to be rechecked at send
-  time and not only at subscribe time. The send path already does this for one case:
+- Subscribing to someone else's set: the first cut restricts subscriptions to your
+  own sets. Opening it up means deciding what happens when the owner empties or
+  deletes it. Continuing to mail a subscriber about a set that is no longer there
+  leaks its membership, so the set has to be rechecked at send time and not only at
+  subscribe time. The send path already does this for one case:
   a subscription whose set has been soft-deleted sends nothing, since a real delete
   would have cascaded the subscription away.
 - Notification volume: half of this is now settled and half is not. The shape is
@@ -507,16 +505,18 @@ Then, for document sets:
   authenticated delete. Mailbox providers increasingly weight one-click support, so
   decide whether to add a signed-token endpoint. It is the same token machinery the
   unbuilt subscribe-by-bare-email case needs, so decide the two together.
-- Public sets are user-generated content on an ietf.org origin: a title and
-  description are free text, published, and attributable to an IETF account. Staff
-  need a way to unpublish one without deleting a user's data. That is what the admin
-  plus the private and deleted states now are: since neither is in the API, both are
-  staff-only and the owner cannot flip either back. Private unpublishes and leaves
-  the set with its owner; deleted_at removes it from everyone, with deleted_reason
-  recording why. Still to decide: whether the admin is enough, or whether this needs
-  a real report-and-review path, and whether a set's owner should be told when one
-  of theirs is taken down.
-- Public sets also bring the cross-user subscription question forward: a public set is
+- Sets are user-generated content on an ietf.org origin: a title and description are
+  free text, shareable, and attributable to an IETF account. Staff need a way to take
+  one down without deleting a user's data, and that is the soft delete: deleted_at
+  with an optional deleted_reason, set from the admin, absent from the API so the
+  owner cannot undo it. Still to decide: whether the admin is enough or this needs a
+  real report-and-review path; whether a set's owner should be told when one of
+  theirs is taken down; and whether a middle state is ever wanted, hidden from
+  readers but still the owner's to edit. There was one, and it was removed as an
+  overlapping second staff state rather than because the idea is wrong — if it comes
+  back it should come back as an explicit staff hold, not as an owner-facing
+  visibility field.
+- Shareable sets also bring the cross-user subscription question forward: a set is
   exactly the thing another person would want to subscribe to, which makes the
   own-sets-only restriction in the first cut a stopgap rather than a settled position.
 - Statistics freshness and cost: /stats/ aggregates on every request, which is fine
