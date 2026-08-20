@@ -18,7 +18,12 @@ from .serializers import (
 
 
 class OwnedSetMixin:
-    """Scope to the caller's own sets, so another owner's set is a 404."""
+    """Scope to the caller's own sets, so another owner's set is a 404.
+
+    A set staff have taken down is a 404 here too, for its owner as much as for
+    anyone else: DocumentSet.objects does not see soft-deleted sets, so every
+    endpoint below reads, writes and deletes as though it had never existed.
+    """
 
     permission_classes = [IsAuthenticated]
 
@@ -38,8 +43,8 @@ class DocumentSetListCreate(OwnedSetMixin, generics.ListCreateAPIView):
 class DocumentSetDetail(OwnedSetMixin, generics.RetrieveUpdateDestroyAPIView):
     """Read, retitle, redescribe, or delete one of the caller's sets.
 
-    Not unpublish: sets made through the API are public, so visibility takes
-    only that one value here. See DocumentSetSerializer.validate_visibility.
+    Not unpublish: sets are public here and the API carries no visibility, so
+    a set staff have taken down stays down. See DocumentSetSerializer.
     """
 
     serializer_class = DocumentSetSerializer
@@ -118,9 +123,9 @@ class DocumentSetOrder(OwnedSetMixin, APIView):
 class PublicDocumentSetDetail(generics.RetrieveAPIView):
     """Read a published set, anonymously.
 
-    A private set is a 404 rather than a 403: the endpoint does not confirm
-    that one exists. A stale or wrong slug redirects to the current URL, since
-    the id carries identity and the slug only has to be readable.
+    A private or taken-down set is a 404 rather than a 403: the endpoint does
+    not confirm that one exists. A stale or wrong slug redirects to the current
+    URL, since the id carries identity and the slug only has to be readable.
     """
 
     serializer_class = DocumentSetSerializer

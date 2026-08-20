@@ -23,7 +23,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # You can only subscribe to your own sets for now, so someone else's set
-        # is indistinguishable from one that does not exist. Opening this up
+        # is indistinguishable from one that does not exist, and so is one staff
+        # have taken down, which the default manager leaves out. Opening this up
         # means rechecking visibility at send time; see plan.md open items.
         request = self.context.get("request")
         if request is not None and request.user.is_authenticated:

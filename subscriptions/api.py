@@ -1,5 +1,6 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.db import transaction
+from django.db.models import Q
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 
@@ -8,14 +9,27 @@ from .serializers import SubscriptionSerializer
 from .tasks import send_subscription_confirmation
 
 
-class SubscriptionListCreate(generics.ListCreateAPIView):
-    """List and create the current user's subscriptions."""
+class OwnSubscriptionsMixin:
+    """The caller's subscriptions, minus the ones that point at nothing.
 
-    serializer_class = SubscriptionSerializer
+    A subscription to a set staff have taken down is left out: the set 404s
+    everywhere else, so listing a subscription that names it would be the one
+    thing that still says it exists. Hidden rather than deleted, so restoring
+    the set brings the subscription back with it.
+    """
+
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Subscription.objects.filter(user=self.request.user)
+        return Subscription.objects.filter(user=self.request.user).filter(
+            Q(document_set__isnull=True) | Q(document_set__deleted_at__isnull=True)
+        )
+
+
+class SubscriptionListCreate(OwnSubscriptionsMixin, generics.ListCreateAPIView):
+    """List and create the current user's subscriptions."""
+
+    serializer_class = SubscriptionSerializer
 
     def perform_create(self, serializer):
         # Subscribing is idempotent: a repeated POST (double click, resubmit,
@@ -37,11 +51,7 @@ class SubscriptionListCreate(generics.ListCreateAPIView):
             )
 
 
-class SubscriptionDetail(generics.DestroyAPIView):
+class SubscriptionDetail(OwnSubscriptionsMixin, generics.DestroyAPIView):
     """Delete one of the current user's subscriptions."""
 
     serializer_class = SubscriptionSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        return Subscription.objects.filter(user=self.request.user)

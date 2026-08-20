@@ -171,17 +171,18 @@ reef/
 - popularity (scaffold): a curated ordered list of RFC ids (manually managed JSON,
   per ticket #1), served read-only.
 - docsets.DocumentSet: owner (FK), title, slug, description, visibility
-  (private or public), timestamps, unique (owner, slug). docsets.DocumentSetEntry:
+  (private or public), deleted_at and deleted_reason, timestamps, unique
+  (owner, slug). docsets.DocumentSetEntry:
   set FK, doc (a canonical identifier), rank for display order, added_at, unique
   (set, doc). A set is a user's own list of documents, made in Red, and the unit a
   notification can be about.
 
-  Sets are private by default and can be published: a set title and its membership say
-  what someone is tracking, so publishing is a choice the owner makes rather than a
-  default they have to find and turn off. Publishing is in scope for the first cut on
-  the understanding that shareable public sets were discussed; confirm that before
-  building the public read path, because dropping it removes the visibility field, the
-  anonymous endpoint, and the moderation question below.
+  Sets are public, and the API carries no visibility at all: a set is made to be
+  shared, so a client can neither ask for a private one nor read a field that would
+  always say "public". The unguessable id is what keeps a set from being found by
+  anyone who was not given the link. The private value stays on the model as the
+  staff unpublish state, reachable only from the admin, so a set taken down cannot be
+  republished by its owner. See the moderation open item below.
 
   A set holds series documents generally, not only RFCs, so DOC_SERIES grows to rfc,
   bcp, std and fyi. This is what the series-prefixed identifier form was for: bcp14
@@ -268,8 +269,8 @@ Scaffolded (models and endpoints stubbed, returning minimal real data):
 Document sets (built, no ticket yet):
 
 - GET/POST /sets/ and GET/PATCH/DELETE /sets/{id}/ (bearer, owner only): a user's own
-  sets, with title, description, visibility and the document list. PATCH covers
-  retitling and redescribing.
+  sets, with title, description and the document list. PATCH covers retitling and
+  redescribing. There is no visibility field: sets made here are public.
 - PUT/DELETE /sets/{id}/documents/{doc}/ (bearer, owner only): add or remove one
   document. PUT is idempotent for the same reason the subscribe POST is, and the
   identifier is canonicalized before it is stored, so /sets/3/documents/RFC%209110/
@@ -277,9 +278,9 @@ Document sets (built, no ticket yet):
 - PUT /sets/{id}/order/ (bearer, owner only): reorder in one request. Ranks are
   rewritten as a block rather than patched per entry, so a drag-and-drop in Red is one
   call and cannot half-apply.
-- GET /sets/{id}/{slug}/ (anonymous): read a public set. Private sets 404 rather than
-  403 for anonymous callers, so the endpoint does not confirm that a private set
-  exists. The id carries identity and the slug is decorative: a shared link survives a
+- GET /sets/{id}/{slug}/ (anonymous): read a public set. Private and soft-deleted
+  sets 404 rather than 403 for anonymous callers, so the endpoint does not confirm
+  that such a set exists. The id carries identity and the slug is decorative: a shared link survives a
   retitle, and a wrong or stale slug redirects to the current one rather than 404s.
   The owner is not in the URL because the username is an opaque authentik-<sub>
   string, which is neither meaningful in a link nor something to publish. Red can
@@ -306,10 +307,12 @@ Per-document statistics (built, no ticket yet):
   and set. The predicate kinds are excluded: new_rfc would otherwise add all of its
   subscribers to every recent RFC and flatten the number into noise. One user holding
   both an rfc subscription and a subscription to a set containing it counts once.
-- set_count counts distinct sets, private ones included. The numbers are aggregate
-  and name nobody, and counting only public sets was rejected because sets are
-  private by default, so the figure would sit at zero indefinitely. The residual
-  signal is that a count of one says somebody tracks this document, not who.
+- set_count counts distinct sets, private ones included, soft-deleted ones not. The
+  numbers are aggregate and name nobody, and counting only public sets was rejected
+  because sets are private by default, so the figure would sit at zero indefinitely.
+  The residual signal is that a count of one says somebody tracks this document, not
+  who. A set staff have taken down is left out, along with subscriptions to it,
+  because the counts would otherwise be the last place a deleted set still showed.
 - Rows cover every series a set can hold, so bcp14 and std66 appear alongside RFCs
   even though only RFCs can currently be rated.
 
@@ -474,7 +477,9 @@ Then, for document sets:
   your own sets. Opening it up means deciding what happens when the owner makes a set
   private, empties it, or deletes it. Continuing to mail a subscriber about a set they
   can no longer see leaks its membership, so visibility has to be rechecked at send
-  time and not only at subscribe time.
+  time and not only at subscribe time. The send path already does this for one case:
+  a subscription whose set has been soft-deleted sends nothing, since a real delete
+  would have cascaded the subscription away.
 - Notification volume: half of this is now settled and half is not. The shape is
   settled, ahead of the templates as intended: delivery is
   send_subscription_digest(subscription_id, events), one call is one mail, and a batch
@@ -492,11 +497,13 @@ Then, for document sets:
   unbuilt subscribe-by-bare-email case needs, so decide the two together.
 - Public sets are user-generated content on an ietf.org origin: a title and
   description are free text, published, and attributable to an IETF account. Staff
-  need a way to unpublish one without deleting a user's data. The cheap version is the
-  existing admin plus a staff-only hidden state distinct from the owner's private, so
-  that unpublishing is visible as a staff action and the owner cannot simply flip it
-  back. Decide whether that is enough, or whether this needs a real report-and-review
-  path.
+  need a way to unpublish one without deleting a user's data. That is what the admin
+  plus the private and deleted states now are: since neither is in the API, both are
+  staff-only and the owner cannot flip either back. Private unpublishes and leaves
+  the set with its owner; deleted_at removes it from everyone, with deleted_reason
+  recording why. Still to decide: whether the admin is enough, or whether this needs
+  a real report-and-review path, and whether a set's owner should be told when one
+  of theirs is taken down.
 - Public sets also bring the cross-user subscription question forward: a public set is
   exactly the thing another person would want to subscribe to, which makes the
   own-sets-only restriction in the first cut a stopgap rather than a settled position.

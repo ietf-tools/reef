@@ -72,7 +72,15 @@ def subscriptions_for_document(doc):
     return (
         Subscription.objects.filter(
             Q(kind=Subscription.Kind.RFC, params__rfc=doc)
-            | Q(kind=Subscription.Kind.SET, document_set__entries__doc=doc)
+            # A set staff have taken down matches nothing. The join reaches the
+            # rows directly and so does not go through DocumentSet's manager,
+            # which is what would otherwise have excluded them; a real delete
+            # would have taken the subscription with it.
+            | Q(
+                kind=Subscription.Kind.SET,
+                document_set__entries__doc=doc,
+                document_set__deleted_at__isnull=True,
+            )
         )
         .distinct()
         .select_related("user", "document_set")
@@ -152,6 +160,17 @@ def _subscriber_to_mail(subscription_id, what):
         # Unsubscribing is a hard delete, so a subscription disappearing
         # between the enqueue and the send is ordinary, not an error.
         logger.info("%s: subscription=%s no longer exists", what, subscription_id)
+        return None
+    if subscription.document_set is not None and subscription.document_set.is_deleted:
+        # The set was taken down between the enqueue and the send. Nothing to
+        # send about: a real delete would have cascaded to this subscription,
+        # and the message would name the set staff have just removed.
+        logger.info(
+            "%s: subscription=%s set=%s has been deleted",
+            what,
+            subscription_id,
+            subscription.document_set_id,
+        )
         return None
     if not subscription.user.email:
         logger.warning(

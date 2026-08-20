@@ -72,6 +72,37 @@ class DocumentStatsTests(APITestCase):
             DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
         self.assertEqual(self.stats()["rfc9110"]["set_count"], 2)
 
+    def test_set_count_leaves_out_a_set_staff_have_taken_down(self):
+        # A deleted set has to read as one that never existed, and the counts
+        # are the last place one would otherwise still show up.
+        for title, delete in (("Live", False), ("Taken down", True)):
+            document_set = DocumentSet.objects.create(owner=self.a, title=title)
+            DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
+            if delete:
+                document_set.soft_delete("Spam.")
+        self.assertEqual(self.stats()["rfc9110"]["set_count"], 1)
+
+    def test_subscriber_count_leaves_out_a_subscription_to_a_deleted_set(self):
+        # Really deleting the set would have taken the subscription with it.
+        document_set = DocumentSet.objects.create(owner=self.a, title="Taken down")
+        DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
+        Subscription.objects.create(
+            user=self.b, kind=Subscription.Kind.SET, document_set=document_set
+        )
+        document_set.soft_delete()
+        self.assertEqual(self.stats(), {})
+
+    def test_filter_by_a_deleted_set_is_the_same_404_as_an_unknown_id(self):
+        document_set = DocumentSet.objects.create(owner=self.a, title="Mine")
+        DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
+        document_set.soft_delete()
+
+        self.client.force_authenticate(user=self.a)  # its owner, no less
+        deleted = self.client.get(f"/api/reef/stats/?set={document_set.pk}")
+        unknown = self.client.get(f"/api/reef/stats/?set={uuid.uuid4()}")
+        self.assertEqual(deleted.status_code, 404)
+        self.assertEqual(deleted.json(), unknown.json())
+
     def test_covers_every_series_a_set_can_hold(self):
         document_set = DocumentSet.objects.create(owner=self.a, title="Mine")
         for doc in ("rfc9110", "bcp14", "std66"):

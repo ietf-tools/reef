@@ -227,6 +227,40 @@ class SetSubscriptionTests(APITestCase):
         self.assertEqual(self.subscribe(kind="set", set=unknown).status_code, 400)
         self.assertEqual(self.subscribe(kind="set", set="not-a-uuid").status_code, 400)
 
+    def test_cannot_subscribe_to_a_set_staff_have_taken_down(self):
+        # The same 400 as a set that does not exist: the set is gone as far as
+        # every read path is concerned, its owner's included.
+        self.set.soft_delete("Spam.")
+        self.assertEqual(self.subscribe(kind="set", set=self.set.pk).status_code, 400)
+        self.assertFalse(Subscription.objects.exists())
+
+    def test_a_subscription_to_a_deleted_set_is_neither_listed_nor_deletable(self):
+        # Hidden, not deleted: the subscription comes back if the set is
+        # restored. Listing it would be the one thing left saying the set is
+        # there, and it names an id that 404s everywhere else.
+        subscription_id = self.subscribe(kind="set", set=self.set.pk).json()["id"]
+        self.set.soft_delete()
+
+        self.assertEqual(self.client.get("/api/reef/subscriptions/").json(), [])
+        self.assertEqual(
+            self.client.delete(
+                f"/api/reef/subscriptions/{subscription_id}/"
+            ).status_code,
+            404,
+        )
+        self.assertTrue(Subscription.objects.filter(pk=subscription_id).exists())
+
+        self.set.restore()
+        listing = self.client.get("/api/reef/subscriptions/").json()
+        self.assertEqual([row["id"] for row in listing], [subscription_id])
+
+    def test_deleting_a_set_does_not_hide_the_other_kinds(self):
+        # Regression: the set filter runs over every subscription, and the
+        # kinds that hold no set must not be caught by it.
+        Subscription.objects.create(user=self.user, kind=Subscription.Kind.NEW_RFC)
+        self.set.soft_delete()
+        self.assertEqual(len(self.client.get("/api/reef/subscriptions/").json()), 1)
+
     def test_repeat_subscribe_to_a_set_is_idempotent(self):
         first = self.subscribe(kind="set", set=self.set.pk)
         second = self.subscribe(kind="set", set=self.set.pk)
@@ -301,6 +335,17 @@ class DocumentMatchingTests(APITestCase):
             user=self.user, kind=Subscription.Kind.SET, document_set=self.set
         )
         self.assertEqual(subscriptions_for_document("rfc9110").count(), 2)
+
+    def test_a_deleted_set_matches_nothing(self):
+        # The join reaches the entry rows directly, so nothing excludes a
+        # taken-down set unless this query does it.
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SET, document_set=self.set
+        )
+        self.set.soft_delete("Spam.")
+        self.assertEqual(list(subscriptions_for_document("rfc9110")), [])
+        self.set.restore()
+        self.assertEqual(subscriptions_for_document("rfc9110").count(), 1)
 
     def test_predicate_kinds_do_not_match_a_document(self):
         Subscription.objects.create(user=self.user, kind=Subscription.Kind.NEW_RFC)
@@ -473,6 +518,19 @@ class SendSubscriptionDigestTests(APITestCase):
         send_subscription_digest(pk, [{"doc": "rfc9110"}])
         self.assertEqual(mail.outbox, [])
 
+    def test_nothing_is_sent_once_the_set_has_been_taken_down(self):
+        # A takedown between the match and the send. Really deleting the set
+        # would have taken the subscription with it, and the digest would name
+        # the set staff have just removed.
+        document_set = DocumentSet.objects.create(owner=self.user, title="HTTP")
+        DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SET, document_set=document_set
+        )
+        document_set.soft_delete("Spam.")
+        send_subscription_digest(subscription.pk, [{"doc": "rfc9110"}])
+        self.assertEqual(mail.outbox, [])
+
     def test_nothing_is_sent_without_an_address(self):
         user = User.objects.create(username="noaddr", oidc_sub="s2", email="")
         subscription = Subscription.objects.create(
@@ -556,6 +614,15 @@ class SendSubscriptionConfirmationTests(APITestCase):
         pk = subscription.pk
         subscription.delete()
         send_subscription_confirmation(pk)
+        self.assertEqual(mail.outbox, [])
+
+    def test_nothing_is_sent_once_the_set_has_been_taken_down(self):
+        document_set = DocumentSet.objects.create(owner=self.user, title="HTTP")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SET, document_set=document_set
+        )
+        document_set.soft_delete()
+        send_subscription_confirmation(subscription.pk)
         self.assertEqual(mail.outbox, [])
 
     def test_nothing_is_sent_without_an_address(self):

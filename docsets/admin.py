@@ -11,10 +11,22 @@ class DocumentSetEntryInline(admin.TabularInline):
 
 @admin.register(DocumentSet)
 class DocumentSetAdmin(admin.ModelAdmin):
-    list_display = ["title", "owner", "visibility", "slug", "updated_at"]
-    list_filter = ["visibility"]
+    """Where a set is taken down, and the only place a taken-down one shows.
+
+    Fill in deleted_at, with a reason if there is one to give, and the set 404s
+    everywhere: for anonymous readers, for the API, and for its owner. Clearing
+    deleted_at restores it, along with its documents and its subscriptions.
+    """
+
+    list_display = ["title", "owner", "visibility", "deleted_at", "slug", "updated_at"]
+    list_filter = ["visibility", ("deleted_at", admin.EmptyFieldListFilter)]
     search_fields = ["title", "description", "entries__doc"]
     inlines = [DocumentSetEntryInline]
+
+    def get_queryset(self, request):
+        # all_objects, not the default manager: staff have to be able to find a
+        # set they took down, both to review the decision and to undo it.
+        return DocumentSet.all_objects.get_queryset()
 
 
 @admin.register(DocumentSetEntry)

@@ -32,15 +32,21 @@ def _rating_stats():
 
 
 def _set_counts():
-    """Sets holding each document, private ones included.
+    """Sets holding each document, private ones included, deleted ones not.
 
     The numbers are aggregate and name nobody: a count of one says that
     somebody tracks this document, not who. Private sets are counted too, so
     that the number does not move when staff unpublish one and thereby say
     something about that set.
+
+    A set staff have taken down is excluded, because it is meant to read as one
+    that never existed and this is the last place it would otherwise show. The
+    counts do move by one when that happens, but a takedown removes the set
+    from every other read path too, so the number is not what gives it away.
     """
     return dict(
-        DocumentSetEntry.objects.values("doc")
+        DocumentSetEntry.objects.filter(document_set__deleted_at__isnull=True)
+        .values("doc")
         .annotate(sets=Count("document_set", distinct=True))
         .values_list("doc", "sets")
     )
@@ -66,8 +72,13 @@ def _subscriber_counts():
         .annotate(doc=KeyTextTransform("rfc", "params"))
         .values_list("doc", "user_id")
     )
+    # A subscription to a set staff have taken down counts for nothing, the
+    # same as a subscription to a set that was really deleted, which would have
+    # gone with it.
     set_pairs = Subscription.objects.filter(
-        kind=Subscription.Kind.SET, document_set__entries__isnull=False
+        kind=Subscription.Kind.SET,
+        document_set__entries__isnull=False,
+        document_set__deleted_at__isnull=True,
     ).values_list("document_set__entries__doc", "user_id")
 
     for doc, user_id in [*rfc_pairs, *set_pairs]:

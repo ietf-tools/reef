@@ -73,9 +73,10 @@ class Survey(models.Model):
         return self.visibility == self.Visibility.AUTHENTICATED
 
 
-# Pinned for SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"]. DocumentSet also has a
-# visibility field, and without an override drf-spectacular renames both to a
-# hash of their choices, silently breaking the name Red already generates from.
+# Pinned for SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"]. VisibilityEnum is the
+# name Red and the Nuxt client already generate from, and without the override
+# it would be renamed to a hash of the choices the next time another serialized
+# field named visibility appeared.
 SURVEY_VISIBILITY_CHOICES = Survey.Visibility.choices
 
 
