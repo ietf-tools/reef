@@ -24,7 +24,6 @@ class DocumentSetEntrySerializer(serializers.ModelSerializer):
 
 class DocumentSetSerializer(serializers.ModelSerializer):
     documents = DocumentSetEntrySerializer(source="entries", many=True, read_only=True)
-    owner_name = serializers.CharField(source="owner.name", read_only=True)
 
     class Meta:
         model = DocumentSet
@@ -32,7 +31,6 @@ class DocumentSetSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "description",
-            "owner_name",
             "documents",
             "created_at",
             "updated_at",
@@ -44,6 +42,10 @@ class DocumentSetSerializer(serializers.ModelSerializer):
         # be shared, and anyone holding its unguessable id can read it. Staff
         # moderation is the soft delete, which is not in the API either, so a
         # set staff have taken down cannot be restored by its owner.
+        #
+        # The owner is not in the response either. A set read is anonymous, so
+        # naming the owner would attach a person to a reading list for anyone
+        # holding the link, which is more than the set itself says.
 
 
 class DocumentSetOrderSerializer(serializers.Serializer):

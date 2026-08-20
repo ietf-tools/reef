@@ -34,7 +34,7 @@ class DocumentSetApiTests(APITestCase):
         self.assertNotIn("visibility", body)  # no such thing, here or on the model
         self.assertNotIn("slug", body)  # the id is the whole of a set's identity
         self.assertEqual(body["documents"], [])
-        self.assertEqual(body["owner_name"], "A Person")
+        self.assertNotIn("owner_name", body)  # a set read names no person
 
     def test_id_is_a_random_uuid(self):
         # A set is readable by anyone holding its id, and that id is handed
@@ -218,8 +218,10 @@ class PublicDocumentSetTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["title"], "HTTP core")
-        self.assertEqual(body["owner_name"], "A Person")
         self.assertEqual([e["doc"] for e in body["documents"]], ["rfc9110"])
+        # Anonymous, so it must not say whose set it is.
+        self.assertNotIn("owner_name", body)
+        self.assertNotIn("owner", body)
 
     def test_the_answer_is_the_same_whoever_asks(self):
         # There is no visibility to condition on: the id is the permission, so

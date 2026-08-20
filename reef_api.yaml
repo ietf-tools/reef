@@ -941,9 +941,6 @@ components:
           maxLength: 200
         description:
           type: string
-        owner_name:
-          type: string
-          readOnly: true
         documents:
           type: array
           items:
@@ -961,7 +958,6 @@ components:
       - created_at
       - documents
       - id
-      - owner_name
       - title
       - updated_at
     DocumentSetEntry:
@@ -1066,9 +1062,6 @@ components:
           maxLength: 200
         description:
           type: string
-        owner_name:
-          type: string
-          readOnly: true
         documents:
           type: array
           items:

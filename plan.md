@@ -295,10 +295,11 @@ Document sets (built, no ticket yet):
   gets the same answer, which is the point: holding the id is the permission. A set
   staff have taken down 404s rather than 403s, for everyone alike, so nothing
   confirms it exists. The writes on this URL stay owner-only and 404 on someone
-  else's set, so a refusal says nothing about whose it is. The owner is not in the
-  URL because the username is an opaque authentik-<sub> string, which is neither
-  meaningful in a link nor something to publish. Red can render the owner's display
-  name from the response.
+  else's set, so a refusal says nothing about whose it is. The owner is in neither
+  the URL nor the response: the username is an opaque authentik-<sub> string, which
+  is neither meaningful in a link nor something to publish, and a name in the body
+  would attach a person to a reading list for anyone holding the link, which is more
+  than the set itself says. A set is its title, description and documents.
 
 Per-document statistics (built, no ticket yet):
 
