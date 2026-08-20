@@ -4,7 +4,6 @@ import uuid
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
-from django.utils.text import slugify
 
 from reef.docids import DOC_ID_MAX_LENGTH, normalize_doc_id
 
@@ -12,13 +11,26 @@ TITLE_MAX_LENGTH = 200
 
 
 class DocumentSetQuerySet(models.QuerySet):
-    """Sets split by the soft-delete state, for callers that want one side."""
+    """The filters the read paths share: which sets exist, and for whom."""
 
     def live(self):
         return self.filter(deleted_at__isnull=True)
 
     def deleted(self):
         return self.filter(deleted_at__isnull=False)
+
+    def readable_by(self, user):
+        """The sets this caller may read: the public ones, and their own.
+
+        One rule in one place, because two read paths need it and they have to
+        agree: the set endpoint and the stats set filter. A set the caller may
+        not read is left out rather than refused, so that both 404 rather than
+        confirming that it exists.
+        """
+        readable = models.Q(visibility=DocumentSet.Visibility.PUBLIC)
+        if user is not None and user.is_authenticated:
+            readable |= models.Q(owner=user)
+        return self.filter(readable)
 
 
 class LiveDocumentSetManager(models.Manager.from_queryset(DocumentSetQuerySet)):
@@ -49,10 +61,11 @@ class DocumentSet(models.Model):
         PRIVATE = "private", "Private"
         PUBLIC = "public", "Public"
 
-    # A random id, not a sequence: a set is public by default and its URL is
-    # handed around, so a sequential id would let anyone walk /sets/1, /sets/2
-    # and read every set in the system. Unguessability is the only thing
-    # standing between a published set and enumeration of all of them.
+    # A random id, not a sequence, and the whole of a set's identity: a set is
+    # public by default and its URL is handed around, so a sequential id would
+    # let anyone walk /sets/1, /sets/2 and read every set in the system.
+    # Unguessability is the only thing standing between a published set and
+    # enumeration of all of them.
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -60,7 +73,6 @@ class DocumentSet(models.Model):
         related_name="document_sets",
     )
     title = models.CharField(max_length=TITLE_MAX_LENGTH)
-    slug = models.SlugField(max_length=TITLE_MAX_LENGTH, editable=False)
     description = models.TextField(blank=True)
     visibility = models.CharField(
         max_length=16,
@@ -96,12 +108,9 @@ class DocumentSet(models.Model):
     all_objects = models.Manager.from_queryset(DocumentSetQuerySet)()
 
     class Meta:
+        # No uniqueness on the title: the id is a set's identity, so two sets
+        # with the same title are two sets and nothing has to tell them apart.
         ordering = ["-updated_at"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["owner", "slug"], name="unique_document_set_slug_per_owner"
-            )
-        ]
 
     def __str__(self):
         return f"{self.title} ({self.owner_id})"
@@ -125,30 +134,6 @@ class DocumentSet(models.Model):
         self.deleted_at = None
         self.deleted_reason = ""
         self.save(update_fields=["deleted_at", "deleted_reason", "updated_at"])
-
-    def save(self, *args, **kwargs):
-        # The slug is derived, never given: identity lives in the id, so a
-        # shared link survives a retitle and the slug is free to follow the
-        # title. See PublicDocumentSetDetail, which redirects a stale one.
-        self.slug = self._unique_slug()
-        super().save(*args, **kwargs)
-
-    def _unique_slug(self):
-        # A title of only punctuation or of a script slugify strips leaves an
-        # empty slug, which would make an unreadable URL and collide with every
-        # other such set the owner has.
-        base = slugify(self.title) or "set"
-        # all_objects: a deleted set still holds its row, and so its (owner,
-        # slug) pair. Skipping it here would hand the same slug out twice and
-        # break the unique constraint on the way to a 500.
-        siblings = DocumentSet.all_objects.filter(owner_id=self.owner_id).exclude(
-            pk=self.pk
-        )
-        slug, suffix = base, 1
-        while siblings.filter(slug=slug).exists():
-            suffix += 1
-            slug = f"{base}-{suffix}"
-        return slug
 
 
 class DocumentSetEntry(models.Model):

@@ -5,7 +5,7 @@ import uuid
 from collections import defaultdict
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count
 from django.db.models.fields.json import KeyTextTransform
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -170,11 +170,9 @@ class DocumentStatsList(APIView):
         except (AttributeError, TypeError, ValueError):
             raise ValidationError({"set": "Must be a document set id."}) from None
 
-        visible = Q(visibility=DocumentSet.Visibility.PUBLIC)
-        if request.user.is_authenticated:
-            visible |= Q(owner=request.user)
-
-        document_set = DocumentSet.objects.filter(visible, pk=set_id).first()
+        document_set = (
+            DocumentSet.objects.readable_by(request.user).filter(pk=set_id).first()
+        )
         if document_set is None:
             raise NotFound("No such document set.")
         return set(document_set.entries.values_list("doc", flat=True))

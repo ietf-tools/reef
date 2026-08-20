@@ -59,7 +59,11 @@ if [ -n "$EDITOR_VSCODE" ]; then
     exit 0
   fi
 
-  zsh -i -c "npm run dev"
+  # DISABLE_AUTO_UPDATE: an interactive zsh runs Oh My Zsh's update check, and
+  # its "Would you like to update? [Y/n]" prompt would block the server from
+  # ever starting. Set here as well as in devcontainer.json so containers built
+  # before that change are covered without a rebuild.
+  DISABLE_AUTO_UPDATE=true zsh -i -c "npm run dev"
   clear
   echo "====== CLIENT DEV SERVER ======\n"
   echo "  Start the client dev server using command:"

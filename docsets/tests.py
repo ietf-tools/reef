@@ -31,8 +31,8 @@ class DocumentSetApiTests(APITestCase):
         body = response.json()
         self.assertEqual(body["title"], "HTTP core")
         self.assertEqual(body["description"], "The documents I am reviewing.")
-        self.assertEqual(body["slug"], "http-core")
         self.assertNotIn("visibility", body)  # not part of the API
+        self.assertNotIn("slug", body)  # the id is the whole of a set's identity
         self.assertEqual(body["documents"], [])
         self.assertEqual(body["owner_name"], "A Person")
 
@@ -79,35 +79,56 @@ class DocumentSetApiTests(APITestCase):
                 private.refresh_from_db()
                 self.assertEqual(private.visibility, DocumentSet.Visibility.PRIVATE)
 
-    def test_retitle_moves_the_slug(self):
+    def test_retitling_leaves_the_url_alone(self):
+        # The id is a set's identity, so a link that was shared before the
+        # retitle is the same link afterwards.
         set_id = self.create_set().json()["id"]
         response = self.client.patch(
             f"/api/reef/sets/{set_id}/", {"title": "HTTP semantics"}, format="json"
         )
-        self.assertEqual(response.json()["slug"], "http-semantics")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["title"], "HTTP semantics")
+        self.assertEqual(response.json()["id"], set_id)
 
-    def test_slug_is_unique_per_owner(self):
-        first = self.create_set().json()
-        second = self.create_set().json()
-        self.assertEqual(first["slug"], "http-core")
-        self.assertEqual(second["slug"], "http-core-2")
+    def test_one_owner_can_have_two_sets_with_the_same_title(self):
+        # Nothing has to tell them apart: two sets with one title are two ids.
+        first, second = self.create_set(), self.create_set()
+        self.assertEqual(second.status_code, 201)
+        self.assertNotEqual(first.json()["id"], second.json()["id"])
 
-    def test_untitleable_title_still_gets_a_slug(self):
-        self.assertEqual(self.create_set(title="!!!").json()["slug"], "set")
+    def test_a_title_nothing_can_be_made_of_is_still_a_title(self):
+        self.assertEqual(self.create_set(title="!!!").status_code, 201)
 
     def test_sets_are_scoped_to_their_owner(self):
+        # The listing and every write are the owner's; reading a public set is
+        # not, because that is the shared link. Their private set is a 404, and
+        # so is a write to either, whether it is public or not.
         other = User.objects.create(username="o", oidc_sub="s2")
         theirs = DocumentSet.objects.create(owner=other, title="Theirs")
+        theirs_private = DocumentSet.objects.create(
+            owner=other, title="Also theirs", visibility=DocumentSet.Visibility.PRIVATE
+        )
 
         self.create_set()
         listing = self.client.get("/api/reef/sets/").json()
-        self.assertEqual(len(listing), 1)
+        self.assertEqual([row["title"] for row in listing], ["HTTP core"])
         self.assertEqual(
-            self.client.get(f"/api/reef/sets/{theirs.pk}/").status_code, 404
+            self.client.get(f"/api/reef/sets/{theirs.pk}/").status_code, 200
         )
         self.assertEqual(
-            self.client.delete(f"/api/reef/sets/{theirs.pk}/").status_code, 404
+            self.client.get(f"/api/reef/sets/{theirs_private.pk}/").status_code, 404
         )
+        for pk in (theirs.pk, theirs_private.pk):
+            with self.subTest(set=pk):
+                self.assertEqual(
+                    self.client.delete(f"/api/reef/sets/{pk}/").status_code, 404
+                )
+                self.assertEqual(
+                    self.client.put(
+                        f"/api/reef/sets/{pk}/documents/rfc9110/"
+                    ).status_code,
+                    404,
+                )
 
 
 class DocumentSetMembershipTests(APITestCase):
@@ -206,25 +227,22 @@ class DocumentSetMembershipTests(APITestCase):
 
 
 class PublicDocumentSetTests(APITestCase):
+    """The shared-link read: one URL per set, no token needed for a public one."""
+
     def setUp(self):
         self.owner = User.objects.create(username="u", oidc_sub="s", name="A Person")
+        self.stranger = User.objects.create(username="o", oidc_sub="s2")
         self.document_set = DocumentSet.objects.create(
             owner=self.owner, title="HTTP core", description="Public list."
         )
         DocumentSetEntry.objects.create(document_set=self.document_set, doc="rfc9110")
 
-    def url(self, slug=None):
-        slug = slug or self.document_set.slug
-        return f"/api/reef/sets/{self.document_set.pk}/{slug}/"
+    def url(self):
+        return f"/api/reef/sets/{self.document_set.pk}/"
 
     def unpublish(self):
         self.document_set.visibility = DocumentSet.Visibility.PRIVATE
         self.document_set.save()
-
-    def test_private_set_is_not_found_rather_than_forbidden(self):
-        self.unpublish()
-        response = self.client.get(self.url())
-        self.assertEqual(response.status_code, 404)
 
     def test_public_set_reads_anonymously(self):
         response = self.client.get(self.url())
@@ -234,15 +252,38 @@ class PublicDocumentSetTests(APITestCase):
         self.assertEqual(body["owner_name"], "A Person")
         self.assertEqual([e["doc"] for e in body["documents"]], ["rfc9110"])
 
-    def test_stale_slug_redirects_to_the_current_url(self):
-        response = self.client.get(self.url(slug="old-title"))
-        self.assertEqual(response.status_code, 301)
-        self.assertEqual(response["Location"], self.url())
+    def test_private_set_is_not_found_rather_than_forbidden(self):
+        self.unpublish()
+        self.assertEqual(self.client.get(self.url()).status_code, 404)
+        self.client.force_authenticate(user=self.stranger)
+        self.assertEqual(self.client.get(self.url()).status_code, 404)
+
+    def test_the_owner_still_reads_their_own_unpublished_set(self):
+        self.unpublish()
+        self.client.force_authenticate(user=self.owner)
+        self.assertEqual(self.client.get(self.url()).status_code, 200)
 
     def test_unpublishing_stops_public_reads(self):
         self.assertEqual(self.client.get(self.url()).status_code, 200)
         self.unpublish()
         self.assertEqual(self.client.get(self.url()).status_code, 404)
+
+    def test_reading_a_set_is_not_permission_to_change_it(self):
+        # The same URL serves the read and the writes, so the writes have to
+        # scope themselves: a stranger gets the 404 they would get for a set
+        # that does not exist, and an anonymous caller is refused outright.
+        self.client.force_authenticate(user=self.stranger)
+        for method, kwargs in (
+            (self.client.patch, {"data": {"title": "Theirs now"}, "format": "json"}),
+            (self.client.put, {"data": {"title": "Theirs now"}, "format": "json"}),
+            (self.client.delete, {}),
+        ):
+            with self.subTest(method=method.__name__):
+                self.assertEqual(method(self.url(), **kwargs).status_code, 404)
+
+        self.client.force_authenticate(user=None)
+        self.assertIn(self.client.delete(self.url()).status_code, (401, 403))
+        self.assertTrue(DocumentSet.objects.filter(pk=self.document_set.pk).exists())
 
 
 class SoftDeletedDocumentSetTests(APITestCase):
@@ -267,7 +308,6 @@ class SoftDeletedDocumentSetTests(APITestCase):
             "detail": f"/api/reef/sets/{set_id}/",
             "document": f"/api/reef/sets/{set_id}/documents/rfc9110/",
             "order": f"/api/reef/sets/{set_id}/order/",
-            "public": f"/api/reef/sets/{set_id}/http-core/",
         }
 
     def assert_answers_alike(self, request):
@@ -309,16 +349,9 @@ class SoftDeletedDocumentSetTests(APITestCase):
     def test_it_is_gone_from_the_owners_listing(self):
         self.assertEqual(self.client.get("/api/reef/sets/").json(), [])
 
-    def test_the_public_read_does_not_confirm_that_it_exists(self):
+    def test_the_anonymous_read_does_not_confirm_that_it_exists(self):
         self.client.force_authenticate(user=None)
-        self.assert_answers_alike(lambda p: self.client.get(p["public"]))
-
-    def test_no_slug_redirect_gives_it_away(self):
-        # The redirect is the one answer that is not a 404, and it would say
-        # both that the set exists and what it is now called.
-        self.client.force_authenticate(user=None)
-        response = self.client.get(f"/api/reef/sets/{self.document_set.pk}/old-title/")
-        self.assertEqual(response.status_code, 404)
+        self.assert_answers_alike(lambda p: self.client.get(p["detail"]))
 
     def test_only_a_caller_that_asks_for_deleted_sets_sees_it(self):
         self.assertEqual(DocumentSet.objects.count(), 0)
@@ -366,12 +399,11 @@ class SoftDeletedDocumentSetTests(APITestCase):
         self.assertNotIn("deleted_at", body)
         self.assertNotIn("deleted_reason", body)
 
-    def test_a_deleted_set_still_holds_its_slug(self):
-        # The row is there, so the unique (owner, slug) pair is too: a new set
-        # with the same title has to be given the next slug rather than an
-        # IntegrityError.
+    def test_the_title_of_a_deleted_set_can_be_used_again(self):
+        # The row is still there, so a new set with the same title has to be
+        # allowed rather than colliding with a set nobody can see.
         response = self.client.post(
             "/api/reef/sets/", {"title": "HTTP core"}, format="json"
         )
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["slug"], "http-core-2")
+        self.assertNotEqual(response.json()["id"], str(self.document_set.pk))

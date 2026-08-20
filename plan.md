@@ -170,9 +170,9 @@ reef/
   timestamps. Aggregate is average plus count per rfc.
 - popularity (scaffold): a curated ordered list of RFC ids (manually managed JSON,
   per ticket #1), served read-only.
-- docsets.DocumentSet: owner (FK), title, slug, description, visibility
-  (private or public), deleted_at and deleted_reason, timestamps, unique
-  (owner, slug). docsets.DocumentSetEntry:
+- docsets.DocumentSet: owner (FK), title, description, visibility
+  (private or public), deleted_at and deleted_reason, timestamps.
+  docsets.DocumentSetEntry:
   set FK, doc (a canonical identifier), rank for display order, added_at, unique
   (set, doc). A set is a user's own list of documents, made in Red, and the unit a
   notification can be about.
@@ -183,6 +183,15 @@ reef/
   anyone who was not given the link. The private value stays on the model as the
   staff unpublish state, reachable only from the admin, so a set taken down cannot be
   republished by its owner. See the moderation open item below.
+
+  The id is the whole of a set's identity: there is no slug. A slug was in the first
+  cut, as a readable second path segment with a redirect when it went stale, and it
+  was dropped because nothing needed it. Nobody reads an API URL, and Red builds the
+  URLs its readers do see, from a title it already has in the payload. What it cost
+  was a derived column, a unique (owner, slug) constraint, a suffixing loop, a
+  fallback for titles that slugify to nothing, and a redirect branch that had to be
+  suppressed for taken-down sets so as not to confirm them. Two sets may now share a
+  title, which is correct: they are two sets.
 
   A set holds series documents generally, not only RFCs, so DOC_SERIES grows to rfc,
   bcp, std and fyi. This is what the series-prefixed identifier form was for: bcp14
@@ -268,9 +277,10 @@ Scaffolded (models and endpoints stubbed, returning minimal real data):
 
 Document sets (built, no ticket yet):
 
-- GET/POST /sets/ and GET/PATCH/DELETE /sets/{id}/ (bearer, owner only): a user's own
-  sets, with title, description and the document list. PATCH covers retitling and
-  redescribing. There is no visibility field: sets made here are public.
+- GET/POST /sets/ (bearer, owner only) and PATCH/PUT/DELETE /sets/{id}/ (bearer,
+  owner only): a user's own sets, with title, description and the document list.
+  PATCH covers retitling and redescribing. There is no visibility field: sets made
+  here are public. The GET on /sets/{id}/ is the public read below.
 - PUT/DELETE /sets/{id}/documents/{doc}/ (bearer, owner only): add or remove one
   document. PUT is idempotent for the same reason the subscribe POST is, and the
   identifier is canonicalized before it is stored, so /sets/3/documents/RFC%209110/
@@ -278,13 +288,15 @@ Document sets (built, no ticket yet):
 - PUT /sets/{id}/order/ (bearer, owner only): reorder in one request. Ranks are
   rewritten as a block rather than patched per entry, so a drag-and-drop in Red is one
   call and cannot half-apply.
-- GET /sets/{id}/{slug}/ (anonymous): read a public set. Private and soft-deleted
-  sets 404 rather than 403 for anonymous callers, so the endpoint does not confirm
-  that such a set exists. The id carries identity and the slug is decorative: a shared link survives a
-  retitle, and a wrong or stale slug redirects to the current one rather than 404s.
-  The owner is not in the URL because the username is an opaque authentik-<sub>
-  string, which is neither meaningful in a link nor something to publish. Red can
-  render the owner's display name from the response.
+- GET /sets/{id}/ (anonymous for a public set): the same URL the owner reads, since
+  the id is a set's whole identity and a shared link should not depend on who
+  follows it. Private and soft-deleted sets 404 rather than 403, so the endpoint
+  does not confirm that such a set exists; the writes on this URL stay owner-only
+  and 404 on someone else's set whether it is public or not. Which sets a caller may
+  read is one queryset method, shared with the stats set filter, so the two cannot
+  drift apart. The owner is not in the URL because the username is an opaque
+  authentik-<sub> string, which is neither meaningful in a link nor something to
+  publish. Red can render the owner's display name from the response.
 
 Per-document statistics (built, no ticket yet):
 
@@ -396,8 +408,8 @@ Then, for document sets:
     lands first: it is a two-table backfill now and a four-table one later. Commit:
     "Share document identifier normalization".
 16. Document sets: docsets app with DocumentSet and DocumentSetEntry plus migrations,
-    owner-scoped DRF endpoints, public read by (id, slug), admin, tests. Export the
-    schema. Commit: "Add user document sets".
+    owner-scoped DRF endpoints, anonymous read of a public set by id, admin, tests.
+    Export the schema. Commit: "Add user document sets".
 17. Set subscriptions: the set kind, the nullable set FK in the uniqueness constraint,
     and join-based matching in ingest_rfc_change. Commit: "Add subscriptions to
     document sets".

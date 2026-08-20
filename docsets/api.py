@@ -1,11 +1,9 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.db import transaction
-from django.http import HttpResponsePermanentRedirect
 from django.shortcuts import get_object_or_404
-from django.urls import reverse
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import generics, status
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -22,7 +20,8 @@ class OwnedSetMixin:
 
     A set staff have taken down is a 404 here too, for its owner as much as for
     anyone else: DocumentSet.objects does not see soft-deleted sets, so every
-    endpoint below reads, writes and deletes as though it had never existed.
+    endpoint that scopes this way reads, writes and deletes as though it had
+    never existed.
     """
 
     permission_classes = [IsAuthenticated]
@@ -40,14 +39,32 @@ class DocumentSetListCreate(OwnedSetMixin, generics.ListCreateAPIView):
         serializer.save(owner=self.request.user)
 
 
-class DocumentSetDetail(OwnedSetMixin, generics.RetrieveUpdateDestroyAPIView):
-    """Read, retitle, redescribe, or delete one of the caller's sets.
+class DocumentSetDetail(generics.RetrieveUpdateDestroyAPIView):
+    """Read a set; retitle, redescribe or delete your own.
+
+    One URL for a set, whoever is asking: the id is the whole of a set's
+    identity, so a shared link is this link, and there is no second read
+    endpoint to keep in step with this one. Reading a public set needs no token,
+    which is what makes the link shareable; reading a private one, and every
+    write, is the owner's alone. A set the caller may not read is left out of
+    the queryset rather than refused, so it 404s without confirming that it
+    exists, and an unpublished or taken-down set reads as gone.
 
     Not unpublish: sets are public here and the API carries no visibility, so
     a set staff have taken down stays down. See DocumentSetSerializer.
     """
 
     serializer_class = DocumentSetSerializer
+
+    def get_permissions(self):
+        return (
+            [AllowAny()] if self.request.method in SAFE_METHODS else [IsAuthenticated()]
+        )
+
+    def get_queryset(self):
+        if self.request.method not in SAFE_METHODS:
+            return DocumentSet.objects.filter(owner=self.request.user)
+        return DocumentSet.objects.readable_by(self.request.user)
 
 
 class DocumentSetDocument(OwnedSetMixin, APIView):
@@ -118,30 +135,3 @@ class DocumentSetOrder(OwnedSetMixin, APIView):
             DocumentSetEntry.objects.bulk_update(entries.values(), ["rank"])
             document_set.save(update_fields=["updated_at"])
         return Response(DocumentSetSerializer(document_set).data)
-
-
-class PublicDocumentSetDetail(generics.RetrieveAPIView):
-    """Read a published set, anonymously.
-
-    A private or taken-down set is a 404 rather than a 403: the endpoint does
-    not confirm that one exists. A stale or wrong slug redirects to the current
-    URL, since the id carries identity and the slug only has to be readable.
-    """
-
-    serializer_class = DocumentSetSerializer
-    permission_classes = [AllowAny]
-    queryset = DocumentSet.objects.filter(visibility=DocumentSet.Visibility.PUBLIC)
-
-    # Named, because it would otherwise collide with the owner's retrieve and
-    # be resolved to sets_retrieve_2 in everyone's generated client.
-    @extend_schema(operation_id="sets_public_retrieve")
-    def get(self, request, *args, **kwargs):
-        document_set = self.get_object()
-        if kwargs["slug"] != document_set.slug:
-            return HttpResponsePermanentRedirect(
-                reverse(
-                    "documentset-public",
-                    kwargs={"pk": document_set.pk, "slug": document_set.slug},
-                )
-            )
-        return Response(self.get_serializer(document_set).data)

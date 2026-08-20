@@ -31,16 +31,15 @@ class DocumentSetSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "title",
-            "slug",
             "description",
             "owner_name",
             "documents",
             "created_at",
             "updated_at",
         ]
-        # The slug is derived from the title, and membership is changed through
-        # the documents endpoints rather than by rewriting the set.
-        read_only_fields = ["id", "slug", "documents", "created_at", "updated_at"]
+        # Membership is changed through the documents endpoints rather than by
+        # rewriting the set.
+        read_only_fields = ["id", "documents", "created_at", "updated_at"]
         # Visibility is not part of the API. Sets made here are public, and the
         # private state exists only so that staff can unpublish one from the
         # admin. Leaving the field out means a client cannot ask for a private

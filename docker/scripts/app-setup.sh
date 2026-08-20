@@ -52,7 +52,17 @@ if [ ! -d "${oh_my_install_dir}" ]; then
     -c core.autocrlf=false \
     "https://github.com/ohmyzsh/ohmyzsh" "${oh_my_install_dir}" 2>&1
   template_path="${oh_my_install_dir}/templates/zshrc.zsh-template"
-  echo -e "$(cat "${template_path}")\nDISABLE_AUTO_UPDATE=true\nDISABLE_UPDATE_PROMPT=true" > "${user_rc_file}"
+  # Turn the update check off *before* the template's `source $ZSH/oh-my-zsh.sh`
+  # - that is where the check runs, so settings appended below it are too late.
+  # An interactive shell that is a tty (the `zsh -i -c` in term-server.sh) would
+  # otherwise block on "[oh-my-zsh] Would you like to update? [Y/n]" and never
+  # start the server. zstyle is the current setting; the variable is the legacy
+  # fallback for older Oh My Zsh checkouts.
+  {
+    echo "zstyle ':omz:update' mode disabled"
+    echo "DISABLE_AUTO_UPDATE=true"
+    cat "${template_path}"
+  } > "${user_rc_file}"
   cd "${oh_my_install_dir}"
   git repack -a -d -f --depth=1 --window=1
 fi

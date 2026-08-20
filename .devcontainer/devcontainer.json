@@ -36,7 +36,10 @@
   "postCreateCommand": "/docker-init.sh",
   "postStartCommand": "/docker-start.sh",
   "containerEnv": {
-    "EDITOR_VSCODE": "true"
+    "EDITOR_VSCODE": "true",
+    // Never let Oh My Zsh's update check prompt in a shell. The startup tasks
+    // run the servers under `zsh -i -c`, and the prompt would block them.
+    "DISABLE_AUTO_UPDATE": "true"
   },
   "customizations": {
     "vscode": {

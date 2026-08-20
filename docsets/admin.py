@@ -18,7 +18,7 @@ class DocumentSetAdmin(admin.ModelAdmin):
     deleted_at restores it, along with its documents and its subscriptions.
     """
 
-    list_display = ["title", "owner", "visibility", "deleted_at", "slug", "updated_at"]
+    list_display = ["title", "owner", "visibility", "deleted_at", "updated_at"]
     list_filter = ["visibility", ("deleted_at", admin.EmptyFieldListFilter)]
     search_fields = ["title", "description", "entries__doc"]
     inlines = [DocumentSetEntryInline]
