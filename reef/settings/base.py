@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     "docsets",
     "subscriptions",
     "stats",
+    "me",
 ]
 
 MIDDLEWARE = [

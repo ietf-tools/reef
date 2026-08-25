@@ -23,6 +23,7 @@ urlpatterns = [
     path("api/reef/", include("docsets.urls")),
     path("api/reef/", include("subscriptions.urls")),
     path("api/reef/", include("stats.urls")),
+    path("api/reef/", include("me.urls")),
     path("manage/", include("surveys.manage_urls")),
 ]
 
