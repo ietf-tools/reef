@@ -6,5 +6,13 @@ from .models import Subscription
 
 @admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):
-    list_display = ["user", "kind", "params", "verified", "created_at"]
+    list_display = [
+        "user",
+        "kind",
+        "params",
+        "document_set",
+        "subject",
+        "verified",
+        "created_at",
+    ]
     list_filter = ["kind", "verified"]

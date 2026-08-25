@@ -12,6 +12,7 @@ from rest_framework.test import APITestCase
 from docsets.models import DocumentSet, DocumentSetEntry
 from reef.celery import app as celery_app
 from reef.mail import EmailMessage
+from subjects.models import Subject, SubjectAssignment
 
 from .models import Subscription
 from .tasks import (
@@ -295,6 +296,98 @@ class SetSubscriptionTests(APITestCase):
             )
 
 
+class SubjectSubscriptionTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create(username="u", oidc_sub="s")
+        self.client.force_authenticate(user=self.user)
+        self.subject = Subject.objects.create(slug="security", name="Security")
+
+    def subscribe(self, **body):
+        return self.client.post("/api/reef/subscriptions/", body, format="json")
+
+    def test_subscribe_to_a_subject(self):
+        response = self.subscribe(kind="subject", subject=self.subject.pk)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["subject"], self.subject.pk)
+
+    def test_subject_kind_requires_a_subject(self):
+        self.assertEqual(self.subscribe(kind="subject").status_code, 400)
+
+    def test_other_kinds_reject_a_subject(self):
+        response = self.subscribe(kind="new_rfc", subject=self.subject.pk)
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_subject_and_a_set_cannot_both_be_named(self):
+        # The constraint is written as though a kind fills its own relation and
+        # no other, so a row filling two would be compared against a shape
+        # nothing else writes.
+        document_set = DocumentSet.objects.create(owner=self.user, title="HTTP")
+        response = self.subscribe(
+            kind="subject", subject=self.subject.pk, set=document_set.pk
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("set", response.json())
+
+    def test_anyone_can_subscribe_to_any_subject(self):
+        # Unlike a set: the vocabulary is public and staff-curated, so there is
+        # no owner for a subject to belong to.
+        other = User.objects.create(username="o", oidc_sub="s2")
+        self.client.force_authenticate(user=other)
+        self.assertEqual(
+            self.subscribe(kind="subject", subject=self.subject.pk).status_code, 201
+        )
+
+    def test_cannot_subscribe_to_a_subject_that_does_not_exist(self):
+        self.assertEqual(self.subscribe(kind="subject", subject=9999).status_code, 400)
+
+    def test_repeat_subscribe_to_a_subject_is_idempotent(self):
+        first = self.subscribe(kind="subject", subject=self.subject.pk)
+        second = self.subscribe(kind="subject", subject=self.subject.pk)
+        self.assertEqual(second.json()["id"], first.json()["id"])
+        self.assertEqual(Subscription.objects.count(), 1)
+
+    def test_two_subjects_are_two_subscriptions(self):
+        routing = Subject.objects.create(slug="routing", name="Routing")
+        self.subscribe(kind="subject", subject=self.subject.pk)
+        self.subscribe(kind="subject", subject=routing.pk)
+        self.assertEqual(Subscription.objects.count(), 2)
+
+    def test_a_set_and_a_subject_subscription_do_not_collide(self):
+        # Regression: two nullable relation columns in one constraint, with
+        # NULLS NOT DISTINCT, must still tell a set subscription from a subject
+        # one rather than seeing two rows of nulls.
+        document_set = DocumentSet.objects.create(owner=self.user, title="HTTP")
+        self.subscribe(kind="set", set=document_set.pk)
+        self.subscribe(kind="subject", subject=self.subject.pk)
+        self.assertEqual(Subscription.objects.count(), 2)
+
+    def test_renaming_a_subject_keeps_its_subscribers(self):
+        # The whole reason this is a relation and not a params key.
+        subscription_id = self.subscribe(
+            kind="subject", subject=self.subject.pk
+        ).json()["id"]
+        self.subject.slug = "security-and-privacy"
+        self.subject.name = "Security and privacy"
+        self.subject.save()
+        listing = self.client.get("/api/reef/subscriptions/").json()
+        self.assertEqual([row["id"] for row in listing], [subscription_id])
+
+    def test_deleting_a_subject_deletes_its_subscriptions(self):
+        self.subscribe(kind="subject", subject=self.subject.pk)
+        self.subject.delete()
+        self.assertFalse(Subscription.objects.exists())
+
+    def test_model_save_enforces_the_subject_rule(self):
+        with self.assertRaises(ValidationError):
+            Subscription.objects.create(user=self.user, kind=Subscription.Kind.SUBJECT)
+        with self.assertRaises(ValidationError):
+            Subscription.objects.create(
+                user=self.user,
+                kind=Subscription.Kind.NEW_RFC,
+                subject=self.subject,
+            )
+
+
 class DocumentMatchingTests(APITestCase):
     """subscriptions_for_document: the kinds that name a document."""
 
@@ -344,6 +437,44 @@ class DocumentMatchingTests(APITestCase):
         self.assertEqual(list(subscriptions_for_document("rfc9110")), [])
         self.set.restore()
         self.assertEqual(subscriptions_for_document("rfc9110").count(), 1)
+
+    def test_matches_through_a_subject(self):
+        subject = Subject.objects.create(slug="security", name="Security")
+        SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        self.assertEqual(list(subscriptions_for_document("RFC 9110")), [subscription])
+
+    def test_a_document_assigned_a_subject_later_matches(self):
+        # The same moving membership a set has: subscribing to a subject covers
+        # whatever carries it when the change lands.
+        subject = Subject.objects.create(slug="security", name="Security")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        self.assertEqual(list(subscriptions_for_document("bcp14")), [])
+        SubjectAssignment.objects.create(subject=subject, doc="bcp14")
+        self.assertEqual(list(subscriptions_for_document("bcp14")), [subscription])
+
+    def test_unassigning_a_subject_stops_matching_it(self):
+        subject = Subject.objects.create(slug="security", name="Security")
+        assignment = SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        assignment.delete()
+        self.assertEqual(list(subscriptions_for_document("rfc9110")), [])
+
+    def test_a_subject_carrying_two_documents_matches_each_once(self):
+        subject = Subject.objects.create(slug="security", name="Security")
+        SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
+        SubjectAssignment.objects.create(subject=subject, doc="rfc8446")
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        self.assertEqual(subscriptions_for_document("rfc9110").count(), 1)
+        self.assertEqual(subscriptions_for_document("rfc8446").count(), 1)
 
     def test_predicate_kinds_do_not_match_a_document(self):
         Subscription.objects.create(user=self.user, kind=Subscription.Kind.NEW_RFC)
@@ -467,11 +598,6 @@ class SendSubscriptionDigestTests(APITestCase):
                 'status "internet standard"',
             ),
             (Subscription.Kind.OBSOLETED, {}, "obsoleted or made historic"),
-            (
-                Subscription.Kind.SUBJECT_TAG,
-                {"tag": "security"},
-                'subject tag "security"',
-            ),
         ]
         for kind, params, expected in cases:
             with self.subTest(kind=kind):
@@ -484,6 +610,18 @@ class SendSubscriptionDigestTests(APITestCase):
                 )
                 self.assertIn(expected, mail.outbox[0].body)
                 subscription.delete()
+
+    def test_a_subject_subscription_names_the_subject(self):
+        # The name, not the slug: the slug is for URLs and the reader is being
+        # told in prose what they signed up for.
+        subject = Subject.objects.create(slug="security", name="Security")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        send_subscription_digest(
+            subscription.pk, [{"doc": "rfc9110", "change": "Published"}]
+        )
+        self.assertIn("on the subject of Security", mail.outbox[0].body)
 
     @override_settings(REEF_SUBSCRIPTIONS_URL="https://example.org/subscriptions")
     def test_the_reader_is_told_how_to_stop(self):

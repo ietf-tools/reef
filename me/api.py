@@ -50,14 +50,15 @@ def _your_subscription_ids(user, docs):
     """The caller's `rfc`-kind subscription id per document.
 
     Only that kind. A reader can also reach a document through a subscription
-    to a set that holds it, but that is not the same thing as subscribing to
-    the document: unticking the box would have to delete the set subscription,
-    which is not what the box says. So the box reflects the direct subscription
-    and nothing else, and Red's subscribe control stays a thing it can undo.
+    to a set that holds it, or to a subject it carries, but neither is the same
+    thing as subscribing to the document: unticking the box would have to
+    delete that whole subscription, which is not what the box says. So the box
+    reflects the direct subscription and nothing else, and Red's subscribe
+    control stays a thing it can undo.
 
     At most one row per document: the unique constraint on
-    (user, kind, params, document_set) makes a second identical subscription
-    impossible.
+    (user, kind, params, document_set, subject) makes a second identical
+    subscription impossible.
     """
     rows = (
         Subscription.objects.filter(user=user, kind=Subscription.Kind.RFC)

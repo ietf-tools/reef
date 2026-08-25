@@ -28,6 +28,10 @@ https://account.ietf.org/.
   it, and adding documents to it; Reef stores the sets and their membership. A set is
   a subscribable thing, which is the reason it exists here rather than in Red's own
   storage.
+- Subjects, API only. Reef hosts the subject vocabulary and decides which documents
+  carry which subject; Red renders them on its RFC pages and offers them to subscribe
+  to. Reef's own, not the datatracker's: the decision is that a subject is something
+  the RFC series curates here rather than something read out of another system.
 - Subscriptions and notifications, API only plus email delivery. Red has the
   subscribe UI; Reef stores subscriptions, ingests RFC-change events from
   datatracker, and sends notification emails.
@@ -50,6 +54,13 @@ through Authentik, so the address is already known good and nothing waits on the
 message. Subscribe-by-bare-email, if it is ever built, needs a real verification
 message and Subscription.verified starting False; that is a second message, not a
 flag on this one.
+
+Subjects are built: the vocabulary, the assignments that put a document under a
+subject, the public read API, admin curation, and subscribing to a subject. They were
+new scope, arriving with the decision to host the vocabulary in Reef rather than take
+it from the datatracker, and they are the one part of the subscription story whose
+matching does not wait on ingestion: because Reef owns the association, a subject
+resolves to documents by a join here rather than by a tag arriving on an event.
 
 Document sets are built: models, the owner-scoped API, the public read path, and
 subscribing to a set. They were new scope rather than a gap in the scaffold, so they
@@ -145,6 +156,7 @@ reef/
   ratings/                 scaffold: Rating model, aggregate/submit API, test stub
   popularity/              scaffold: curated-list model/config, read API, test stub
   docsets/                 DocumentSet and DocumentSetEntry, owner-scoped API, public read
+  subjects/                Subject vocabulary and SubjectAssignment, public read API, admin curation
   subscriptions/           scaffold: Subscription model, API, email task, datatracker-feed ingest interface
   stats/                   per-document engagement numbers for Red; no models of its own
   vendor/                  package.json for self-hosted SurveyJS Creator/Analytics bundles into Django static
@@ -199,10 +211,19 @@ reef/
   bcp, std and fyi. This is what the series-prefixed identifier form was for: bcp14
   and rfc14 are different documents and a set has to be able to hold both.
 
-  Reef stores identifiers and nothing else about a document: no title, no status, no
-  existence check. Red is the RFC website and already has that metadata, so a second
-  copy here would only go stale. Identifiers are validated for syntax, as ratings and
-  popularity already do.
+  Reef stores identifiers and almost nothing else about a document: no title, no
+  status, no existence check. Red is the RFC website and already has that metadata, so
+  a second copy here would only go stale. Identifiers are validated for syntax, as
+  ratings and popularity already do.
+
+  Subjects are the one exception, and they do not weaken the rule, because the rule
+  was argued from staleness. A title copied here drifts from the datatracker's. A
+  subject has no upstream to drift from: it is decided in Reef, so Reef is the only
+  system holding an opinion for a second copy to disagree with. What follows from that
+  is that Reef still cannot tell whether a document exists. A subject can be assigned
+  to an identifier that names nothing, which is a curation error rather than something
+  the database catches, exactly as a rating or a set entry naming a nonexistent RFC
+  already is.
 - Document identifiers, shared: ratings.Rating.rfc and popularity.PopularEntry.rfc
   store whatever string they are handed, while subscriptions canonicalizes through
   normalize_doc_id. Sets would be a third rule in a fourth place, and a set cannot be
@@ -211,21 +232,51 @@ reef/
   ratings and popularity adopt them with a data migration that backfills existing
   rows. Doing this before sets exist is the cheap moment; afterwards it is a
   four-table backfill.
-- subscriptions.Subscription (scaffold): user or email, kind (new_rfc, by_status,
-  obsoleted, subject_tag, rfc, set, and similar), params (JSON), verified flag. The
-  rfc kind watches one RFC, identified by params {"rfc": "rfc9110"}; matching it
-  against an event is an equality test on that id, where the other kinds are
-  predicates over the event. Unique on (user, kind, params).
+- subjects.Subject: slug, name, description. The curated vocabulary, maintained by
+  staff in the admin and served read-only, in the way popularity.PopularEntry is.
+  A subject has two identities and needs both: the primary key is what a subscription
+  points at, so that renaming a subject cannot detach its subscribers, and the slug is
+  what a caller addresses it by and what Red puts in a URL its readers see.
 
-  The set kind is the one that does not fit that pattern, in two ways.
-  It points at a DocumentSet, so it takes a nullable set FK on Subscription rather
-  than an identifier in params: params has no referential integrity, and a slug in
-  JSON would break on rename and leave silently dead subscriptions on delete. The FK
-  joins the uniqueness constraint, which puts two nullable identity columns in one
-  constraint and needs nulls_distinct=False (see open items). And its matching is a
-  join, event to entries to sets to subscribers, over membership that changes under
-  the subscription, rather than a test against the event alone. ingest_rfc_change is
-  currently written as though equality on params were the whole story.
+  That is the opposite of the call made for document sets, which dropped their slug,
+  and the difference is who names the thing. A set is titled by its owner, so titles
+  collide, change often, and slugify to nothing often enough to need a fallback and a
+  suffixing loop. A subject is named once by staff, and two subjects sharing a name is
+  a curation mistake to prevent rather than a case to tolerate. The uniqueness that
+  cost document sets too much is the point here.
+- subjects.SubjectAssignment: subject FK plus a canonical document identifier, unique
+  together. A row per pair rather than a list on either side, because this is the join
+  a subscription match runs through and it has to be indexable from the document end,
+  which is the end a change event arrives at. Unassigning is a hard delete; there is
+  no state between assigned and not.
+- subscriptions.Subscription (scaffold): user or email, kind (new_rfc, by_status,
+  obsoleted, rfc, set, subject, and similar), params (JSON), verified flag. The
+  rfc kind watches one RFC, identified by params {"rfc": "rfc9110"}; matching it
+  against an event is an equality test on that id. Unique on
+  (user, kind, params, set, subject).
+
+  The kinds split in two. new_rfc, by_status and obsoleted are predicates over the
+  event: they say what has to have happened, not which document it happened to, so no
+  join resolves them and they belong to the ingest path. rfc, set and subject name
+  documents and are matched by subscriptions_for_document.
+
+  set and subject are the two that do not fit the params pattern, in the same two
+  ways. Each points at a row, a DocumentSet or a Subject, so each takes a nullable FK
+  on Subscription rather than an identifier in params: params has no referential
+  integrity, and a title or slug in JSON would break on rename and leave silently dead
+  subscriptions on delete. Both FKs join the uniqueness constraint, which puts three
+  nullable identity columns in one constraint and needs nulls_distinct=False (see open
+  items); each further relation makes that setting more load-bearing, not less. And
+  each is matched by a join over membership that changes under the subscription,
+  event to entries to sets and event to assignments to subjects, rather than by a test
+  against the event alone. Exactly one relation column is filled for a subscription of
+  that kind and all of them are null for every other kind, which is the shape the
+  constraint is written against and which every write path checks.
+
+  subject was drafted as a predicate, as subject_tag, back when a tag was going to
+  arrive on the event from the datatracker. Hosting the vocabulary in Reef turned it
+  into a join, which is why it is in the second group and not the first, and why it
+  needs nothing from ingestion that rfc and set do not also need.
 
   Because the uniqueness constraint compares stored JSON, params has one canonical
   form, defined by subscriptions.models.normalize_params and applied in
@@ -272,7 +323,7 @@ Scaffolded (models and endpoints stubbed, returning minimal real data):
 - GET /ratings/{rfc}/ (anonymous aggregate), PUT /ratings/{rfc}/ (bearer). Ticket #108.
 - GET /popularity/ (anonymous curated list). Tickets #101 and #102.
 - GET/POST/DELETE /subscriptions/ (bearer) plus an internal ingest task hook. Kinds:
-  new_rfc, by_status, obsoleted, subject_tag, and rfc (one named RFC). POST is
+  new_rfc, by_status, obsoleted, rfc (one named RFC), set, and subject. POST is
   idempotent: a repeat returns 201 with the existing subscription rather than a
   duplicate, so Red's subscribe button needs no error branch for a double click, a
   resubmit, or a second tab. Tickets #126, #127, and #133.
@@ -301,6 +352,32 @@ Document sets (built, no ticket yet):
   would attach a person to a reading list for anyone holding the link, which is more
   than the set itself says. A set is its title, description and documents.
 
+Subjects (built, no ticket yet):
+
+- GET /subjects/ (anonymous, unpaginated): the whole vocabulary, in name order, as
+  id, slug, name and description. Unpaginated for the reason the popularity list is:
+  it is curated rather than self-served, so it stays small enough to hand over whole.
+  Public because a subject is public: it is rendered beside the document it describes,
+  and a reader has to be able to see what they would be subscribing to before they
+  have signed in.
+- GET /subjects/?doc=rfc9110: the same list narrowed to the subjects one document
+  carries, which is how Red renders the subjects on an RFC page without a second
+  endpoint. Identifiers are canonicalized, so rfc9110 and RFC 9110 address the same
+  document, and a bare number is rejected as everywhere else.
+- GET /subjects/{slug}/ (anonymous): one subject and the documents carrying it.
+  Addressed by slug because this is the path whose URL a reader sees; the response
+  also carries the id, which is what subscribing names. Membership is here rather than
+  on the list for the reason /me/ splits its set serializer: a picker needs every
+  subject and no membership, so putting membership in the list would make the payload
+  grow with the catalogue rather than with the vocabulary.
+- No write path. Curation is staff work in the admin, both for the vocabulary and for
+  assignments, so a POST is a 405 whoever is asking. If self-service assignment is
+  ever wanted it is a new decision, not a missing endpoint.
+- Subscribing to a subject is the subject kind on /subscriptions/, naming the subject
+  by id. Unlike a set, it is not scoped to the caller: the vocabulary is public and
+  has no owner, so every subject is subscribable by anyone and there is nothing for a
+  queryset to hide.
+
 Per-document statistics (built, no ticket yet):
 
 - GET /stats/ (anonymous, unpaginated): a row per document, with rating_average,
@@ -316,10 +393,12 @@ Per-document statistics (built, no ticket yet):
   itself, and an id that names no set 404s rather than 403s, a taken-down set
   included. The disclosure is the same either way: the rows list what the set holds,
   which is what following the link already shows.
-- subscriber_count is distinct users across the two kinds that name a document, rfc
-  and set. The predicate kinds are excluded: new_rfc would otherwise add all of its
-  subscribers to every recent RFC and flatten the number into noise. One user holding
-  both an rfc subscription and a subscription to a set containing it counts once.
+- subscriber_count is distinct users across the three kinds that name a document: rfc,
+  set and subject. The predicate kinds are excluded: new_rfc would otherwise add all of
+  its subscribers to every recent RFC and flatten the number into noise. One user
+  reaching one document through two of the counted kinds counts once. Subjects are the
+  broadest term in the count, since one can cover far more documents than a hand-built
+  set; see the subject-breadth open item.
 - set_count counts distinct sets, minus the ones staff have taken down. The numbers
   are aggregate and name nobody: a count of one says somebody tracks this document,
   not who. A set staff have taken down is left out, along with subscriptions to it,
@@ -416,6 +495,18 @@ Then, for document sets:
     aggregating ratings, subscribers and sets for Red's build-time precompute.
     Commit: "Add per-document statistics API".
 
+Then, for subjects:
+
+19. Subjects: the subjects app with Subject and SubjectAssignment plus migrations, the
+    public read API, admin curation, and the subject subscription kind: the nullable
+    subject FK in the uniqueness constraint, replacing the free-text subject_tag kind,
+    and join-based matching in subscriptions_for_document. The old subject_tag rows are
+    dropped rather than carried across: resolving one would mean creating a Subject for
+    whatever string was typed, which is how a curated vocabulary acquires "secuirty" on
+    its first day, and no subject_tag subscription ever produced a notification, since
+    the kind was matched on the ingest path and that is a stub. Export the schema.
+    Commit: "Add subjects and subject subscriptions".
+
 ## Verification
 
 - Dev bring-up: devcontainer (or docker/run); migrate and collectstatic run; tmux
@@ -449,6 +540,13 @@ Then, for document sets:
   mail per document. All covered by manage.py test. Not yet verifiable end to end:
   that a real datatracker change arrives as such a batch, because ingestion is still a
   stub.
+- Subjects: GET /subjects/ with no token returns the vocabulary and no membership;
+  ?doc= narrows it to one document's subjects and canonicalizes the identifier;
+  GET /subjects/{slug}/ returns the documents carrying it; a POST is a 405. A
+  subscription to a subject is matched by a change to a document assigned to it
+  afterwards, stops matching when the assignment is removed, survives the subject
+  being renamed, and goes away with the subject being deleted. A subscription naming
+  both a set and a subject is refused. All covered by manage.py test.
 - Statistics: GET /stats/ with no token returns a row per engaged document; adding a
   rating, a subscription and a set entry for one document moves all three numbers; a
   user subscribed both directly and through a set counts once; ?set= returns the
@@ -466,16 +564,20 @@ Then, for document sets:
   Reef stays stateless there. This is a cross-repo dependency.
 - Subscriptions depth: datatracker change-feed ingestion (#139) and email templates are
   scaffolded here; full wiring is a follow-up phase. Two things to confirm as it
-  lands: the param keys for by_status ("status") and subject_tag ("tag") are named
-  ahead of their matching logic, since the uniqueness constraint needs every kind to
-  have a settled shape; and unsubscribe is a hard delete, so the constraint is
-  unconditional. If a soft unsubscribed_at or a pending-verification state is ever
-  added, the constraint has to become partial or it will block resubscribing.
+  lands: the param key for by_status ("status") is named ahead of its matching logic,
+  since the uniqueness constraint needs every kind to have a settled shape; and
+  unsubscribe is a hard delete, so the constraint is unconditional. If a soft
+  unsubscribed_at or a pending-verification state is ever added, the constraint has to
+  become partial or it will block resubscribing. This item used to cover subject_tag's
+  "tag" key as well. Hosting the vocabulary here settled that one by removing it: a
+  subject is a relation now, so there is no free-text key left to agree.
 - Email subscriptions: the data model above says "user or email" but Subscription is
-  user-only. Adding an email column puts two nullable identity columns in the
-  uniqueness constraint, and Postgres counts NULLs as distinct, so it would need
-  nulls_distinct=False (Django 5.0+, PG15+). Decide before the constraint is relied on.
-  A set FK on Subscription is the same problem, so decide the two together.
+  user-only. Adding an email column puts a fourth nullable identity column in the
+  uniqueness constraint, alongside user, the set FK and the subject FK. Postgres counts
+  NULLs as distinct, so this needs nulls_distinct=False (Django 5.0+, PG15+), which is
+  already set and already carrying two relations. Adding a third is not a new risk but
+  it is more weight on one setting, and the failure if it is ever lost is silent
+  duplicate subscriptions rather than an error.
 - Subseries in a subscribable set: a BCP or STD is a container whose membership
   changes (BCP 14 is currently RFC 2119 plus RFC 8174). "Updates to bcp14" therefore
   means two different things: a change to a constituent RFC, and a change to which
@@ -484,6 +586,44 @@ Then, for document sets:
   metadata, so whichever way it goes, the expansion has to come from the datatracker
   feed rather than from Reef's own tables. This is the substantive unknown in the sets
   proposal.
+- Retiring and merging subjects: a curated vocabulary changes, and neither change has
+  an answer yet. Deleting a subject cascades its subscriptions away, which is right for
+  a mistake made this morning and wrong for a subject a thousand people follow that is
+  being renamed into another. Merging is the case with no mechanism at all: there is no
+  way to say "security is now part of security and privacy" and move both assignments
+  and subscribers. The cheap first move is a retired flag that hides a subject from the
+  picker and from new subscriptions while leaving existing ones matching; the real one
+  is a merge that rewrites the FK. Neither is built. Until then the admin is a sharp
+  tool: deleting a subject silently unsubscribes people who never asked to be.
+- Assigning subjects at scale: the vocabulary is small and staff can type it, but the
+  back catalogue is roughly 9,500 RFCs and the admin assigns one document at a time.
+  Nothing decides whether subjects apply only to documents published from now on, or
+  whether the catalogue gets backfilled, and if so from what. The point of hosting the
+  vocabulary here was not to depend on the datatracker for it, so a bulk import has no
+  obvious source. This is the practical unknown in subjects, in the way subseries is
+  the substantive one in sets.
+- Assignment as an event: "changes to anything on the subject of X" is ambiguous in the
+  same way the subseries question is. A subscriber could mean a change to a document
+  carrying X, which is what is built, or a document being newly given X, which is not.
+  The second is an event no feed can supply: it happens when staff assign a subject in
+  Reef's own admin, which would make Reef a source of change events rather than only a
+  consumer of them. Everything in the notification path assumes the other direction.
+  Wiring it means enqueuing a digest from the assignment save path, and deciding
+  whether a subscriber wants to hear about a five-year-old RFC because it has just been
+  categorized.
+- Subject breadth in the statistics: subscriber_count now includes subject
+  subscriptions, on the same reasoning that includes set ones: they produce mail about
+  the document, so somebody is watching it. But a subject can cover a large fraction of
+  the series, where a hand-built set is tens of documents, so a broad subject with many
+  subscribers moves every one of its documents at once. That is not wrong, but it is
+  the term most likely to make the number read as noise, and it is the one to revisit
+  if it does. Excluding it is a one-line change in stats._subscriber_counts.
+- Subjects on the Red side: no contract is agreed yet. Red needs the vocabulary for a
+  picker, a document's subjects for its RFC pages, and a link target for a subject,
+  which is why the detail read is addressed by slug. Whether Red wants a document count
+  per subject in the list, and whether a subject should have a page of its own in Red
+  or only a filter, are its calls. This is the same cross-repo agreement the open/ list
+  (#225) and sets still need, and subjects need a ticket of their own alongside them.
 - Subscribing to someone else's set: the first cut restricts subscriptions to your
   own sets. Opening it up means deciding what happens when the owner empties or
   deletes it. Continuing to mail a subscriber about a set that is no longer there

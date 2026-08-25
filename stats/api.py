@@ -53,15 +53,22 @@ def _set_counts():
 def _subscriber_counts():
     """Distinct users subscribed to each document.
 
-    Counts the two kinds that name a document: rfc, which holds the identifier
-    in params, and set, which reaches it through the set's membership. The
-    predicate kinds are excluded, because new_rfc would otherwise add every one
-    of its subscribers to every recent RFC and flatten the number into noise.
+    Counts the three kinds that name a document: rfc, which holds the
+    identifier in params, and set and subject, which each reach it through a
+    membership join. The predicate kinds are excluded, because new_rfc would
+    otherwise add every one of its subscribers to every recent RFC and flatten
+    the number into noise.
 
-    Merged in Python rather than SQL because a user holding both an rfc and a
-    set subscription for one document is one subscriber, and the two paths are
-    different joins. The inputs are subscriptions and set entries, not the
-    document series, so this stays small.
+    Subject subscriptions count for the same reason set ones do: they produce
+    mail about this document, so somebody is watching it. They are the broadest
+    thing counted here, though, since a subject can cover far more documents
+    than any hand-built set. If the number ever reads as noise, this is the
+    term to revisit; see the subject-breadth open item in plan.md.
+
+    Merged in Python rather than SQL because a user reaching one document
+    through two of these is one subscriber, and the three paths are different
+    joins. The inputs are subscriptions, set entries and subject assignments,
+    not the document series, so this stays small.
     """
     users_by_doc = defaultdict(set)
 
@@ -78,8 +85,14 @@ def _subscriber_counts():
         document_set__entries__isnull=False,
         document_set__deleted_at__isnull=True,
     ).values_list("document_set__entries__doc", "user_id")
+    # No takedown filter to match the set one above: a subject has no state
+    # between existing and not, so there is nothing here to leave out.
+    subject_pairs = Subscription.objects.filter(
+        kind=Subscription.Kind.SUBJECT,
+        subject__assignments__isnull=False,
+    ).values_list("subject__assignments__doc", "user_id")
 
-    for doc, user_id in [*rfc_pairs, *set_pairs]:
+    for doc, user_id in [*rfc_pairs, *set_pairs, *subject_pairs]:
         users_by_doc[doc].add(user_id)
     return {doc: len(users) for doc, users in users_by_doc.items()}
 

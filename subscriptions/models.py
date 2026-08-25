@@ -16,12 +16,16 @@ class Subscription(models.Model):
     """
 
     class Kind(models.TextChoices):
+        # Predicates over the event: they say what has to have happened, not
+        # which document it happened to, so no join resolves them.
         NEW_RFC = "new_rfc", "Any new RFC"
         BY_STATUS = "by_status", "New RFC by status"
         OBSOLETED = "obsoleted", "RFC obsoleted or made historic"
-        SUBJECT_TAG = "subject_tag", "RFC with a subject tag"
+        # The rest name documents, one way or another, and are matched by
+        # subscriptions_for_document.
         RFC = "rfc", "Changes to one specific RFC"
         SET = "set", "Changes to anything in a document set"
+        SUBJECT = "subject", "Changes to anything carrying a subject"
 
     # The parameters each kind takes. Every listed key is required and no other
     # key is accepted: uniqueness compares the stored JSON, so a stray key would
@@ -30,9 +34,18 @@ class Subscription(models.Model):
         Kind.NEW_RFC: (),
         Kind.BY_STATUS: ("status",),
         Kind.OBSOLETED: (),
-        Kind.SUBJECT_TAG: ("tag",),
         Kind.RFC: ("rfc",),
         Kind.SET: (),  # the set is a foreign key, not a parameter
+        Kind.SUBJECT: (),  # and so is the subject
+    }
+
+    # The kinds that point at a row rather than describing one in params, and
+    # the field each points through. Exactly one of these is filled for a
+    # subscription of that kind and all of them are null for every other kind,
+    # which is what the uniqueness constraint below is written against.
+    RELATIONS = {
+        Kind.SET: "document_set",
+        Kind.SUBJECT: "subject",
     }
 
     user = models.ForeignKey(
@@ -42,11 +55,19 @@ class Subscription(models.Model):
     )
     kind = models.CharField(max_length=32, choices=Kind.choices)
     params = models.JSONField(default=dict, blank=True)
-    # The set kind points at a set rather than naming one in params: a slug in
-    # JSON has no referential integrity, so it would break on a retitle and
-    # leave a silently dead subscription on delete.
+    # The set and subject kinds point at a row rather than naming one in
+    # params: a title or a slug in JSON has no referential integrity, so it
+    # would break on a rename and leave a silently dead subscription on
+    # delete. Both are nullable because only their own kind fills them.
     document_set = models.ForeignKey(
         "docsets.DocumentSet",
+        on_delete=models.CASCADE,
+        related_name="subscriptions",
+        null=True,
+        blank=True,
+    )
+    subject = models.ForeignKey(
+        "subjects.Subject",
         on_delete=models.CASCADE,
         related_name="subscriptions",
         null=True,
@@ -59,11 +80,13 @@ class Subscription(models.Model):
         ordering = ["-created_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["user", "kind", "params", "document_set"],
+                fields=["user", "kind", "params", "document_set", "subject"],
                 name="unique_subscription_per_user",
-                # document_set is null for every kind but set, and Postgres
-                # counts nulls as distinct by default, which would stop the
-                # constraint blocking duplicates of all the other kinds.
+                # Every relation column is null for every kind but its own, and
+                # Postgres counts nulls as distinct by default, which would stop
+                # the constraint blocking duplicates of all the other kinds.
+                # Each further relation added here makes that more load-bearing,
+                # not less.
                 nulls_distinct=False,
             )
         ]
@@ -75,11 +98,16 @@ class Subscription(models.Model):
         # Every write path normalizes, not just the API: the constraint compares
         # stored bytes, so the admin and the ingest task have to agree with it.
         self.params = normalize_params(self.kind, self.params)
-        if self.kind == self.Kind.SET and self.document_set_id is None:
-            raise ValidationError("The set kind requires a set.")
-        if self.kind != self.Kind.SET and self.document_set_id is not None:
-            raise ValidationError(f"The {self.kind} kind does not take a set.")
+        problem = next(iter(relation_problems(self.kind, self.relations())), None)
+        if problem is not None:
+            raise ValidationError(problem[1])
         super().save(*args, **kwargs)
+
+    def relations(self):
+        """What this subscription fills each relation field with, by name."""
+        return {
+            field: getattr(self, f"{field}_id") for field in self.RELATIONS.values()
+        }
 
 
 def normalize_params(kind, params):
@@ -122,3 +150,24 @@ def normalize_params(kind, params):
         else:
             normalized[key] = value.strip().lower()
     return normalized
+
+
+def relation_problems(kind, values):
+    """Yield (field, message) for every relation this kind fills wrongly.
+
+    `values` maps each relation field name to what the subscription holds
+    there. Checked on every write path, for the same reason params are
+    normalized on every write path: the uniqueness constraint is written as
+    though a kind's own relation is the only one filled, so a row filling two
+    would be compared against a shape nothing else writes.
+
+    Yields rather than raises so that each caller reports in its own idiom:
+    the model raises a plain ValidationError, and the serializer keys the
+    message to the field the caller sent.
+    """
+    for relation_kind, field in Subscription.RELATIONS.items():
+        present = values.get(field) is not None
+        if kind == relation_kind and not present:
+            yield field, f"The {kind} kind requires a {relation_kind}."
+        elif kind != relation_kind and present:
+            yield field, f"The {kind} kind does not take a {relation_kind}."

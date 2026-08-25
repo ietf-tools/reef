@@ -34,11 +34,19 @@ class SubscriptionListCreate(OwnSubscriptionsMixin, generics.ListCreateAPIView):
     def perform_create(self, serializer):
         # Subscribing is idempotent: a repeated POST (double click, resubmit,
         # second tab) returns the existing subscription rather than a duplicate.
+        #
+        # Every relation column, not just the ones this kind fills: a lookup
+        # that left one out would match a row holding it and hand back a
+        # subscription to something the caller did not ask for.
+        relations = {
+            field: serializer.validated_data.get(field)
+            for field in Subscription.RELATIONS.values()
+        }
         serializer.instance, created = Subscription.objects.get_or_create(
             user=self.request.user,
             kind=serializer.validated_data["kind"],
             params=serializer.validated_data["params"],
-            document_set=serializer.validated_data.get("document_set"),
+            **relations,
         )
         if created:
             # Only on a real create, so that the idempotent POST above does not

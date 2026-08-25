@@ -52,15 +52,25 @@ CONFIRMATION_TEMPLATE = "subscriptions/mail/confirmation.txt"
 def subscriptions_for_document(doc):
     """Subscriptions that a change to one document should notify.
 
-    Covers the two kinds that name a document. The rfc kind holds the
+    Covers the three kinds that name a document. The rfc kind holds the
     identifier in params, so it is an equality test. The set kind holds a
     foreign key, so it is a join through the set's entries, against membership
     that changes underneath the subscription: someone who subscribed to a set
-    last month is notified about a document added to it yesterday.
+    last month is notified about a document added to it yesterday. The subject
+    kind is the same shape of join, through the subject's assignments, and
+    changes underneath the subscription the same way: subscribing to
+    "security" covers whatever carries that subject when the change lands, not
+    what carried it when the subscriber signed up.
 
-    The predicate kinds (new_rfc, by_status, obsoleted, subject_tag) match on
-    what happened rather than on which document it happened to, so they are not
-    here; they belong to the ingest path once the event shape is known.
+    The subject kind can be matched here at all only because the vocabulary is
+    Reef's own. It was drafted as a predicate over the event, alongside the
+    kinds below, back when a subject was going to arrive on the event from the
+    datatracker; hosting the vocabulary here turned it into a join and moved
+    it off the ingest path's critical list.
+
+    The predicate kinds (new_rfc, by_status, obsoleted) match on what happened
+    rather than on which document it happened to, so they are not here; they
+    belong to the ingest path once the event shape is known.
 
     Subseries are not expanded. A change to rfc2119 does not match a
     subscription to bcp14, even though BCP 14 currently consists of RFC 2119
@@ -81,9 +91,13 @@ def subscriptions_for_document(doc):
                 document_set__entries__doc=doc,
                 document_set__deleted_at__isnull=True,
             )
+            # No equivalent takedown filter for subjects: a subject is staff's
+            # own and has no state between existing and not, so there is no
+            # row here that a read has to pretend is absent.
+            | Q(kind=Subscription.Kind.SUBJECT, subject__assignments__doc=doc)
         )
         .distinct()
-        .select_related("user", "document_set")
+        .select_related("user", "document_set", "subject")
     )
 
 
