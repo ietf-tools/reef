@@ -802,7 +802,7 @@ Then, for precomputed reads:
     skipping one: duplicates are recoverable and a missed change is not. What makes a
     repeat recoverable is a unique dedupe_key, a hash of the reader, the events and the
     reading they came from, so the database refuses a second copy rather than the code
-    being trusted not to make one -- the advisory lock is a convention between processes
+    being trusted not to make one — the advisory lock is a convention between processes
     and a unique index is not. Hashed over the events rather than the subscriptions,
     because what makes two mails duplicates is that they say the same thing to the same
     person, and which subscription matched is why it reached them rather than what it
@@ -823,8 +823,8 @@ Then, for precomputed reads:
     would notice. Commit: "Notify subscribers of RFC changes".
 32. Subject lifecycle: retiring, merging, and refusing a delete that would take
     somebody's subscription with it. subjects/merge.py holds the merge because it is not
-    one write -- it moves two kinds of row, decides what to do about a reader who
-    follows both, retires the source and tells everybody affected -- and a model method
+    one write — it moves two kinds of row, decides what to do about a reader who
+    follows both, retires the source and tells everybody affected — and a model method
     doing the first four and leaving the fifth to whoever remembered is how a
     subscription changes meaning silently. SubjectDetail serves a retired subject as
     slug, retired and merged_into alone: the precomputer renders the view, so the
@@ -833,7 +833,7 @@ Then, for precomputed reads:
     to. Commit: "Retire and merge subjects".
 33. Survey invites: where a survey is offered, and who has already answered it. A survey
     names its audience as documents, subject slugs, or both, and the open list publishes
-    the resolved set so Red can decide client-side rather than asking per RFC page --
+    the resolved set so Red can decide client-side rather than asking per RFC page —
     which also keeps the file precomputable. Subjects resolve at read time, so a
     document assigned to one next week falls inside the audience without anybody
     reopening the survey, the same way a set or subject subscription matches membership
@@ -973,7 +973,7 @@ Then, for precomputed reads:
   container, and so does a document leaving one, including through a set or subject that
   holds the container. A change that is not about membership does not reach them.
 - Overlapping runs: a change-notification run that cannot take the lock does nothing
-  at all -- no notifications written and the snapshot left where it was -- and the next
+  at all — no notifications written and the snapshot left where it was — and the next
   tick finds the lock free. The lock is per Postgres session and re-entrant within one,
   so it guards against two workers rather than against one process calling twice, which
   is what two runs of a scheduled job actually are.
@@ -1045,7 +1045,7 @@ Then, for precomputed reads:
   needed the snapshot: current membership no longer names the container, so nothing in
   the index could find the people following it, and the diff of the subseries field is
   the only record that it happened. The remaining question is not detection but wording
-  -- a departure is announced as "RFC 2119: Removed from BCP 14", which reads correctly
+  — a departure is announced as "RFC 2119: Removed from BCP 14", which reads correctly
   to somebody following either, and there is no separate message written from the
   container's point of view.
 - Retiring and merging subjects: built. Three operations that used to be one delete.
@@ -1058,7 +1058,7 @@ Then, for precomputed reads:
   Merging moves the assignments, repoints the followers, deletes rather than repoints a
   subscription for somebody who already follows the target since the uniqueness
   constraint holds only one, retires the source with merged_into pointing at the target,
-  and tells everybody affected -- including the reader whose own subscription did not
+  and tells everybody affected — including the reader whose own subscription did not
   move but changed meaning. The notice goes through the ordinary notification queue as
   an event with no document, so it inherits being written down before it is enqueued,
   one mail per reader, and the unsubscribe hold. What is left open is the wording of
@@ -1173,6 +1173,13 @@ Then, for precomputed reads:
   a field later is additive.
 - Nuxt OIDC client registration: confirm a public (PKCE) Authentik client for the runner
   versus reusing Red's client configuration.
-- Survey targeting: the audience and user-specific-offer rules (subscription-driven)
-  need a concrete specification beyond the scaffold.
-```
+- Survey targeting: half built. Where a survey is offered is settled and done — an
+  audience of documents, subject slugs or both, resolved at read time and published as a
+  flat list Red filters on. What that sentence also covered, and what is untouched, is
+  user-specific offers: choosing who to invite from what they subscribe to, rather than
+  from which document they are reading. Nothing reads a subscription to decide whether
+  to offer a survey, and offerable_to still separates callers only by whether they are
+  identified. It is a bigger question than it looks, because inviting somebody on the
+  strength of what they subscribe to means the survey list stops being cacheable per
+  document and starts being personal, and because the audience field would then hold two
+  unrelated kinds of rule.
