@@ -11,7 +11,9 @@ case "${CONTAINER_ROLE:-backend}" in
         exec ./celery-start.sh beat --loglevel=INFO
         ;;
     celery)
-        exec ./celery-start.sh worker --loglevel=INFO
+        # Both queues: precompute is separated so a long precomputer run cannot sit
+        # in front of subscription mail, not so that it goes unserved.
+        exec ./celery-start.sh worker --loglevel=INFO --queues=celery,precompute
         ;;
     migrations)
         exec ./migration-start.sh

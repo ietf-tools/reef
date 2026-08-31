@@ -1,141 +1,73 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""What gets precomputed, and what deliberately does not.
+"""Celery tasks that run the precomputer on a schedule.
 
-One task per public read endpoint. A task yields ``(key, body)`` pairs and
-declares, with ``owns``, the keys in the store that are its own, so that a full
-run can purge what it no longer produces: a subject that was renamed leaves a
-stale ``subjects/<old-slug>.json`` behind otherwise, and a stale payload in a
-blob store outlives the row it came from indefinitely.
+Thin wrappers around `manage.py precompute`, deliberately: the command is the entry
+point, and having the schedule call anything else would give two code paths to the
+same work and one of them would drift. What these add is a lock, a queue and a
+schedule.
 
-Only anonymous responses are here, because a key in a blob store is served to
-whoever asks for it. That rules out four endpoints on purpose:
+Two entries, on different periods, because the two halves go stale for different
+reasons. Engagement files move whenever a reader rates or subscribes, which is
+continuous and driven by Reef's own tables. Everything else moves when staff curate,
+which the signals in signals.py already catch, or when Red publishes an RFC, which
+nothing in Reef observes at all: the full run is the only thing that notices a
+document Red has and Reef's last run did not.
 
-* ``me/documents/`` and ``subscriptions/`` are per-caller by definition.
-* ``surveys/`` and ``surveys/<pk>/results/`` are staff-only.
-* ``sets/<uuid>/`` reads without a credential, but only because holding the
-  unguessable id *is* the permission. That model does not survive a store whose
-  keys can be listed, and a set is edited by its owner between runs, so a
-  precomputed copy would be both a leak and stale on the page that shows it.
-
-``ratings/<doc>/`` is included, as its anonymous body: the public average and
-count, with ``your_rating`` null. The endpoint varies by caller only in that
-one field, and DRF already marks the live response ``Vary: Authorization``;
-what is stored here is the anonymous half, which is what an unauthenticated
-reader would have got.
+None of these raise on a failed run. The command reports its own errors and exits
+non-zero; a Celery exception on top would add a retry that recomputes the same
+broken thing, and an alert for something the next scheduled run fixes by itself.
 """
 
-import re
+import logging
 
-from popularity.api import PopularityList
-from ratings.api import RatingDetail
-from ratings.models import Rating
-from stats.api import DocumentStatsList
-from subjects.api import SubjectDetail, SubjectList
-from subjects.models import Subject
-from surveys.api import OpenSurveyList, SurveyDefinition
-from surveys.models import Survey
+from celery import shared_task
+from django.core.management import call_command
 
-from .render import render_anonymous
+from .locks import advisory_lock
 
-TASKS = {}
+logger = logging.getLogger("reef")
+
+LOCK_NAME = "precomputer.run"
 
 
-def task(name, *, owns, per_document=False):
-    """Register a task under name.
+def _run(*task_names):
+    """Run the precompute command under the lock, reporting rather than raising."""
+    label = ", ".join(task_names) if task_names else "all tasks"
+    with advisory_lock(LOCK_NAME) as acquired:
+        if not acquired:
+            # Not an error. A run in progress is already doing this work, and the
+            # next tick will find the lock free.
+            logger.info("Skipping precompute of %s: another run holds the lock", label)
+            return False
+        logger.info("Precomputing %s", label)
+        try:
+            call_command("precompute", *task_names)
+        except Exception:
+            logger.error("Precompute of %s failed", label, exc_info=True)
+            return False
+    return True
 
-    owns is a regex matching every key the task is responsible for, used by the
-    purge. per_document marks a task whose output is keyed by document
-    identifier, which is what --doc narrows.
+
+@shared_task(ignore_result=True)
+def precompute_all():
+    """Every task. The daily floor, and the only thing that sees Red's new RFCs."""
+    return _run()
+
+
+@shared_task(ignore_result=True)
+def precompute_engagement():
+    """The files that move with reader activity rather than with curation."""
+    return _run("stats", "ratings")
+
+
+@shared_task(ignore_result=True)
+def precompute_curated():
+    """The files a staff edit changes. Enqueued by signals.py, not scheduled.
+
+    Cheap enough to run per edit: one render for popularity, one per subject, one
+    per open survey. A burst of edits enqueues a task each, and the lock collapses
+    only those that overlap a run in progress, so some of them repeat work. That is
+    accepted rather than solved, because debouncing properly needs shared state
+    that development does not have a backend for.
     """
-
-    def register(func):
-        func.task_name = name
-        func.owns = re.compile(owns)
-        func.per_document = per_document
-        TASKS[name] = func
-        return func
-
-    return register
-
-
-@task("stats", owns=r"^stats\.json$")
-def stats(docs=None):
-    """Rating, subscriber and set counts for the whole series, in one file.
-
-    The expensive one, and the reason this command exists: the endpoint is
-    unpaginated by design because Red wants the series in a single call, so it
-    aggregates every rating, subscription and set entry on each request.
-    """
-    yield (
-        "stats.json",
-        render_anonymous(DocumentStatsList.as_view(), "/api/reef/stats/"),
-    )
-
-
-@task("popularity", owns=r"^popularity\.json$")
-def popularity(docs=None):
-    """The curated most-popular list."""
-    yield (
-        "popularity.json",
-        render_anonymous(PopularityList.as_view(), "/api/reef/popularity/"),
-    )
-
-
-@task("subjects", owns=r"^subjects\.json$|^subjects/[^/]+\.json$")
-def subjects(docs=None):
-    """The whole vocabulary, and each subject with the documents carrying it."""
-    yield (
-        "subjects.json",
-        render_anonymous(SubjectList.as_view(), "/api/reef/subjects/"),
-    )
-    detail = SubjectDetail.as_view()
-    for slug in Subject.objects.values_list("slug", flat=True).order_by("slug"):
-        yield (
-            f"subjects/{slug}.json",
-            render_anonymous(detail, f"/api/reef/subjects/{slug}/", slug=slug),
-        )
-
-
-@task("surveys", owns=r"^surveys/open\.json$|^surveys/[^/]+/definition\.json$")
-def surveys(docs=None):
-    """Open surveys, and the definition of each one a visitor may run.
-
-    Only OPEN surveys get a definition file. An authenticated-visibility survey
-    refuses an anonymous caller, so there is no anonymous body to store, and
-    the runner has to ask the API for it with the visitor's credential.
-    """
-    yield (
-        "surveys/open.json",
-        render_anonymous(OpenSurveyList.as_view(), "/api/reef/surveys/open/"),
-    )
-    definition = SurveyDefinition.as_view()
-    open_surveys = Survey.objects.filter(
-        status=Survey.Status.PUBLISHED, visibility=Survey.Visibility.OPEN
-    ).values_list("slug", flat=True)
-    for slug in open_surveys.order_by("slug"):
-        yield (
-            f"surveys/{slug}/definition.json",
-            render_anonymous(
-                definition, f"/api/reef/surveys/{slug}/definition/", slug=slug
-            ),
-        )
-
-
-@task("ratings", owns=r"^ratings/[^/]+\.json$", per_document=True)
-def ratings(docs=None):
-    """One file per rated document: the public average and count.
-
-    Documents nobody has rated are left out rather than stored as zeros. The
-    endpoint answers for any identifier, so a reader asking about an unrated
-    document gets its empty aggregate from the API; writing a file for every
-    document in the series to say "no ratings" would be most of the series.
-    """
-    rated = Rating.objects.values_list("rfc", flat=True).distinct().order_by("rfc")
-    if docs is not None:
-        rated = rated.filter(rfc__in=docs)
-    detail = RatingDetail.as_view()
-    for doc in rated:
-        yield (
-            f"ratings/{doc}.json",
-            render_anonymous(detail, f"/api/reef/ratings/{doc}/", rfc=doc),
-        )
+    return _run("popularity", "subjects", "surveys")

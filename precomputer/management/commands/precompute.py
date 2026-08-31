@@ -25,7 +25,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.management.base import BaseCommand, CommandError
 
 from precomputer.blobstore import get_blob_store
-from precomputer.tasks import TASKS
+from precomputer.registry import TASKS
 from reef.docids import normalize_doc_id
 
 

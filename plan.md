@@ -131,7 +131,8 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 - Break-glass: one local Django superuser for admin access if Authentik is
   unavailable.
 - Async: Celery plus a broker for subscription emails (scaffolded in this phase).
-- - Precomputer: a management command, not a process. It renders the public reads by
+- - Precomputer: a management command, run by celery beat rather than a process of its
+  own. It renders the public reads by
   calling the DRF views in process, so a precomputed file cannot describe a different
   shape from the live response, and then adds resolved document metadata to whatever
   names a document. A file is meant to serve one of Red's routes in one fetch, so it
@@ -190,7 +191,10 @@ reef/
   precomputer/             renders the public reads to a blob store; one management command
     blobstore.py           S3 when a bucket is configured, a local directory when not
     render.py              runs a DRF view in process and returns the bytes it served
-    tasks.py               one task per public read, each owning the keys it may purge
+    registry.py            one job per public read, each owning the keys it may purge
+    tasks.py               celery tasks that run the command on a schedule
+    locks.py               postgres advisory lock, so two runs cannot overlap
+    signals.py             a staff edit to curated content enqueues a refresh
     management/commands/precompute.py   the single entry point
   vendor/                  package.json for self-hosted SurveyJS Creator/Analytics bundles into Django static
   client/                  Nuxt 4 survey runner (themed)
@@ -276,14 +280,15 @@ reef/
   the same metadata, and Purple already consumes the neighbouring /api/purple/ tag
   through a generated client, so the machinery is proven. What it costs is an
   openapi-generator step in the image, a generated package installed from a path in
-  requirements.txt, an API key per deployment, and a cache backend: Reef configures
-  DummyCache in base and overrides it in no environment, so a per-document client
-  would re-fetch on every lookup. Red's files need none of that. The objection to
-  reading Red is that Red reads Reef's precomputed bucket, so this closes a loop —
-  but it is a loop of static-file reads, where neither side calls the other
-  synchronously and the worst case is one run's lag, which is what the datatracker
-  route would give too. What it does add is a second hop of staleness and a dependency
-  on Red's precomputer succeeding; see the open item on stale reads.
+  requirements.txt, an API key per deployment, and somewhere to cache: production and
+  staging get memcached when the k8s environment supplies MEMCACHED_SERVICE_HOST, but
+  base and development are DummyCache, so a per-document client would re-fetch on every
+  lookup in development and behave differently there from production. Red's files need
+  none of that. The objection to reading Red is that Red reads Reef's precomputed
+  bucket, so this closes a loop — but it is a loop of static-file reads, where neither
+  side calls the other synchronously and the worst case is one run's lag, which is what
+  the datatracker route would give too. What it does add is a second hop of staleness
+  and a dependency on Red's precomputer succeeding; see the open item on stale reads.
 
   Red's side guarantees those files change additively: new keys may appear, existing
   ones do not change meaning or go away. That is what makes an artifact shaped for
@@ -667,6 +672,32 @@ Then, for precomputed reads:
     outage read as a Reef failure. createdOn and its age are logged on every run
     regardless, since that is the line somebody will want when debugging. Commit: "Warn
     on a stale or incomplete Red index".
+24. 24. Scheduling: django-celery-beat, with the default entries in CELERY_BEAT_SCHEDULE
+    so that DatabaseScheduler materialises them on first start and staff can retime one
+    in the admin afterwards without a deploy. Two entries, because the halves go stale
+    for different reasons: precompute_engagement hourly for stats and ratings, which
+    move whenever a reader rates or subscribes, and precompute_all daily, which is the
+    only thing that notices an RFC Red has published, since nothing in Reef's own tables
+    moves when that happens. A third task, precompute_curated, is enqueued by signals
+    rather than scheduled: popularity, subjects and surveys are edited deliberately by
+    staff who then expect to see the change published. Reader-driven models are
+    deliberately not wired to signals, because a task per rating would enqueue thousands
+    to rebuild a file nobody reads in between. Signals fire on_commit, so a rolled-back
+    save publishes nothing, and with a countdown so that a few edits in one sitting
+    usually collapse into one run; several edits further apart still produce several
+    runs, which is accepted rather than solved because debouncing properly needs shared
+    state development has no backend for. Runs are serialised by a Postgres advisory
+    lock: two at once race on the purge, since a key absent from the run doing the
+    purging looks stale rather than in flight. Advisory rather than the usual
+    cache.add() lock because development is DummyCache, where every acquisition would
+    appear to succeed and the guard would be a no-op exactly where a developer first
+    meets it; the lock also releases by itself if the worker dies, which a cache lock
+    only imitates with a guessed timeout. The tasks run on their own precompute queue so
+    that a long run cannot sit in front of subscription mail, and no task raises on a
+    failed run, because a raise earns a retry that recomputes the same broken thing and
+    an alert for what the next tick fixes by itself. In k8s this adds a reef-beat
+    deployment, one replica and Recreate rather than rolling, since two beats fire every
+    job twice. Commit: "Run the precomputer on a schedule".
 
 ## Verification
 
@@ -726,6 +757,14 @@ Then, for precomputed reads:
   nothing. Naming a bucket without credentials is refused rather than falling back to
   the directory. All covered by manage.py test; the S3 path itself is exercised by hand
   against MinIO.
+- - Scheduling: celery beat starts with DatabaseScheduler and creates the precompute-all
+  and precompute-engagement periodic tasks; a worker started with
+  --queues=celery,precompute binds both; dispatching precompute_engagement writes
+  stats.json and the ratings files from the worker. Saving a curated model enqueues
+  precompute_curated after the countdown, a rolled-back save enqueues nothing, and a
+  rating enqueues nothing. Two runs landing together leave one running and one logging
+  that another holds the lock, both succeeding. All but the beat and queue bindings are
+  covered by manage.py test; those were exercised by hand against the dev containers.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;

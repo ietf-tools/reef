@@ -1,4 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+import contextlib
 import json
 import re
 import tempfile
@@ -9,11 +10,15 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import CommandError, call_command
-from django.test import TestCase, override_settings
+from django.db import connections, transaction
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from popularity.models import PopularEntry
 from precomputer.blobstore import LocalBlobStore, get_blob_store
-from precomputer.tasks import TASKS
+from precomputer.locks import _key, advisory_lock
+from precomputer.registry import TASKS
+from precomputer.signals import CURATED_DEBOUNCE_SECONDS
+from precomputer.tasks import precompute_all, precompute_curated, precompute_engagement
 from ratings.models import Rating
 from subjects.models import Subject, SubjectAssignment
 from surveys.models import Survey
@@ -295,3 +300,124 @@ class RegistryTests(PrecomputeTestCase):
                 self.assertTrue(keys, f"{name} produced nothing to check")
                 for key in keys:
                     self.assertRegex(key, func.owns)
+
+
+class AdvisoryLockTests(TransactionTestCase):
+    """Uses TransactionTestCase: a session advisory lock taken on one connection is
+    invisible to another only if both are real connections, which TestCase's outer
+    transaction and single connection would hide."""
+
+    def test_a_second_holder_is_refused_while_the_first_holds_it(self):
+        with advisory_lock("precomputer.test") as first:
+            self.assertTrue(first)
+            other = connections.create_connection("default")
+            try:
+                with other.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT pg_try_advisory_lock(%s)", [_key("precomputer.test")]
+                    )
+                    self.assertFalse(cursor.fetchone()[0])
+            finally:
+                other.close()
+
+    def test_the_lock_is_released_on_exit(self):
+        with advisory_lock("precomputer.test") as acquired:
+            self.assertTrue(acquired)
+        with advisory_lock("precomputer.test") as again:
+            self.assertTrue(again)
+
+    def test_the_lock_is_released_when_the_body_raises(self):
+        with self.assertRaises(RuntimeError):
+            with advisory_lock("precomputer.test"):
+                raise RuntimeError("boom")
+        with advisory_lock("precomputer.test") as again:
+            self.assertTrue(again)
+
+    def test_different_names_do_not_collide(self):
+        with advisory_lock("precomputer.a") as a:
+            with advisory_lock("precomputer.b") as b:
+                self.assertTrue(a)
+                self.assertTrue(b)
+
+
+class CeleryTaskTests(PrecomputeTestCase):
+    def setUp(self):
+        super().setUp()
+        PopularEntry.objects.create(rfc="rfc9110", rank=1)
+
+    def test_precompute_all_runs_every_task(self):
+        precompute_all()
+        self.assertIn("stats.json", self.written())
+        self.assertIn("popularity.json", self.written())
+
+    def test_precompute_engagement_runs_only_its_own(self):
+        precompute_engagement()
+        self.assertEqual(self.written(), {"stats.json"})
+
+    def test_precompute_curated_runs_only_its_own(self):
+        precompute_curated()
+        self.assertEqual(
+            self.written(),
+            {"popularity.json", "subjects.json", "surveys/open.json"},
+        )
+
+    def test_a_run_is_skipped_while_another_holds_the_lock(self):
+        """The scheduled tick that lands on a run in progress does nothing, rather
+        than queueing behind it to redo work that is being done."""
+        with mock.patch("precomputer.tasks.advisory_lock") as lock:
+            lock.return_value.__enter__.return_value = False
+            self.assertFalse(precompute_all())
+        self.assertEqual(self.written(), set())
+
+    def test_a_failing_run_is_reported_rather_than_raised(self):
+        """A raise here would earn a Celery retry that recomputes the same broken
+        thing, and an alert for what the next tick fixes by itself."""
+        with mock.patch(
+            "precomputer.tasks.call_command", side_effect=CommandError("nope")
+        ):
+            self.assertFalse(precompute_all())
+
+
+class CuratedSignalTests(TestCase):
+    """Staff edits enqueue a refresh; reader activity does not."""
+
+    def setUp(self):
+        patcher = mock.patch("precomputer.tasks.precompute_curated.apply_async")
+        self.enqueue = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_saving_a_curated_model_enqueues_a_run(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            PopularEntry.objects.create(rfc="rfc9110", rank=1)
+        self.assertEqual(self.enqueue.call_count, 1)
+        self.assertEqual(
+            self.enqueue.call_args.kwargs["countdown"], CURATED_DEBOUNCE_SECONDS
+        )
+
+    def test_deleting_a_curated_model_enqueues_a_run(self):
+        subject = Subject.objects.create(name="Security", slug="security")
+        self.enqueue.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            subject.delete()
+        self.assertEqual(self.enqueue.call_count, 1)
+
+    def test_reader_activity_does_not_enqueue_anything(self):
+        """Ratings arrive continuously from Red; a task per write would enqueue
+        thousands to rebuild a file nobody reads in between."""
+        user = User.objects.create(username="a", oidc_sub="a")
+        with self.captureOnCommitCallbacks(execute=True):
+            Rating.objects.create(rfc="rfc9110", user=user, value=4)
+        self.assertEqual(self.enqueue.call_count, 0)
+
+    def test_a_rolled_back_edit_enqueues_nothing(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            with contextlib.suppress(RuntimeError), transaction.atomic():
+                PopularEntry.objects.create(rfc="rfc7230", rank=3)
+                raise RuntimeError("rolled back")
+        self.assertEqual(self.enqueue.call_count, 0)
+
+    def test_a_broker_failure_does_not_break_the_edit(self):
+        self.enqueue.side_effect = OSError("broker down")
+        with self.captureOnCommitCallbacks(execute=True):
+            PopularEntry.objects.create(rfc="rfc8446", rank=2)  # must not raise
+        self.assertEqual(PopularEntry.objects.filter(rfc="rfc8446").count(), 1)

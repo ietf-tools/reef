@@ -6,6 +6,7 @@ resources:
   - secret.yaml
   - backend.yaml
   - celery.yaml
+  - beat.yaml
   - frontend.yaml
   - statics.yaml
   - memcached.yaml

@@ -4,6 +4,8 @@
 import os
 from pathlib import Path
 
+from celery.schedules import crontab
+
 # Build paths inside the project like this: BASE_DIR / "subdir".
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -18,6 +20,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "drf_spectacular",
     "corsheaders",
+    "django_celery_beat",
     "rules.apps.AutodiscoverRulesConfig",
     "reefauth",
     "surveys",
@@ -305,3 +308,30 @@ CELERY_TIMEZONE = "UTC"
 CELERY_BROKER_URL = os.environ.get("REEF_BROKER_URL", "amqp://mq/")
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_IGNORE_RESULT = True  # ignore results unless a task opts in
+
+# Schedules live in the database (django-celery-beat) so that staff can retime a job
+# without a deploy. CELERY_BEAT_SCHEDULE below is the default set: DatabaseScheduler
+# reads it on startup and creates any entry that is missing, then leaves it alone, so
+# an edit made in the admin survives a restart.
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+
+# The precomputer gets its own queue. A full run holds a worker for as long as it
+# takes and, once it resolves document metadata, a few megabytes of parsed index with
+# it; sharing the default queue would put that in front of subscription mail, where
+# the delay is a person waiting for a message.
+CELERY_TASK_ROUTES = {"precomputer.tasks.*": {"queue": "precompute"}}
+
+CELERY_BEAT_SCHEDULE = {
+    # Daily. This is the only job that notices an RFC Red has published and Reef has
+    # never seen, since nothing in Reef's own tables moves when that happens.
+    "precompute-all": {
+        "task": "precomputer.tasks.precompute_all",
+        "schedule": crontab(hour="3", minute="0"),
+    },
+    # Hourly. Ratings, subscriptions and set entries arrive from readers all day, and
+    # these are the two files that change when they do.
+    "precompute-engagement": {
+        "task": "precomputer.tasks.precompute_engagement",
+        "schedule": crontab(minute="20"),
+    },
+}

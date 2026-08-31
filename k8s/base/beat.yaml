@@ -1,0 +1,39 @@
+# The celery beat scheduler: what actually makes the precomputer run.
+#
+# Exactly one replica, and Recreate rather than a rolling update, because two beats
+# mean every scheduled job fires twice. The precomputer's advisory lock would collapse
+# the overlap into one run, but nothing else scheduled here is guaranteed to be
+# idempotent, so this is enforced here rather than relied on downstream.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reef-beat
+  labels:
+    app.kubernetes.io/part-of: reef
+    app.kubernetes.io/component: beat
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: beat
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: reef
+        app.kubernetes.io/component: beat
+    spec:
+      containers:
+        - name: beat
+          image: ghcr.io/ietf-tools/reef-backend:latest
+          env:
+            - name: CONTAINER_ROLE
+              value: beat
+            - name: CELERY_APP
+              value: reef
+          envFrom:
+            - configMapRef:
+                name: reef-config
+            - secretRef:
+                name: reef-secrets

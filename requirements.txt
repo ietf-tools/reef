@@ -1,5 +1,6 @@
 boto3>=1.35
 celery>=5.5.3
+django-celery-beat>=2.8.1
 Django~=5.2
 django-cors-headers>=4.4
 django-csp>=4.0
