@@ -115,7 +115,7 @@ class Command(BaseCommand):
         # couple of seconds, and every task shares the one index.
         index = None
         if options["metadata"]:
-            index = rfcmeta.load_index()
+            index = rfcmeta.get_index()
             if index is None:
                 # Red being unreachable is not a reason to publish nothing. The files
                 # are written with null metadata and the warning above says why.

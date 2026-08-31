@@ -171,6 +171,7 @@ reef/
     celery.py  urls.py  wsgi.py  openapi.py
     docids.py              shared document-identifier parsing and canonical form
     rfcmeta.py             titles and subseries contents, read from Red's public files
+    admin_documents.py     the title column the admin shows beside an identifier
     schemas/               JSON Schema for data Reef reads from elsewhere; synced copies
       rfc-mini-index.schema.json  generated from Red's RfcMiniSchema, synced by hand
   reefauth/                OIDC RP login (mozilla_django_oidc) plus DRF bearer resource-server
@@ -704,6 +705,24 @@ Then, for precomputed reads:
     an alert for what the next tick fixes by itself. In k8s this adds a reef-beat
     deployment, one replica and Recreate rather than rolling, since two beats fire every
     job twice. Commit: "Run the precomputer on a schedule".
+25. Titles in the admin: a DocumentTitleMixin adding a title column beside the bare
+    identifier in the subject, popularity and document-set admins, which is where staff
+    curate against nine thousand documents they otherwise see only as numbers. The index
+    behind it is shared with the precomputer rather than fetched per page: reduced to
+    the two fields Reef publishes, stored as compressed JSON in the Django cache, and
+    memoised per process for a minute on top of that. Compressed because the reduced
+    index pickles to 784 KiB against memcached's 1 MiB item cap, and a store over the
+    cap fails without saying so, which would turn every read back into a 6.8 MB fetch;
+    compressed it is 209 KiB and decodes in 6 ms. The memo is what makes a hundred-row
+    changelist a hundred dictionary lookups rather than a hundred decodes. Display reads
+    never fetch, only the precomputer does: a page render must not wait on a download
+    and a couple of seconds of validation, and a fetching display path would make every
+    test touching an admin page reach the network. So a cold cache shows no title rather
+    than reporting every row as an unknown document, which is the distinction that
+    matters, since "unknown document" is meant to mean a curation error. Development
+    gains a LocMemCache, because base is DummyCache and under it every cache write
+    succeeds and every read misses, which is how a caching bug hides until staging.
+    Commit: "Show document titles in the admin".
 
 ## Verification
 
@@ -783,6 +802,13 @@ Then, for precomputed reads:
   fetched once per run, not per lookup. All covered by manage.py test, with Red's index
   stubbed so the suite neither reaches the network nor validates ten thousand entries
   per test.
+- Admin titles: with the index warm a row shows its title, canonicalising the
+  identifier first; with it cold the column is blank rather than reporting every row as
+  unknown; a document the index lacks is called out as unknown, which is a curation
+  error and the only place Reef would notice one. Rendering a row never reaches Red, and
+  a hundred rows cost well under a millisecond. The shared cache is compressed, a
+  corrupt entry is discarded and refetched, a failed fetch is not memoised, and each
+  caller gets its own miss tracking.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;

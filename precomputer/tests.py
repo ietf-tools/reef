@@ -28,7 +28,7 @@ from surveys.models import Survey
 User = get_user_model()
 
 
-# Two documents' worth of Red's index, in the shape load_index() returns. Enough to
+# Two documents' worth of Red's index, in the shape get_index() returns. Enough to
 # cover resolved, unresolved and subseries without going near the network.
 FAKE_INDEX_ENTRIES = [
     {
@@ -46,7 +46,7 @@ FAKE_INDEX_ENTRIES = [
 
 def fake_index(entries=None, created_on=None):
     return rfcmeta.DocumentIndex(
-        FAKE_INDEX_ENTRIES if entries is None else entries,
+        rfcmeta._reduce(FAKE_INDEX_ENTRIES if entries is None else entries),
         created_on or datetime.date.today(),
     )
 
@@ -68,8 +68,8 @@ class PrecomputeTestCase(TestCase):
         self.addCleanup(overrides.disable)
 
         self.index = fake_index()
-        patcher = mock.patch("reef.rfcmeta.load_index", side_effect=lambda: self.index)
-        self.load_index = patcher.start()
+        patcher = mock.patch("reef.rfcmeta.get_index", side_effect=lambda: self.index)
+        self.get_index = patcher.start()
         self.addCleanup(patcher.stop)
 
     def precompute(self, *args, **options):
@@ -246,7 +246,7 @@ class DocumentMetadataTests(PrecomputeTestCase):
     def test_no_metadata_skips_the_fetch_entirely(self):
         Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
         self.precompute("stats", "--no-metadata")
-        self.load_index.assert_not_called()
+        self.get_index.assert_not_called()
         row = next(r for r in self.read("stats.json") if r["doc"] == "rfc9110")
         self.assertIsNone(row["title"])
 
@@ -256,7 +256,7 @@ class DocumentMetadataTests(PrecomputeTestCase):
         for number in (9110, 2119, 8446):
             Rating.objects.create(rfc=f"rfc{number}", user=self.user, value=3)
         self.precompute()
-        self.assertEqual(self.load_index.call_count, 1)
+        self.assertEqual(self.get_index.call_count, 1)
 
 
 class StaleIndexTests(PrecomputeTestCase):

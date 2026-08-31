@@ -294,6 +294,13 @@ REEF_RFC_DATA_TIMEOUT = int(os.environ.get("REEF_RFC_DATA_TIMEOUT", "30"))
 # a maximum of 23. Thirty is above every gap observed in that time. This is a backstop
 # anyway; the signal that matters is a document Reef holds and Red's index does not.
 REEF_RFC_INDEX_MAX_AGE_DAYS = int(os.environ.get("REEF_RFC_INDEX_MAX_AGE_DAYS", "30"))
+# How long the reduced index is shared for before a caller goes back to Red. An hour
+# against a median three-day gap between RFC publications: fresh enough that the daily
+# precomputer run never works from yesterday's series, cheap enough that an admin page
+# never waits for a 6.8 MB fetch.
+REEF_RFC_INDEX_CACHE_SECONDS = int(
+    os.environ.get("REEF_RFC_INDEX_CACHE_SECONDS", "3600")
+)
 
 # Precomputer. Where `manage.py precompute` writes the public API responses it
 # renders ahead of time, so that a reader is served a file rather than a query

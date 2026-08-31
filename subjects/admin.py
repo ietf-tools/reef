@@ -2,12 +2,17 @@
 from django.contrib import admin
 from django.db.models import Count
 
+from reef.admin_documents import DocumentTitleMixin
+
 from .models import Subject, SubjectAssignment
 
 
-class SubjectAssignmentInline(admin.TabularInline):
+class SubjectAssignmentInline(DocumentTitleMixin, admin.TabularInline):
     model = SubjectAssignment
     extra = 0
+    # Read-only rather than a column: an inline renders fields, and a title is not
+    # one of the model's.
+    readonly_fields = ["document_title"]
 
 
 @admin.register(Subject)
@@ -38,7 +43,7 @@ class SubjectAdmin(admin.ModelAdmin):
 
 
 @admin.register(SubjectAssignment)
-class SubjectAssignmentAdmin(admin.ModelAdmin):
+class SubjectAssignmentAdmin(DocumentTitleMixin, admin.ModelAdmin):
     """Assignments on their own, for working document-first.
 
     The inline above is for curating one subject. This is for the other
@@ -46,6 +51,6 @@ class SubjectAssignmentAdmin(admin.ModelAdmin):
     subjects it should carry.
     """
 
-    list_display = ["doc", "subject", "assigned_at"]
+    list_display = ["doc", "document_title", "subject", "assigned_at"]
     list_filter = ["subject"]
     search_fields = ["doc"]

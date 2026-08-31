@@ -1,12 +1,15 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.contrib import admin
 
+from reef.admin_documents import DocumentTitleMixin
+
 from .models import DocumentSet, DocumentSetEntry
 
 
-class DocumentSetEntryInline(admin.TabularInline):
+class DocumentSetEntryInline(DocumentTitleMixin, admin.TabularInline):
     model = DocumentSetEntry
     extra = 0
+    readonly_fields = ["document_title"]
 
 
 @admin.register(DocumentSet)

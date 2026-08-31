@@ -10,6 +10,7 @@ import datetime
 import io
 import json
 import urllib.error
+import zlib
 from unittest import mock
 
 import jsonschema
@@ -176,7 +177,7 @@ class MetaFromEntryTests(SimpleTestCase):
 class DocumentIndexTests(SimpleTestCase):
     def index(self, created_on=None, entries=None):
         return rfcmeta.DocumentIndex(
-            entries if entries is not None else [entry()],
+            rfcmeta._reduce(entries if entries is not None else [entry()]),
             created_on or datetime.date.today(),
         )
 
@@ -240,7 +241,7 @@ class DocumentIndexTests(SimpleTestCase):
         self.assertIn("...", "\n".join(logs.output))
 
     def test_an_unknown_age_does_not_warn(self):
-        index = rfcmeta.DocumentIndex([entry()], None)
+        index = rfcmeta.DocumentIndex(rfcmeta._reduce([entry()]), None)
         with self.assertLogs("reef", level="INFO") as logs:
             index.report()
         self.assertIn("unknown", "\n".join(logs.output))
@@ -341,3 +342,103 @@ class SyncedSchemaTests(SimpleTestCase):
         becomes False, every field Red adds breaks Reef."""
         item = rfcmeta._schema()["properties"]["miniIndex"]["items"]
         self.assertNotIn("additionalProperties", item)
+
+
+@override_settings(REEF_RFC_DATA_BASE_URL=BASE_URL)
+class SharedCacheTests(SimpleTestCase):
+    """The layers between a caller and Red: a process memo over a shared cache.
+
+    Both are global, so every test here clears them. Leaving one warm would leak an
+    index into whatever test ran next, which is the kind of order-dependent failure
+    that takes an afternoon to find.
+    """
+
+    def setUp(self):
+        rfcmeta.clear_cache()
+        self.addCleanup(rfcmeta.clear_cache)
+
+    def urlopen(self, payload=None):
+        return mock.patch(
+            "urllib.request.urlopen",
+            return_value=_response(payload if payload is not None else index_payload()),
+        )
+
+    def test_the_first_call_fetches_and_the_second_does_not(self):
+        with self.urlopen() as urlopen:
+            self.assertIsNotNone(rfcmeta.get_index())
+            self.assertIsNotNone(rfcmeta.get_index())
+        self.assertEqual(urlopen.call_count, 1)
+
+    def test_a_second_process_reads_the_shared_cache_rather_than_red(self):
+        """The memo is per-process; the cache is what stops a cold worker refetching."""
+        with self.urlopen() as urlopen:
+            rfcmeta.get_index()
+        rfcmeta._memo["value"] = None  # as a freshly started process would find it
+        with self.urlopen() as second:
+            index = rfcmeta.get_index()
+        self.assertEqual(index.get("rfc9110")["title"], "HTTP Semantics")
+        self.assertEqual(second.call_count, 0)
+        self.assertEqual(urlopen.call_count, 1)
+
+    def test_the_cached_entry_is_compressed(self):
+        """784 KiB pickled against memcached's 1 MiB item cap, and a store over the
+        cap fails silently. Compressed it is 209 KiB."""
+        from django.core.cache import cache
+
+        with self.urlopen():
+            rfcmeta.get_index()
+        blob = cache.get(rfcmeta.CACHE_KEY)
+        self.assertIsInstance(blob, bytes)
+        self.assertEqual(json.loads(zlib.decompress(blob))["created_on"], "2026-08-31")
+
+    def test_an_unreadable_cache_entry_is_discarded_and_refetched(self):
+        from django.core.cache import cache
+
+        cache.set(rfcmeta.CACHE_KEY, b"not compressed json")
+        with self.assertLogs("reef", level="WARNING"):
+            with self.urlopen() as urlopen:
+                self.assertIsNotNone(rfcmeta.get_index())
+        self.assertEqual(urlopen.call_count, 1)
+
+    def test_a_failed_fetch_is_not_memoised(self):
+        """Memoising a failure would keep a transient outage in front of every caller
+        for a minute after it had cleared."""
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=urllib.error.URLError("refused")
+        ):
+            with self.assertLogs("reef", level="WARNING"):
+                self.assertIsNone(rfcmeta.get_index())
+        with self.urlopen():
+            self.assertIsNotNone(rfcmeta.get_index())
+
+    def test_each_caller_gets_its_own_miss_tracking(self):
+        """One run's unresolved documents must not land in another's report."""
+        with self.urlopen():
+            first = rfcmeta.get_index()
+        first.get("rfc8446")
+        second = rfcmeta.get_index()
+        self.assertEqual(first.misses, {"rfc8446"})
+        self.assertEqual(second.misses, set())
+
+    def test_cached_mapping_never_fetches(self):
+        """A page render must not wait on a 6.8 MB download, and a test that touches
+        an admin page must not reach the network at all."""
+        with mock.patch("urllib.request.urlopen") as urlopen:
+            self.assertIsNone(rfcmeta.cached_mapping())
+        urlopen.assert_not_called()
+
+    def test_cached_mapping_uses_a_warm_index(self):
+        with self.urlopen():
+            rfcmeta.get_index()
+        with mock.patch("urllib.request.urlopen") as urlopen:
+            mapping = rfcmeta.cached_mapping()
+        self.assertEqual(mapping["rfc9110"]["title"], "HTTP Semantics")
+        urlopen.assert_not_called()
+
+    def test_clear_cache_drops_both_layers(self):
+        with self.urlopen():
+            rfcmeta.get_index()
+        rfcmeta.clear_cache()
+        with mock.patch("urllib.request.urlopen") as urlopen:
+            self.assertIsNone(rfcmeta.cached_mapping())
+        urlopen.assert_not_called()

@@ -34,6 +34,16 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.environ.get("REEF_EMAIL_HOST", "mailpit")
 EMAIL_PORT = int(os.environ.get("REEF_EMAIL_PORT", "1025"))
 
+# A real cache, so that anything relying on one behaves here the way it does in
+# production. Base leaves this as DummyCache, under which every cache write succeeds
+# and every read misses, which is how a caching bug hides until staging.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "reef-development",
+    }
+}
+
 LOGGING = _logging
 
 # Local settings override, if present.
