@@ -60,8 +60,27 @@ class LoadIndexTests(SimpleTestCase):
         self.assertEqual(len(index), 1)
         self.assertEqual(
             index.get("rfc9110"),
-            {"title": "HTTP Semantics", "subseries": ["std97"]},
+            {
+                "title": "HTTP Semantics",
+                "subseries": ["std97"],
+                "status": "std",
+                "status_name": "internet standard",
+                "obsoleted_by": [],
+                "updates": [],
+                "updated_by": [],
+            },
         )
+
+    def test_relations_reduce_to_bare_numbers(self):
+        """Red gives {id, number, title} per relation; keeping the titles would make
+        an upstream title correction read as an obsoletion when snapshots are
+        diffed."""
+        index = self.load(
+            index_payload(
+                [entry(obsoleted_by=[{"id": 1, "number": 9999, "title": "Later"}])]
+            )
+        )
+        self.assertEqual(index.get("rfc9110")["obsoleted_by"], [9999])
 
     def test_the_url_is_built_from_the_configured_origin(self):
         with mock.patch(

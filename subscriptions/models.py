@@ -171,3 +171,43 @@ def relation_problems(kind, values):
             yield field, f"The {kind} kind requires a {relation_kind}."
         elif kind != relation_kind and present:
             yield field, f"The {kind} kind does not take a {relation_kind}."
+
+
+class DocumentSnapshot(models.Model):
+    """The state of Red's index that this deployment has already notified about.
+
+    Not document metadata, despite holding some. Nothing reads it to answer a
+    question about a document; it exists only to be compared against the current
+    index, and every value in it is replaced wholesale on each run. Reef's rule that
+    it stores identifiers and nothing else is about what it treats as true, and this
+    is never treated as true — it is a record of what has already been said.
+
+    One row, pinned to a fixed primary key so a second cannot appear and there is no
+    "which one is current" to get wrong.
+
+    The payload is zlib-compressed JSON rather than a JSONField, and one blob rather
+    than a row per document, for reasons worth keeping: the watched-field set will
+    change and a column-per-field table would need a migration each time, while a
+    queryable table of statuses is exactly the second copy of document metadata that
+    something eventually reads as truth. Compressed it is 57 KiB against 878 KiB.
+    """
+
+    SINGLETON_PK = 1
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=SINGLETON_PK)
+    # {doc_id: {status, obsoleted_by, updates, updated_by, subseries}}, compressed.
+    payload = models.BinaryField()
+    # The index's own createdOn, so a run can tell that Red has not republished since
+    # last time, which produces no diff and therefore no mail.
+    created_on = models.DateField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(id=1), name="document_snapshot_singleton"
+            )
+        ]
+
+    def __str__(self):
+        return f"Document snapshot of {self.created_on}, taken {self.updated_at}"

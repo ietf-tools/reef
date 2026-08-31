@@ -681,32 +681,34 @@ Then, for precomputed reads:
     outage read as a Reef failure. createdOn and its age are logged on every run
     regardless, since that is the line somebody will want when debugging. Commit: "Warn
     on a stale or incomplete Red index".
-24. Scheduling: django-celery-beat, with the default entries in CELERY_BEAT_SCHEDULE
-    so that DatabaseScheduler materialises them on first start and staff can retime one
-    in the admin afterwards without a deploy. Two entries, because the halves go stale
-    for different reasons: precompute_engagement hourly for stats and ratings, which
-    move whenever a reader rates or subscribes, and precompute_all daily, which is the
-    only thing that notices an RFC Red has published, since nothing in Reef's own tables
-    moves when that happens. A third task, precompute_curated, is enqueued by signals
-    rather than scheduled: popularity, subjects and surveys are edited deliberately by
-    staff who then expect to see the change published. Reader-driven models are
-    deliberately not wired to signals, because a task per rating would enqueue thousands
-    to rebuild a file nobody reads in between. Signals fire on_commit, so a rolled-back
-    save publishes nothing, and with a countdown so that a few edits in one sitting
-    usually collapse into one run; several edits further apart still produce several
-    runs, which is accepted rather than solved because debouncing properly needs shared
-    state development has no backend for. Runs are serialised by a Postgres advisory
-    lock: two at once race on the purge, since a key absent from the run doing the
-    purging looks stale rather than in flight. Advisory rather than the usual
-    cache.add() lock because development is DummyCache, where every acquisition would
-    appear to succeed and the guard would be a no-op exactly where a developer first
-    meets it; the lock also releases by itself if the worker dies, which a cache lock
-    only imitates with a guessed timeout. The tasks run on their own precompute queue so
-    that a long run cannot sit in front of subscription mail, and no task raises on a
-    failed run, because a raise earns a retry that recomputes the same broken thing and
-    an alert for what the next tick fixes by itself. In k8s this adds a reef-beat
-    deployment, one replica and Recreate rather than rolling, since two beats fire every
-    job twice. Commit: "Run the precomputer on a schedule".
+24. Scheduling: django-celery-beat, with the default entries in CELERY_BEAT_SCHEDULE so
+    that DatabaseScheduler materialises them on first start and staff can retime one in
+    the admin afterwards without a deploy. Two entries, because the halves go stale for
+    different reasons: precompute_engagement hourly for stats and ratings, which move
+    whenever a reader rates or subscribes, and precompute_all daily, which is the only
+    thing that notices an RFC Red has published, since nothing in Reef's own tables
+    moves when that happens. detect_rfc_changes runs daily at 04:00, after the full
+    precompute has refreshed the shared index it reads. A further task,
+    precompute_curated, is enqueued by signals rather than scheduled: popularity,
+    subjects and surveys are edited deliberately by staff who then expect to see the
+    change published. Reader-driven models are deliberately not wired to signals,
+    because a task per rating would enqueue thousands to rebuild a file nobody reads in
+    between. Signals fire on_commit, so a rolled-back save publishes nothing, and with a
+    countdown so that a few edits in one sitting usually collapse into one run; several
+    edits further apart still produce several runs, which is accepted rather than solved
+    because debouncing properly needs shared state development has no backend for. Runs
+    are serialised by a Postgres advisory lock: two at once race on the purge, since a
+    key absent from the run doing the purging looks stale rather than in flight.
+    Advisory rather than the usual cache.add() lock because development is DummyCache,
+    where every acquisition would appear to succeed and the guard would be a no-op
+    exactly where a developer first meets it; the lock also releases by itself if the
+    worker dies, which a cache lock only imitates with a guessed timeout. The tasks run
+    on their own precompute queue so that a long run cannot sit in front of subscription
+    mail, and no task raises on a failed run, because a raise earns a retry that
+    recomputes the same broken thing and an alert for what the next tick fixes by
+    itself. In k8s this adds a reef-beat deployment, one replica and Recreate rather
+    than rolling, since two beats fire every job twice. Commit: "Run the precomputer on
+    a schedule".
 25. Titles in the admin: a DocumentTitleMixin adding a title column beside the bare
     identifier in the subject, popularity and document-set admins, which is where staff
     curate against nine thousand documents they otherwise see only as numbers. The index

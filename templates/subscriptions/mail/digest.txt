@@ -1,15 +1,20 @@
 {% autoescape off %}{% comment %}
-The body of one subscription notification. Plain text only, and the subject is
+The body of one notification to one subscriber. Plain text only, and the subject is
 composed in Python rather than here, both following the templates/rpc/mail
 convention in Purple.
 
-Context: subscription, events (each with doc_display, change, url), watched_doc
-(the rfc kind's document, in prose form), subscriptions_url (may be empty).
+Context: reasons (each with subscription and watched_doc), events (each with
+doc_display, change, url), subscriptions_url (may be empty).
 
-Every kind of subscription produces this same message and differs only in the
-opening sentence, which is why there is one template and not six. That sentence
-is an include because the confirmation needs it too.
-{% endcomment %}{% include "subscriptions/mail/_subscription_line.txt" with lead="You asked to be notified about" %}
+One mail per subscriber rather than per subscription, so reasons is a list: somebody
+who follows RFC 9110 directly and also has it in a set hears about a change to it
+once, and is told both reasons why. One reason reads as a sentence; several read as
+a list, because "you asked to be notified about changes to RFC 9110 and about
+anything in your document set" runs out of breath at three.
+{% endcomment %}{% if reasons|length == 1 %}{% for reason in reasons %}{% filter wordwrap:78 %}You asked to be notified about {% include "subscriptions/mail/_subscription_phrase.txt" with subscription=reason.subscription watched_doc=reason.watched_doc %}.{% endfilter %}
+{% endfor %}{% else %}You asked to be notified about:
+{% for reason in reasons %}{% filter wordwrap:74 %}  - {% include "subscriptions/mail/_subscription_phrase.txt" with subscription=reason.subscription watched_doc=reason.watched_doc %}{% endfilter %}
+{% endfor %}{% endif %}
 {% if events|length > 1 %}There have been {{ events|length }} changes since the last notification.
 
 {% endif %}{% for event in events %}{% filter wordwrap:78 %}{% if event.doc_display %}{{ event.doc_display }}{% if event.change %}: {% endif %}{% endif %}{{ event.change }}{% endfilter %}

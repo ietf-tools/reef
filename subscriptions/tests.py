@@ -7,6 +7,7 @@ from django.core import mail
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from docsets.models import DocumentSet, DocumentSetEntry
@@ -580,7 +581,8 @@ class SendSubscriptionDigestTests(APITestCase):
             user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
         )
         send_subscription_digest(
-            subscription.pk,
+            subscription.user_id,
+            [subscription.pk],
             [
                 {
                     "doc": "rfc9110",
@@ -608,7 +610,8 @@ class SendSubscriptionDigestTests(APITestCase):
             user=self.user, kind=Subscription.Kind.SET, document_set=document_set
         )
         send_subscription_digest(
-            subscription.pk,
+            subscription.user_id,
+            [subscription.pk],
             [
                 {"doc": doc, "change": "Published"}
                 for doc in ("rfc9110", "rfc9111", "rfc9112")
@@ -635,7 +638,8 @@ class SendSubscriptionDigestTests(APITestCase):
             user=self.user, kind=Subscription.Kind.SET, document_set=document_set
         )
         send_subscription_digest(
-            subscription.pk,
+            subscription.user_id,
+            [subscription.pk],
             [{"doc": "rfc9110", "change": "Obsoleted by RFC 9999, " * 8}],
         )
         for line in mail.outbox[0].body.split("\n"):
@@ -658,7 +662,9 @@ class SendSubscriptionDigestTests(APITestCase):
                     user=self.user, kind=kind, params=params
                 )
                 send_subscription_digest(
-                    subscription.pk, [{"doc": "rfc9110", "change": "Published"}]
+                    subscription.user_id,
+                    [subscription.pk],
+                    [{"doc": "rfc9110", "change": "Published"}],
                 )
                 self.assertIn(expected, mail.outbox[0].body)
                 subscription.delete()
@@ -671,7 +677,9 @@ class SendSubscriptionDigestTests(APITestCase):
             user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
         )
         send_subscription_digest(
-            subscription.pk, [{"doc": "rfc9110", "change": "Published"}]
+            subscription.user_id,
+            [subscription.pk],
+            [{"doc": "rfc9110", "change": "Published"}],
         )
         self.assertIn("on the subject of Security", mail.outbox[0].body)
 
@@ -680,7 +688,9 @@ class SendSubscriptionDigestTests(APITestCase):
         subscription = Subscription.objects.create(
             user=self.user, kind=Subscription.Kind.NEW_RFC
         )
-        send_subscription_digest(subscription.pk, [{"doc": "rfc9110"}])
+        send_subscription_digest(
+            subscription.user_id, [subscription.pk], [{"doc": "rfc9110"}]
+        )
         sent = mail.outbox[0]
         self.assertIn("https://example.org/subscriptions", sent.body)
         self.assertEqual(
@@ -692,7 +702,7 @@ class SendSubscriptionDigestTests(APITestCase):
         subscription = Subscription.objects.create(
             user=self.user, kind=Subscription.Kind.NEW_RFC
         )
-        send_subscription_digest(subscription.pk, [])
+        send_subscription_digest(subscription.user_id, [subscription.pk], [])
         self.assertEqual(mail.outbox, [])
 
     def test_a_deleted_subscription_is_not_an_error(self):
@@ -703,7 +713,7 @@ class SendSubscriptionDigestTests(APITestCase):
         )
         pk = subscription.pk
         subscription.delete()
-        send_subscription_digest(pk, [{"doc": "rfc9110"}])
+        send_subscription_digest(self.user.pk, [pk], [{"doc": "rfc9110"}])
         self.assertEqual(mail.outbox, [])
 
     def test_nothing_is_sent_once_the_set_has_been_taken_down(self):
@@ -716,7 +726,9 @@ class SendSubscriptionDigestTests(APITestCase):
             user=self.user, kind=Subscription.Kind.SET, document_set=document_set
         )
         document_set.soft_delete("Spam.")
-        send_subscription_digest(subscription.pk, [{"doc": "rfc9110"}])
+        send_subscription_digest(
+            subscription.user_id, [subscription.pk], [{"doc": "rfc9110"}]
+        )
         self.assertEqual(mail.outbox, [])
 
     def test_nothing_is_sent_without_an_address(self):
@@ -724,7 +736,9 @@ class SendSubscriptionDigestTests(APITestCase):
         subscription = Subscription.objects.create(
             user=user, kind=Subscription.Kind.NEW_RFC
         )
-        send_subscription_digest(subscription.pk, [{"doc": "rfc9110"}])
+        send_subscription_digest(
+            subscription.user_id, [subscription.pk], [{"doc": "rfc9110"}]
+        )
         self.assertEqual(mail.outbox, [])
 
     def test_a_send_failure_is_retryable(self):
@@ -733,7 +747,9 @@ class SendSubscriptionDigestTests(APITestCase):
         )
         with mock.patch.object(EmailMessage, "send", side_effect=OSError("no relay")):
             with self.assertRaises(SendEmailError):
-                send_subscription_digest(subscription.pk, [{"doc": "rfc9110"}])
+                send_subscription_digest(
+                    subscription.user_id, [subscription.pk], [{"doc": "rfc9110"}]
+                )
 
 
 @override_settings(MESSAGE_ID_DOMAIN="example.org", REEF_SUBSCRIPTIONS_URL="")
@@ -768,7 +784,9 @@ class SendSubscriptionConfirmationTests(APITestCase):
             user=self.user, kind=Subscription.Kind.SET, document_set=document_set
         )
         send_subscription_confirmation(subscription.pk)
-        send_subscription_digest(subscription.pk, [{"doc": "rfc9110"}])
+        send_subscription_digest(
+            subscription.user_id, [subscription.pk], [{"doc": "rfc9110"}]
+        )
         # Compared unwrapped, because the two leads are different lengths and
         # so the shared sentence breaks in different places. Only the lead
         # differs; the description of the subscription does not.
@@ -875,3 +893,90 @@ class SubscribeSendsAConfirmationTests(APITestCase):
         response = self.subscribe({"kind": "rfc", "params": {}})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(mail.outbox, [])
+
+
+class DigestCoalescingTests(APITestCase):
+    """One mail per reader, however many of their subscriptions matched.
+
+    This is what the notification-volume open item was about, and it could only be
+    fixed here: a task that sees one subscription cannot know the reader holds
+    another covering the same document.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create(
+            username="u", oidc_sub="s", email="reader@example.org"
+        )
+        self.set = DocumentSet.objects.create(owner=self.user, title="HTTP core")
+        DocumentSetEntry.objects.create(document_set=self.set, doc="rfc9110")
+        self.direct = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+        )
+        self.through_set = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SET, document_set=self.set
+        )
+        self.event = [{"doc": "rfc9110", "change": "Published"}]
+
+    def test_two_matching_subscriptions_produce_one_mail(self):
+        send_subscription_digest(
+            self.user.pk, [self.direct.pk, self.through_set.pk], self.event
+        )
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_the_mail_gives_every_reason_it_arrived(self):
+        send_subscription_digest(
+            self.user.pk, [self.direct.pk, self.through_set.pk], self.event
+        )
+        body = " ".join(mail.outbox[0].body.split())
+        self.assertIn("changes to RFC 9110", body)
+        self.assertIn('changes to anything in your document set "HTTP core"', body)
+
+    def test_one_reason_still_reads_as_a_sentence(self):
+        send_subscription_digest(self.user.pk, [self.direct.pk], self.event)
+        body = " ".join(mail.outbox[0].body.split())
+        self.assertIn("You asked to be notified about changes to RFC 9110.", body)
+
+    def test_several_reasons_read_as_a_list(self):
+        """Because "about changes to RFC 9110 and about anything in your document
+        set" runs out of breath at three."""
+        send_subscription_digest(
+            self.user.pk, [self.direct.pk, self.through_set.pk], self.event
+        )
+        self.assertIn("You asked to be notified about:", mail.outbox[0].body)
+        self.assertIn("  - changes to RFC 9110", mail.outbox[0].body)
+
+    def test_a_subscription_belonging_to_somebody_else_is_ignored(self):
+        other = User.objects.create(
+            username="o", oidc_sub="o", email="other@example.org"
+        )
+        theirs = Subscription.objects.create(user=other, kind=Subscription.Kind.NEW_RFC)
+        send_subscription_digest(self.user.pk, [self.direct.pk, theirs.pk], self.event)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["reader@example.org"])
+        self.assertNotIn("every new RFC", mail.outbox[0].body)
+
+    def test_a_taken_down_set_is_dropped_from_the_reasons(self):
+        self.set.deleted_at = timezone.now()
+        self.set.save()
+        send_subscription_digest(
+            self.user.pk, [self.direct.pk, self.through_set.pk], self.event
+        )
+        body = " ".join(mail.outbox[0].body.split())
+        self.assertIn("changes to RFC 9110", body)
+        self.assertNotIn("HTTP core", body)
+
+    def test_nothing_is_sent_when_every_reason_has_gone(self):
+        self.set.deleted_at = timezone.now()
+        self.set.save()
+        self.direct.delete()
+        with self.assertLogs("reef", level="INFO"):
+            send_subscription_digest(
+                self.user.pk, [self.direct.pk, self.through_set.pk], self.event
+            )
+        self.assertEqual(mail.outbox, [])
+
+    def test_the_phrase_has_no_space_before_its_full_stop(self):
+        """The phrase template must not end with a newline: callers put the stop
+        straight after the include, and a newline there wordwraps into " ."."""
+        send_subscription_digest(self.user.pk, [self.direct.pk], self.event)
+        self.assertNotIn(" .", " ".join(mail.outbox[0].body.split()))

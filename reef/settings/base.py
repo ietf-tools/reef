@@ -288,6 +288,10 @@ REEF_RFC_DATA_BASE_URL = os.environ.get(
     "REEF_RFC_DATA_BASE_URL", "https://www.rfc-editor.org"
 )
 REEF_RFC_DATA_TIMEOUT = int(os.environ.get("REEF_RFC_DATA_TIMEOUT", "30"))
+# Where a notification sends a reader to read about a document. The same origin as
+# the data today, and a separate setting because they are separate things: pointing
+# the data URL at a staging bucket must not put staging links in somebody's mail.
+REEF_RFC_SITE_URL = os.environ.get("REEF_RFC_SITE_URL", "https://www.rfc-editor.org")
 # How old Red's index may get before a run says so. Red rebuilds it when RFCs are
 # published rather than on a clock, and publication is bursty: over the last five
 # years the gaps between publication dates ran to a median of 3 days, a p95 of 12 and
@@ -359,5 +363,12 @@ CELERY_BEAT_SCHEDULE = {
     "precompute-engagement": {
         "task": "precomputer.tasks.precompute_engagement",
         "schedule": crontab(minute="20"),
+    },
+    # Daily, after the precomputer's full run has refreshed the shared index. Red
+    # rebuilds when RFCs are published and publication is bursty, so a daily diff
+    # gathers a burst into one reading where an hourly one would split it up.
+    "detect-rfc-changes": {
+        "task": "subscriptions.tasks.detect_rfc_changes",
+        "schedule": crontab(hour="4", minute="0"),
     },
 }

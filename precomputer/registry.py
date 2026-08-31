@@ -68,6 +68,12 @@ def _augment(body, add):
     return _reserialize(payload)
 
 
+# What a precomputed row carries. rfcmeta's reduction holds more than this, for
+# change detection, and projecting here rather than passing it through keeps a field
+# added there from silently appearing in what Reef publishes.
+PUBLISHED_FIELDS = ("title", "subseries")
+
+
 def _meta(index, doc_id):
     """The metadata block a row carries, null when it cannot be resolved.
 
@@ -75,7 +81,9 @@ def _meta(index, doc_id):
     "no such document" from "not looked up".
     """
     resolved = index.get(doc_id) if index is not None else None
-    return resolved if resolved is not None else {"title": None, "subseries": []}
+    if resolved is None:
+        return {"title": None, "subseries": []}
+    return {field: resolved[field] for field in PUBLISHED_FIELDS}
 
 
 def task(name, *, owns, per_document=False):

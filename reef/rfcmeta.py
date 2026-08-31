@@ -77,8 +77,27 @@ def _fetch(path, timeout):
         return None
 
 
+def _related_numbers(entries):
+    """A relation reduced to bare RFC numbers.
+
+    Red gives {id, number, title} per related document. Only the number is kept:
+    keeping the titles would triple the reduced index for fields that are only ever
+    compared for equality, and would make an upstream title correction read as an
+    obsoletion when the snapshot is diffed.
+    """
+    return sorted(
+        item["number"] for item in (entries or []) if item.get("number") is not None
+    )
+
+
 def _meta_from_entry(entry):
-    """The subset Reef publishes, from one mini-index entry.
+    """One mini-index entry reduced to what Reef uses.
+
+    Two audiences, one reduction, because both want the same fetch. title and
+    subseries are what the precomputer publishes and the admin displays; status and
+    the three relation fields are what change detection compares. Adding a field here
+    does not add it to anything Reef publishes: the precomputer projects down to the
+    fields it means to carry.
 
     Subseries membership is canonicalised to Reef's own identifier form, so that a
     document set holding "std97" and a title resolved from Red agree on the spelling.
@@ -93,7 +112,16 @@ def _meta_from_entry(entry):
             logger.warning(
                 "Unparseable subseries on rfc%s: %r", entry.get("number"), item
             )
-    return {"title": entry.get("title"), "subseries": subseries}
+    status = entry.get("status") or {}
+    return {
+        "title": entry.get("title"),
+        "subseries": subseries,
+        "status": status.get("slug"),
+        "status_name": status.get("name"),
+        "obsoleted_by": _related_numbers(entry.get("obsoleted_by")),
+        "updates": _related_numbers(entry.get("updates")),
+        "updated_by": _related_numbers(entry.get("updated_by")),
+    }
 
 
 def _reduce(entries):
@@ -127,6 +155,14 @@ class DocumentIndex:
 
     def __len__(self):
         return len(self._by_doc)
+
+    @property
+    def mapping(self):
+        """The reduced index itself, for a caller comparing the whole series.
+
+        Shared with every other holder in this process, so treat it as read-only.
+        """
+        return self._by_doc
 
     @property
     def age_days(self):

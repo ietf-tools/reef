@@ -1,0 +1,15 @@
+{% comment %}
+The noun phrase naming what one subscription covers: "changes to RFC 9110",
+"every new RFC". No lead and no full stop, so a caller can put it in a sentence or
+in a list.
+
+Split out of _subscription_line.txt when digests became per subscriber rather than
+per subscription: a reader with three matching subscriptions gets one mail listing
+three of these, while a confirmation is about one subscription and still wants the
+sentence.
+
+Context: subscription, and watched_doc for the rfc kind.
+
+This file deliberately ends without a trailing newline: callers put a full stop
+straight after the include, and a newline there wordwraps into " .".
+{% endcomment %}{% if subscription.kind == "rfc" %}changes to {{ watched_doc }}{% elif subscription.kind == "set" %}changes to anything in your document set "{{ subscription.document_set.title }}"{% elif subscription.kind == "new_rfc" %}every new RFC{% elif subscription.kind == "by_status" %}new RFCs with the status "{{ subscription.params.status }}"{% elif subscription.kind == "obsoleted" %}RFCs being obsoleted or made historic{% elif subscription.kind == "subject" %}changes to anything on the subject of {{ subscription.subject.name }}{% endif %}

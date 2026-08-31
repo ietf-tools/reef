@@ -1,12 +1,12 @@
 {% comment %}
-One sentence naming what a subscription covers, shared by every message about
-one. Not a message itself: include it with a lead, which is the words before
-the noun phrase.
+One sentence naming what a subscription covers, for a message about exactly one:
+the confirmation. Include it with a lead, which is the words before the noun phrase.
 
     {% include "subscriptions/mail/_subscription_line.txt" with lead="You are now subscribed to" %}
 
-Context: subscription, watched_doc (the rfc kind's document, in prose form),
-and lead. The branches are noun phrases so that any lead reads correctly, and
-the whole sentence is wrapped rather than the phrase, because a set title is up
-to 200 characters of the owner's choosing and cannot be trusted to fit a line.
-{% endcomment %}{% autoescape off %}{% filter wordwrap:78 %}{{ lead }} {% if subscription.kind == "rfc" %}changes to {{ watched_doc }}{% elif subscription.kind == "set" %}changes to anything in your document set "{{ subscription.document_set.title }}"{% elif subscription.kind == "new_rfc" %}every new RFC{% elif subscription.kind == "by_status" %}new RFCs with the status "{{ subscription.params.status }}"{% elif subscription.kind == "obsoleted" %}RFCs being obsoleted or made historic{% elif subscription.kind == "subject" %}changes to anything on the subject of {{ subscription.subject.name }}{% endif %}.{% endfilter %}{% endautoescape %}
+Context: subscription, watched_doc (the rfc kind's document, in prose form), and
+lead. The phrase itself lives in _subscription_phrase.txt, shared with the digest,
+which lists several. The whole sentence is wrapped rather than the phrase, because a
+set title is up to 200 characters of the owner's choosing and cannot be trusted to
+fit a line.
+{% endcomment %}{% autoescape off %}{% filter wordwrap:78 %}{{ lead }} {% include "subscriptions/mail/_subscription_phrase.txt" %}.{% endfilter %}{% endautoescape %}
