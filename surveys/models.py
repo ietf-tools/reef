@@ -2,18 +2,40 @@
 from django.conf import settings
 from django.db import models
 
+from .audience import normalize_audience, validate_audience
+
 
 class SurveyQuerySet(models.QuerySet):
     def offerable_to(self, user):
         """Published surveys that may be offered to the given user.
 
         Anonymous users see open surveys only; authenticated users also see
-        authenticated-visibility surveys. Audience targeting is a later refinement.
+        authenticated-visibility surveys.
+
+        A survey the caller has already answered is left out, because Red renders
+        these as toasts and a toast for a survey somebody finished last week is worse
+        than no toast: it arrives unprompted and there is nothing they can do about
+        it. Only Reef can know this. The visitor submits on Reef's runner, on a
+        different origin from Red, so no cookie, no localStorage and no redirect tells
+        Red that it happened.
+
+        Only for an identified caller. An anonymous response records no submitter, on
+        purpose, so there is deliberately nothing here to match on; suppressing those
+        would mean recognising an anonymous respondent, which is a worse trade than an
+        occasional repeat. Red covers that case from its own side by not re-offering a
+        toast the reader has dismissed or clicked through.
+
+        Audience targeting is not applied here: it decides where a survey is shown,
+        not who may take it, and Red does that with the documents each row carries.
         """
         qs = self.filter(status=Survey.Status.PUBLISHED)
         if not (user and user.is_authenticated):
-            qs = qs.filter(visibility=Survey.Visibility.OPEN)
-        return qs
+            return qs.filter(visibility=Survey.Visibility.OPEN)
+        # Excluded by subquery rather than by a join, which with several responses to
+        # one survey would have to be deduplicated to mean the same thing.
+        return qs.exclude(
+            pk__in=Response.objects.filter(submitted_by=user).values("survey")
+        )
 
 
 class Survey(models.Model):
@@ -68,6 +90,13 @@ class Survey(models.Model):
     @property
     def is_published(self) -> bool:
         return self.status == self.Status.PUBLISHED
+
+    def save(self, *args, **kwargs):
+        # Every write path, not just the builder: the field is free-form JSON that
+        # staff type, and a misspelt key would target nothing while looking targeted.
+        validate_audience(self.audience)
+        self.audience = normalize_audience(self.audience)
+        super().save(*args, **kwargs)
 
     def requires_authentication(self) -> bool:
         return self.visibility == self.Visibility.AUTHENTICATED

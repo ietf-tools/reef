@@ -185,6 +185,7 @@ reef/
   surveys/                 full build
     models.py              Survey, Response
     admin.py               break-glass listing and inspection
+    audience.py            which documents a survey is offered on, resolved at read time
     serializers.py  api.py DRF endpoints (manage, open list, runner fetch, submit, results)
     views.py  urls.py      /manage/ builder and analytics template views
     templates/surveys/{creator,analytics,list}.html
@@ -830,7 +831,26 @@ Then, for precomputed reads:
     endpoint has to return the redirect itself or the published file and the live
     response would disagree, which is the invariant every other precomputed file holds
     to. Commit: "Retire and merge subjects".
-
+33. Survey invites: where a survey is offered, and who has already answered it. A survey
+    names its audience as documents, subject slugs, or both, and the open list publishes
+    the resolved set so Red can decide client-side rather than asking per RFC page --
+    which also keeps the file precomputable. Subjects resolve at read time, so a
+    document assigned to one next week falls inside the audience without anybody
+    reopening the survey, the same way a set or subject subscription matches membership
+    as it stands. null and [] differ and both are needed: null is untargeted, show
+    anywhere, while [] is targeted at something that currently matches nothing, which is
+    what a survey aimed at a subject with no documents looks like and which must show
+    nowhere rather than everywhere. The audience is validated and canonicalised on save,
+    on every write path as Subscription is, because it is free-form JSON that staff type
+    and a misspelt key would target nothing while looking targeted, and validated again
+    at the serializer because the two raise different exceptions: DRF turns its own
+    ValidationError into a 400 and lets Django's escape as a 500, so without the second
+    the builder would get a server error for a typo in a field it exists to let staff
+    edit; resolution stays lenient, so one unparseable identifier does not cost the
+    survey the rest of its audience. Targeting is independent of visibility: it decides
+    where a survey is shown, not who may take it. Separately, offerable_to excludes a
+    survey the authenticated caller has answered. Commit: "Target survey invites and
+    hide answered ones".
 ## Verification
 
 - Dev bring-up: devcontainer (or docker/run); migrate and collectstatic run; tmux
@@ -964,6 +984,13 @@ Then, for precomputed reads:
   rather than a gap. Verified end to end by forcing the race the lock prevents: with
   delivery suppressed, the second run is refused and the first run's rows survive
   untouched.
+- Survey invites: an untargeted survey carries null documents and a targeted one carries
+  its resolved set, sorted; a subject resolves to the documents carrying it and picks up
+  one assigned later; a subject with no documents targets nothing rather than
+  everything; a misspelt audience key and a bad identifier are both refused, coming back
+  from the manage API as a 400 rather than a 500. A survey the authenticated caller
+  answered is not offered again, one somebody else answered still is, and an anonymous
+  response hides it from nobody. Targeting does not change who may take a survey.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
@@ -972,9 +999,23 @@ Then, for precomputed reads:
 
 ## Open items
 
-- open/ API contract with Red (#225): agree the exact response shape (id, slug, title,
-  description, url) and user-targeting semantics. Red owns taken/dismissed tracking, so
-  Reef stays stateless there. This is a cross-repo dependency.
+- open/ API contract with Red (#225): the Reef half is settled and built. Red renders
+  an invite as a toast, not a popover, so the row lines up with its Notification type:
+  title, description and url are shown, slug is the string a dismissal is keyed on, and
+  documents says where to offer it. Suppression is split, because neither side can see
+  what the other can. Reef excludes a survey the authenticated caller has already
+  answered, which only it can know: the visitor submits on Reef's runner at
+  reef.ietf.org, a different registrable domain from www.rfc-editor.org, so no cookie,
+  no localStorage and no redirect carries the fact back. Red suppresses a toast the
+  reader dismissed or clicked through, which only it can know, and clicking counts
+  because somebody who opened a survey does not want the invite again whether or not
+  they finished. The two overlap rather than depend on each other: Reef's is per account
+  and follows a reader across devices, Red's is per browser and is the only thing
+  covering anonymous visitors. Deliberately not built: dismissals are not sent back to
+  Reef. That would make them cross-device at the cost of a per-user table recording what
+  people have been shown, and the answered-exclusion already covers the case that
+  matters. What is left is Red's: no survey component exists yet, and getOpenSurveys()
+  has no callers.
 - Subscriptions depth (#139): built, as steps 27 to 31. What the ticket called
   datatracker change-feed ingestion is a diff of Red's published index, because the
   datatracker has no feed to ingest. Three things to watch now that it runs. The param
