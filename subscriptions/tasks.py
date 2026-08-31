@@ -24,12 +24,15 @@ Nothing here invents those from datatracker's payload; mapping a feed record
 to them belongs to ingest_rfc_change.
 """
 
+import datetime
 import logging
 
 from celery import shared_task
 from django.conf import settings
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import F, Q
 from django.template.loader import render_to_string
+from django.utils import timezone
 
 from reef import rfcmeta
 from reef.docids import display_doc_id, normalize_doc_id
@@ -37,7 +40,7 @@ from reef.mail import EmailMessage
 from reef.tasks import RetryTask
 
 from .changes import detect
-from .models import Subscription
+from .models import PendingNotification, Subscription
 
 logger = logging.getLogger("reef")
 
@@ -245,15 +248,6 @@ def _send(message, what, subscription_id, detail=""):
     )
 
 
-@shared_task(
-    base=RetryTask,
-    autoretry_for=(SendEmailError,),
-    # Purple's judgement for mail, and it applies more strongly here: a
-    # notification that finally goes out a week after the change is worse than
-    # one that does not go out at all.
-    max_retries=4 * 24 * 3,  # every 15 minutes for three days, at the tail rate
-    ignore_result=True,
-)
 def send_subscription_digest(
     user_id: int, subscription_ids: list[int], events: list[dict]
 ) -> None:
@@ -274,7 +268,7 @@ def send_subscription_digest(
     what = "send_subscription_digest"
     if not events:
         logger.warning("%s: no events for user=%s", what, user_id)
-        return
+        return False
 
     subscriptions = [
         subscription
@@ -297,12 +291,12 @@ def send_subscription_digest(
             user_id,
             subscription_ids,
         )
-        return
+        return False
 
     recipient = subscriptions[0].user
     if not recipient.email:
         logger.warning("%s: user=%s has no email address", what, user_id)
-        return
+        return False
 
     _send(
         EmailMessage(
@@ -314,6 +308,103 @@ def send_subscription_digest(
         user_id,
         detail=f"events={len(events)} subscriptions={len(subscriptions)}",
     )
+    return True
+
+
+def queue_notification(user_id, subscription_ids, events):
+    """Write down that a digest is owed, and enqueue it once the write has landed.
+
+    Written first, enqueued after: a row with nothing to deliver it is recoverable by
+    the sweeper, while a queued task with no row behind it is not recoverable at all.
+    on_commit for the same reason -- a task that starts before its row is visible
+    would find nothing and give up.
+    """
+    notification = PendingNotification.objects.create(
+        user_id=user_id, subscription_ids=list(subscription_ids), events=list(events)
+    )
+    transaction.on_commit(lambda: deliver_notification.delay(notification.pk))
+    return notification
+
+
+@shared_task(
+    base=RetryTask,
+    autoretry_for=(SendEmailError,),
+    # Purple's judgement for mail, and it applies more strongly here: a
+    # notification that finally goes out a week after the change is worse than
+    # one that does not go out at all.
+    max_retries=4 * 24 * 3,  # every 15 minutes for three days, at the tail rate
+    ignore_result=True,
+)
+def deliver_notification(notification_id: int) -> None:
+    """Send one owed digest and record that it went.
+
+    The attempt is counted whatever happens, and the row is deleted once the
+    notification is settled, so what remains in the table is exactly what is still
+    owed plus what could never be delivered.
+
+    Checked and then set, rather than claimed atomically first. Claiming would make a
+    send that fails afterwards unrepeatable, and this codebase has already chosen its
+    direction on that: RetryTask sets acks_late because a duplicate is a smaller harm
+    than a silent drop. So a redelivery racing an in-flight send can duplicate, and
+    that is the accepted trade rather than an oversight.
+    """
+    what = "deliver_notification"
+    notification = PendingNotification.objects.filter(pk=notification_id).first()
+    if notification is None:
+        logger.info("%s: notification=%s no longer exists", what, notification_id)
+        return
+    if notification.sent_at is not None:
+        logger.info("%s: notification=%s already sent", what, notification_id)
+        return
+
+    PendingNotification.objects.filter(pk=notification_id).update(
+        attempts=F("attempts") + 1
+    )
+    # Delivery raises SendEmailError, which the retry handles, so reaching here means
+    # this notification is finished with either way. It went out, or there was
+    # permanently nothing to send -- the reader unsubscribed, or has no address --
+    # and both are settled: retrying would rediscover the same answer for three days.
+    send_subscription_digest(
+        notification.user_id, notification.subscription_ids, notification.events
+    )
+
+    # Stamped and then deleted, following Purple. The row exists to make sure the
+    # notification is not lost before it goes out, and once it has gone there is
+    # nothing left for it to guarantee; keeping it would accumulate a row per
+    # subscriber per day for ever. The stamp covers the gap between the two
+    # statements: a crash in there leaves a row that says it was sent, which the
+    # sweeper skips and a redelivery declines, rather than one that gets sent twice.
+    PendingNotification.objects.filter(pk=notification_id).update(
+        sent_at=timezone.now()
+    )
+    PendingNotification.objects.filter(pk=notification_id).delete()
+
+
+@shared_task(ignore_result=True)
+def sweep_unsent_notifications() -> int:
+    """Re-enqueue digests that were written down but never delivered.
+
+    This is what the row is for. If the broker loses its queue, or a worker dies
+    between the enqueue and the send, the notification is still recorded and this puts
+    it back. Only rows old enough that an in-flight attempt would have finished are
+    picked up, and only up to a limit of attempts, so a message that cannot be sent
+    stops being retried rather than being offered for ever.
+    """
+    cutoff = timezone.now() - datetime.timedelta(
+        seconds=settings.REEF_NOTIFICATION_SWEEP_AFTER_SECONDS
+    )
+    owed = PendingNotification.objects.filter(
+        sent_at__isnull=True,
+        created_at__lt=cutoff,
+        attempts__lt=settings.REEF_NOTIFICATION_MAX_ATTEMPTS,
+    ).values_list("pk", flat=True)
+
+    ids = list(owed)
+    for notification_id in ids:
+        deliver_notification.delay(notification_id)
+    if ids:
+        logger.warning("Re-enqueued %s undelivered notification(s)", len(ids))
+    return len(ids)
 
 
 @shared_task(

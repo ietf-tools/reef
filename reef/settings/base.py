@@ -292,6 +292,20 @@ REEF_RFC_DATA_TIMEOUT = int(os.environ.get("REEF_RFC_DATA_TIMEOUT", "30"))
 # the data today, and a separate setting because they are separate things: pointing
 # the data URL at a staging bucket must not put staging links in somebody's mail.
 REEF_RFC_SITE_URL = os.environ.get("REEF_RFC_SITE_URL", "https://www.rfc-editor.org")
+
+# Notification delivery. A digest is written to the database before it is queued, so
+# that a broker restart cannot lose it; the sweeper puts back anything still owed.
+# Old enough that an in-flight attempt and its first few retries have finished, so a
+# sweep does not race a delivery that is already going.
+REEF_NOTIFICATION_SWEEP_AFTER_SECONDS = int(
+    os.environ.get("REEF_NOTIFICATION_SWEEP_AFTER_SECONDS", "3600")
+)
+# After this many attempts a notification stops being offered. A message that cannot
+# be sent should stop being retried rather than be re-enqueued for ever, and the row
+# stays as the record that it was owed and never went.
+REEF_NOTIFICATION_MAX_ATTEMPTS = int(
+    os.environ.get("REEF_NOTIFICATION_MAX_ATTEMPTS", "10")
+)
 # How old Red's index may get before a run says so. Red rebuilds it when RFCs are
 # published rather than on a clock, and publication is bursty: over the last five
 # years the gaps between publication dates ran to a median of 3 days, a p95 of 12 and
@@ -370,5 +384,11 @@ CELERY_BEAT_SCHEDULE = {
     "detect-rfc-changes": {
         "task": "subscriptions.tasks.detect_rfc_changes",
         "schedule": crontab(hour="4", minute="0"),
+    },
+    # Hourly. Recovers notifications that were written down but never delivered,
+    # which is what the database row exists for.
+    "sweep-unsent-notifications": {
+        "task": "subscriptions.tasks.sweep_unsent_notifications",
+        "schedule": crontab(minute="40"),
     },
 }

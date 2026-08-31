@@ -211,3 +211,56 @@ class DocumentSnapshot(models.Model):
 
     def __str__(self):
         return f"Document snapshot of {self.created_on}, taken {self.updated_at}"
+
+
+class PendingNotification(models.Model):
+    """One digest that is owed to one subscriber, written down before it is queued.
+
+    Celery alone will not do here. Reef's broker has no persistent volume, so a
+    RabbitMQ restart drops every queued message, and a notification lost that way is
+    lost silently: nothing else records that a change was matched to a reader. Putting
+    the row in Postgres first moves the guarantee to where the rest of Reef's data
+    already lives, and follows Purple, which writes a MailMessage and passes the task
+    only its primary key.
+
+    Unlike Purple's, this holds the arguments rather than the rendered message. Purple
+    composes a message at a moment and should send exactly that; here the body is
+    derived from data that is still in the database, so re-rendering at send time is
+    both cheaper to store and correct in the case that matters -- a reader who
+    unsubscribes between the write and the send does not get the mail, because the
+    render looks their subscriptions up again.
+
+    A row lives only as long as the obligation it records. It is deleted once the
+    notification has gone out, as Purple deletes its MailMessage, because this is a
+    queue and not a log: what is left in the table is what is still owed, plus the few
+    that could never be delivered, which are worth keeping precisely because they are
+    the record that somebody did not hear about something.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications"
+    )
+    # The subscriptions that matched, so the message can say why it arrived. Ids
+    # rather than a relation: a subscription deleted before the send should drop out
+    # of the reasons, not cascade the notification away with it.
+    subscription_ids = models.JSONField(default=list)
+    events = models.JSONField(default=list)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    # Set immediately before the row is deleted, and so almost never seen. It exists
+    # to cover the gap between sending and deleting: a crash in there must leave a row
+    # that is skipped rather than one that is sent again.
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            # The sweeper's query: what is still owed, oldest first.
+            models.Index(
+                fields=["sent_at", "created_at"], name="notification_unsent_idx"
+            )
+        ]
+
+    def __str__(self):
+        state = f"sent {self.sent_at}" if self.sent_at else "unsent"
+        return f"Notification to {self.user} of {len(self.events)} change(s), {state}"
