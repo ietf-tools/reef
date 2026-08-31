@@ -9,7 +9,8 @@ from unittest import mock
 from django.test import TestCase, override_settings
 
 from reef import rfcmeta
-from reef.testing import stub_rfc_index
+from reef.testing import document_meta as meta
+from reef.testing import stub_rfc_index, warm_rfc_index
 from subscriptions.changes import (
     WATCHED_FIELDS,
     DocumentChange,
@@ -23,20 +24,6 @@ from subscriptions.changes import (
 )
 from subscriptions.models import DocumentSnapshot
 from subscriptions.tasks import detect_rfc_changes
-
-
-def meta(**overrides):
-    """One document as rfcmeta reduces it."""
-    return {
-        "title": "HTTP Semantics",
-        "subseries": [],
-        "status": "ps",
-        "status_name": "proposed standard",
-        "obsoleted_by": [],
-        "updates": [],
-        "updated_by": [],
-        **overrides,
-    }
 
 
 class SnapshotStorageTests(TestCase):
@@ -146,8 +133,7 @@ class DetectTests(TestCase):
         stub_rfc_index(self, {"rfc9110": meta()})
 
     def rewarm(self, mapping, created_on=None):
-        rfcmeta._memo["value"] = (mapping, created_on)
-        rfcmeta._memo["expires"] = float("inf")
+        warm_rfc_index(mapping, created_on)
 
     def test_the_first_run_seeds_and_reports_nothing(self):
         with self.assertLogs("reef", level="WARNING") as logs:
@@ -200,8 +186,7 @@ class DetectTaskTests(TestCase):
         stub_rfc_index(self, {"rfc9110": meta()})
 
     def rewarm(self, mapping, created_on=None):
-        rfcmeta._memo["value"] = (mapping, created_on)
-        rfcmeta._memo["expires"] = float("inf")
+        warm_rfc_index(mapping, created_on)
 
     def test_the_first_run_seeds_and_reports_nothing(self):
         with self.assertLogs("reef", level="WARNING"):

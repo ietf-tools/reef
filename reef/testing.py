@@ -21,6 +21,36 @@ DEFAULT_MAPPING = {
 }
 
 
+def document_meta(**overrides):
+    """One document as rfcmeta reduces it, for a test that needs a whole entry.
+
+    Here rather than in each test module because the shape belongs to rfcmeta: when a
+    field is added to the reduction, this is the one place that has to learn about it.
+    """
+    return {
+        "title": "HTTP Semantics",
+        "subseries": [],
+        "status": "ps",
+        "status_name": "proposed standard",
+        "obsoleted_by": [],
+        "updates": [],
+        "updated_by": [],
+        **overrides,
+    }
+
+
+def warm_rfc_index(mapping, created_on=None):
+    """Put a mapping in front of rfcmeta, replacing whatever was there.
+
+    For a test that has already stubbed the index and needs it to say something else
+    partway through -- Red having republished between two runs, most often. Reaching
+    into rfcmeta's memo is what every caller was doing by hand; doing it here means
+    only one place knows the attribute's name.
+    """
+    rfcmeta._memo["value"] = (mapping, created_on)
+    rfcmeta._memo["expires"] = float("inf")
+
+
 def stub_rfc_index(test, mapping=None):
     """Warm rfcmeta's process memo, so nothing in this test reaches Red.
 
@@ -30,11 +60,7 @@ def stub_rfc_index(test, mapping=None):
     rfcmeta.clear_cache()
     test.addCleanup(rfcmeta.clear_cache)
 
-    rfcmeta._memo["value"] = (
-        DEFAULT_MAPPING if mapping is None else mapping,
-        None,
-    )
-    rfcmeta._memo["expires"] = float("inf")
+    warm_rfc_index(DEFAULT_MAPPING if mapping is None else mapping)
 
     # Belt and braces: if something bypasses the memo, it fails loudly here rather
     # than quietly making a request.

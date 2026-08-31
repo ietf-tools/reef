@@ -7,6 +7,7 @@ from django.utils.html import strip_tags
 
 from reef import rfcmeta
 from reef.admin_documents import DocumentTitleMixin
+from reef.testing import warm_rfc_index
 
 
 class Row:
@@ -28,8 +29,7 @@ class DocumentTitleTests(SimpleTestCase):
         self.admin = FakeAdmin()
 
     def warm(self, mapping):
-        rfcmeta._memo["value"] = (mapping, None)
-        rfcmeta._memo["expires"] = float("inf")
+        warm_rfc_index(mapping, None)
 
     def test_a_resolved_document_shows_its_title(self):
         self.warm({"rfc9110": {"title": "HTTP Semantics", "subseries": []}})

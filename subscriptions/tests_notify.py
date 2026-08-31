@@ -9,29 +9,15 @@ from django.test import TestCase
 
 from docsets.models import DocumentSet, DocumentSetEntry
 from reef import rfcmeta
-from reef.testing import stub_rfc_index
+from reef.testing import document_meta as meta
+from reef.testing import stub_rfc_index, warm_rfc_index
 from subjects.models import Subject, SubjectAssignment
 from subscriptions.changes import diff, load_snapshot, reduce_index
+from subscriptions.matching import subscriptions_for_change
 from subscriptions.models import PendingNotification, Subscription
-from subscriptions.tasks import (
-    detect_rfc_changes,
-    subscriptions_for_change,
-)
+from subscriptions.tasks import detect_rfc_changes
 
 User = get_user_model()
-
-
-def meta(**overrides):
-    return {
-        "title": "HTTP Semantics",
-        "subseries": [],
-        "status": "ps",
-        "status_name": "proposed standard",
-        "obsoleted_by": [],
-        "updates": [],
-        "updated_by": [],
-        **overrides,
-    }
 
 
 class PredicateMatchingTests(TestCase):
@@ -119,8 +105,7 @@ class NotifyRfcChangesTests(TestCase):
         )
 
     def rewarm(self, mapping, created_on):
-        rfcmeta._memo["value"] = (mapping, created_on)
-        rfcmeta._memo["expires"] = float("inf")
+        warm_rfc_index(mapping, created_on)
 
     def seed(self):
         """A first run, so the second has something to compare against."""
@@ -261,7 +246,7 @@ class SubseriesMembershipTests(TestCase):
     def test_joining_a_subseries_reaches_its_followers(self):
         after = {"rfc2119": meta(subseries=["bcp14"])}
         change = self.change({"rfc2119": meta()}, after)
-        rfcmeta._memo["value"] = (after, None)
+        warm_rfc_index(after)
         self.assertIn(
             self.follows_bcp14, subscriptions_for_change(change, self.index(after))
         )
@@ -271,7 +256,7 @@ class SubseriesMembershipTests(TestCase):
         bcp14, so nothing in the index could have found these people."""
         after = {"rfc2119": meta(subseries=[])}
         change = self.change({"rfc2119": meta(subseries=["bcp14"])}, after)
-        rfcmeta._memo["value"] = (after, None)
+        warm_rfc_index(after)
         self.assertIn(
             self.follows_bcp14, subscriptions_for_change(change, self.index(after))
         )
@@ -279,7 +264,7 @@ class SubseriesMembershipTests(TestCase):
     def test_a_change_that_is_not_about_membership_does_not_reach_them(self):
         after = {"rfc2119": meta(status="hist")}
         change = self.change({"rfc2119": meta()}, after)
-        rfcmeta._memo["value"] = (after, None)
+        warm_rfc_index(after)
         self.assertNotIn(
             self.follows_bcp14, subscriptions_for_change(change, self.index(after))
         )
@@ -293,7 +278,7 @@ class SubseriesMembershipTests(TestCase):
         )
         after = {"rfc2119": meta(subseries=[])}
         change = self.change({"rfc2119": meta(subseries=["bcp14"])}, after)
-        rfcmeta._memo["value"] = (after, None)
+        warm_rfc_index(after)
         self.assertIn(through_set, subscriptions_for_change(change, self.index(after)))
 
     def test_a_newly_published_document_has_departed_nothing(self):

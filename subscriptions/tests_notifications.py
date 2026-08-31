@@ -11,9 +11,9 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from subscriptions.delivery import SendEmailError
 from subscriptions.models import PendingNotification, Subscription
 from subscriptions.tasks import (
-    SendEmailError,
     deliver_notification,
     notification_key,
     queue_notification,

@@ -18,15 +18,11 @@ from reef.mail import EmailMessage
 from reef.testing import stub_rfc_index
 from subjects.models import Subject, SubjectAssignment
 
+from .delivery import SendEmailError, send_subscription_digest
+from .matching import subscriptions_for_document
+from .messages import CONFIRMATION_SUBJECT, digest_subject
 from .models import Subscription
-from .tasks import (
-    CONFIRMATION_SUBJECT,
-    SendEmailError,
-    digest_subject,
-    send_subscription_confirmation,
-    send_subscription_digest,
-    subscriptions_for_document,
-)
+from .tasks import send_subscription_confirmation
 
 User = get_user_model()
 

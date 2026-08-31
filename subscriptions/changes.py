@@ -207,19 +207,21 @@ FIELD_NAMES = {
 }
 
 
+def _join_prose(items):
+    """A list as a sentence reads it: "a", "a and b", "a, b and c"."""
+    items = list(items)
+    if len(items) <= 1:
+        return "".join(items)
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
 def _names_of_fields(fields):
-    named = [FIELD_NAMES[name] for name in WATCHED_FIELDS if name in fields]
-    if len(named) <= 1:
-        return "".join(named)
-    return f"{', '.join(named[:-1])} and {named[-1]}"
+    return _join_prose(FIELD_NAMES[name] for name in WATCHED_FIELDS if name in fields)
 
 
 def _names(identifiers):
     """Canonical identifiers as prose: "RFC 7230, RFC 7231 and RFC 7232"."""
-    names = [display_doc_id(identifier) for identifier in sorted(identifiers)]
-    if len(names) <= 1:
-        return "".join(names)
-    return f"{', '.join(names[:-1])} and {names[-1]}"
+    return _join_prose(display_doc_id(i) for i in sorted(identifiers))
 
 
 def _list_pair(pair):

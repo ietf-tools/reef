@@ -40,7 +40,7 @@ class RetireTests(TestCase):
             user=user, kind=Subscription.Kind.SUBJECT, subject=self.subject
         )
         self.subject.retire()
-        from subscriptions.tasks import subscriptions_for_document
+        from subscriptions.matching import subscriptions_for_document
 
         self.assertEqual(len(list(subscriptions_for_document("rfc9110"))), 1)
 
