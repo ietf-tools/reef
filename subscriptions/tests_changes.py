@@ -208,20 +208,28 @@ class DetectTaskTests(TestCase):
             self.assertEqual(detect_rfc_changes(), 0)
         self.assertIsNotNone(load_snapshot())
 
-    def test_a_change_is_counted_and_logged(self):
+    def test_a_change_is_logged_even_with_nobody_to_tell(self):
+        """The task returns readers written to, not changes found, so with no
+        subscribers this is zero and the log is the only trace."""
         detect_rfc_changes()
         self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 9, 1))
         with self.assertLogs("reef", level="INFO") as logs:
-            self.assertEqual(detect_rfc_changes(), 1)
-        self.assertIn("RFC 9110", "\n".join(logs.output))
+            self.assertEqual(detect_rfc_changes(), 0)
+        output = "\n".join(logs.output)
+        self.assertIn("RFC 9110", output)
+        self.assertIn("1 change(s) notified to 0 reader(s)", output)
 
-    def test_a_change_is_reported_once_and_not_again(self):
+    def test_a_change_is_seen_once_and_not_again(self):
         """The snapshot advancing is what makes the run idempotent day to day."""
         detect_rfc_changes()
         self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 9, 1))
-        self.assertEqual(detect_rfc_changes(), 1)
+        with self.assertLogs("reef", level="INFO") as first:
+            detect_rfc_changes()
+        self.assertIn("1 change(s)", "\n".join(first.output))
         self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 9, 2))
-        self.assertEqual(detect_rfc_changes(), 0)
+        with self.assertLogs("reef", level="INFO") as second:
+            detect_rfc_changes()
+        self.assertIn("0 change(s)", "\n".join(second.output))
 
     def test_red_being_unreachable_leaves_the_snapshot_alone(self):
         """So the next run compares against the same reading and misses nothing."""

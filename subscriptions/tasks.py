@@ -7,25 +7,25 @@ once, when the subscription is created, and is a courtesy rather than a
 verification: the subscriber authenticated through Authentik, so the address is
 already known good. send_subscription_digest goes whenever a change matches.
 
-What is still scaffolded is ingestion of RFC-change events from the datatracker
-(ticket #139), which is what decides which subscriptions a change matches and
-coalesces them per subscriber before enqueuing a digest.
+Changes are found by diffing Red's published index, not by ingesting a feed: the
+datatracker publishes no change feed, no events endpoint and no webhook, so there
+was never anything to subscribe to. detect_rfc_changes runs the whole path daily,
+and subscriptions/changes.py does the finding.
 
-An event is a dict, because it arrives as one from the feed. Delivery reads
-three keys and ignores the rest, so that the feed's shape can settle without
-the template following it:
+An event is a dict, and stays one now that it is composed here rather than arriving
+from elsewhere, because delivery and its templates were built against that shape:
 
-    doc     canonical identifier of the document that changed, per
-            reef.docids (absent for an event that is not about one document)
-    change  one line saying what happened, as the reader should see it
-    url     where to read more (optional)
+    doc          canonical identifier of the document that changed, per reef.docids
+    doc_display  the same in prose, "RFC 9110"
+    change       one line saying what happened, as the reader should see it
+    url          Red's canonical page for the document
 
-Nothing here invents those from datatracker's payload; mapping a feed record
-to them belongs to ingest_rfc_change.
+subscriptions.changes.as_event composes them from a diff.
 """
 
 import datetime
 import logging
+from collections import defaultdict
 
 from celery import shared_task
 from django.conf import settings
@@ -39,10 +39,13 @@ from reef.docids import display_doc_id, normalize_doc_id
 from reef.mail import EmailMessage
 from reef.tasks import RetryTask
 
-from .changes import detect
+from .changes import _added, as_event, detect
 from .models import PendingNotification, Subscription
 
 logger = logging.getLogger("reef")
+
+# Red's slug for a document that has been superseded or set aside.
+HISTORIC_STATUS = "hist"
 
 # Subjects name the series rather than Reef: the reader subscribed to the RFC
 # series and has no reason to know which service sent the mail.
@@ -123,6 +126,58 @@ def subscriptions_for_document(doc):
 
 class SendEmailError(Exception):
     """A message could not be handed to the mail server. Retryable."""
+
+
+def subscriptions_for_change(change, index):
+    """Every subscription one change should notify, across all six kinds.
+
+    Two halves that cannot be one query. The kinds naming a document resolve by join,
+    through subscriptions_for_document, which also expands the subseries containing
+    it. The predicate kinds say what has to have happened rather than which document
+    it happened to, so they are matched against the change itself; the model has said
+    so since it was written, and this is the code it was waiting for.
+    """
+    matched = set(subscriptions_for_document(change.doc))
+
+    meta = (index.mapping.get(change.doc) or {}) if index is not None else {}
+    predicates = Q(pk__in=[])  # matches nothing, so the ors below need no condition
+
+    if change.is_new:
+        predicates |= Q(kind=Subscription.Kind.NEW_RFC)
+        status_name = meta.get("status_name")
+        if status_name:
+            # Stored stripped and lowercased by normalize_params, so compared that
+            # way. The parameter is Red's status name rather than its slug, which is
+            # what somebody subscribing through Red's UI would have picked.
+            predicates |= Q(
+                kind=Subscription.Kind.BY_STATUS,
+                params__status=status_name.strip().lower(),
+            )
+
+    if _was_obsoleted(change):
+        predicates |= Q(kind=Subscription.Kind.OBSOLETED)
+
+    matched |= set(
+        Subscription.objects.filter(predicates).select_related(
+            "user", "document_set", "subject"
+        )
+    )
+    return matched
+
+
+def _was_obsoleted(change):
+    """Whether a change is the document being obsoleted or made historic.
+
+    Both, because the obsoleted kind offers them together: a document is usually made
+    historic by the thing that obsoletes it, and occasionally without one.
+    """
+    if change.is_new:
+        return False
+    if "obsoleted_by" in change.fields and _added(change.fields["obsoleted_by"]):
+        return True
+    if "status" in change.fields:
+        return change.fields["status"][1] == HISTORIC_STATUS
+    return False
 
 
 def digest_subject(events):
@@ -446,40 +501,26 @@ def send_subscription_confirmation(subscription_id: int) -> None:
     )
 
 
-def ingest_rfc_change(event: dict) -> None:
-    """Entry point for datatracker RFC-change events (stub).
-
-    The full implementation resolves an event to subscriptions (through
-    subscriptions_for_document for the kinds that name a document, and by
-    predicate for the rest), coalesces them per subscriber, and enqueues
-    send_subscription_digest. Wired to a datatracker feed later.
-
-    Three things are settled by delivery already existing and are not open to
-    this function: an event carries doc, change and url (see the module
-    docstring); one call to send_subscription_digest is one mail, so batching
-    happens before the enqueue and not inside the task; and a subscriber
-    holding two subscriptions that both match a change gets two mails unless
-    this deduplicates per user per event, because the task cannot see the
-    subscriber's other subscriptions. See the notification-volume and subseries
-    open items in plan.md.
-    """
-    logger.info("ingest_rfc_change (stub): event=%s", event)
-
-
 @shared_task(ignore_result=True)
 def detect_rfc_changes() -> int:
-    """Find what changed about the RFC series and record that it has been seen.
+    """Find what changed about the RFC series and tell the readers who asked.
 
-    Detection only, for now: what it finds is logged and the snapshot advances, so
-    changes between this landing and the notification path landing are consumed
-    without mail. That is deliberate rather than overlooked — there are no
-    subscribers yet, and running the diff daily from the start means the snapshot is
-    warm and the logs show what it sees before anything depends on it.
+    The whole notification path, once a day: diff Red's index, resolve each change to
+    subscriptions, gather them per reader, write a notification for each, and only
+    then record that the changes have been seen.
+
+    That order is the point. The snapshot advances last, so a crash anywhere before
+    it means the next run finds the same changes again: a repeat, which the
+    notification rows and their sent stamps absorb, rather than a skip, which nothing
+    would ever recover. Duplicates are recoverable and a missed change is not.
 
     Daily rather than hourly because Red rebuilds its index when RFCs are published
     and publication is bursty: over the last five years the median gap between
     publication dates was three days. A daily run gathers a burst into one reading;
-    an hourly one would split it across several.
+    an hourly one would split it across several mails.
+
+    Returns the number of readers written to, which is the number that matters
+    operationally; the changes themselves are logged.
     """
     result = detect()
     if result is None:
@@ -487,12 +528,29 @@ def detect_rfc_changes() -> int:
         # compares against the same reading and nothing is missed.
         return 0
 
-    for change in result.changes:
-        logger.info(
-            "Change: %s %s",
-            change.doc_display,
-            "published" if change.is_new else change.fields,
-        )
+    # Per reader, not per subscription: somebody who follows a document directly and
+    # also holds it in a set hears once. Events are keyed by document so that the two
+    # ways of reaching one collapse into a single line rather than two.
+    per_reader = defaultdict(lambda: {"subscriptions": set(), "events": {}})
 
-    result.save()
-    return len(result.changes)
+    for change in result.changes:
+        event = as_event(change, result.index)
+        logger.info("Change: %s %s", change.doc_display, event["change"])
+        for subscription in subscriptions_for_change(change, result.index):
+            reader = per_reader[subscription.user_id]
+            reader["subscriptions"].add(subscription.pk)
+            reader["events"][change.doc] = event
+
+    with transaction.atomic():
+        for user_id, reader in per_reader.items():
+            queue_notification(
+                user_id,
+                sorted(reader["subscriptions"]),
+                list(reader["events"].values()),
+            )
+        result.save()
+
+    logger.info(
+        "%s change(s) notified to %s reader(s)", len(result.changes), len(per_reader)
+    )
+    return len(per_reader)

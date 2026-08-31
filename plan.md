@@ -782,12 +782,20 @@ Then, for precomputed reads:
     its primary key, following Purple's MailMessage. Reef's RabbitMQ has no persistent
     volume, so a broker restart drops every queued message and Celery's own durability
     does not reach; putting the body in Postgres moves the guarantee to where the data
-    already lives. The row carries recipient, subject, body, attempts and sent, so
-    delivery is at-most-once through the sent flag, a crash mid-run leaves an auditable
-    record of what was and was not delivered, and a sweeper can re-enqueue anything left
-    unsent. The snapshot advances only after the rows are written, so a crash repeats a
-    run rather than skipping one: duplicates are recoverable and a missed change is not.
-    Commit: "Persist notifications before enqueuing them".
+    already lives. The row carries the reader, the subscriptions that matched, the
+    events, attempts and a sent stamp: the arguments rather than the rendered message,
+    unlike Purple's, because the body derives from data still in the database and
+    re-rendering at send time is how a reader who unsubscribes in between stops getting
+    the mail. Delivery is at-most-once through the stamp, and a sweeper re-enqueues
+    anything left unsent, which is what recovers a broker that lost its queue. The row
+    is then deleted, as Purple deletes its MailMessage: this is a queue rather than a
+    log, the mail itself already tells its reader why it arrived, and keeping a
+    per-reader history of everything Reef has said would be a retention question for a
+    service that otherwise keeps almost nothing about people. What stays in the table is
+    what is still owed, plus the few that could never be delivered. The snapshot
+    advances only after the rows are written, so a crash repeats a run rather than
+    skipping one: duplicates are recoverable and a missed change is not. Commit:
+    "Persist notifications before enqueuing them".
 31. Ingest wiring: the daily task runs detection, resolves each change through
     subscriptions_for_document and the predicate kinds, coalesces per subscriber, writes
     the notification rows and enqueues them. ingest_rfc_change and its event-dict
@@ -899,6 +907,11 @@ Then, for precomputed reads:
   reasons. Notifications are written to the database before being enqueued, are not sent
   twice across a redelivery, and survive the broker losing its queue. A run whose index
   createdOn has not moved since the last one warns. All covered by manage.py test.
+- Tests do not reach the network. reef.test_runner refuses urlopen for the whole
+  suite, because three separate call sites reached Red's index without anybody noticing
+  until the suite got slower: the admin title column, subscription matching and change
+  notification. Anything wanting the index stubs it with reef.testing.stub_rfc_index,
+  and anything exercising the fetch patches urlopen itself, which overrides the refusal.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;

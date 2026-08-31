@@ -261,6 +261,9 @@ CONTENT_SECURITY_POLICY = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Refuses network access during tests; see the module for why.
+TEST_RUNNER = "reef.test_runner.ReefTestRunner"
+
 # Caches. Disabled by default; per-environment modules configure a real backend.
 CACHES = {
     "default": {
