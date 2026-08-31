@@ -1,11 +1,13 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Writing a digest down before queueing it, so a broker restart cannot lose it."""
 
+import contextlib
 import datetime
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -13,6 +15,7 @@ from subscriptions.models import PendingNotification, Subscription
 from subscriptions.tasks import (
     SendEmailError,
     deliver_notification,
+    notification_key,
     queue_notification,
     sweep_unsent_notifications,
 )
@@ -236,3 +239,80 @@ class UnsubscribeUrlRequiredTests(TestCase):
         deliver_notification(self.notification.pk)
         self.assertEqual(len(mail.outbox), 1)
         self.assertNotIn("List-Unsubscribe", mail.outbox[0].extra_headers)
+
+
+class DedupeKeyTests(TestCase):
+    """The database refuses a second copy of a notification that is still owed.
+
+    The advisory lock stops two runs overlapping; this is the guarantee under it,
+    because a lock is a convention between processes and a unique index is not.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create(
+            username="u", oidc_sub="s", email="reader@example.org"
+        )
+        self.subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.NEW_RFC
+        )
+
+    def queue(self, events=None, scope="", user=None):
+        return queue_notification(
+            (user or self.user).pk, [self.subscription.pk], events or EVENTS, scope
+        )
+
+    def test_queueing_the_same_thing_twice_is_refused(self):
+        self.queue()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.queue()
+
+    def test_the_refusal_leaves_one_row(self):
+        self.queue()
+        with contextlib.suppress(IntegrityError), transaction.atomic():
+            self.queue()
+        self.assertEqual(PendingNotification.objects.count(), 1)
+
+    def test_another_reader_getting_the_same_news_is_not_a_duplicate(self):
+        other = User.objects.create(username="o", oidc_sub="o", email="o@example.org")
+        self.queue()
+        self.queue(user=other)
+        self.assertEqual(PendingNotification.objects.count(), 2)
+
+    def test_different_news_to_one_reader_is_not_a_duplicate(self):
+        self.queue()
+        self.queue(events=[{"doc": "rfc8446", "change": "Published", "url": ""}])
+        self.assertEqual(PendingNotification.objects.count(), 2)
+
+    def test_a_different_scope_makes_the_same_news_new_again(self):
+        """A document making the same transition again months later is a new
+        notification, not one the unique index mistakes for a repeat."""
+        self.queue(scope="2026-08-31")
+        self.queue(scope="2026-11-02")
+        self.assertEqual(PendingNotification.objects.count(), 2)
+
+    def test_event_order_does_not_change_the_key(self):
+        """Two runs finding the same changes must agree, whatever order they
+        iterated in."""
+        first = [
+            {"doc": "rfc9110", "change": "Published", "url": ""},
+            {"doc": "rfc8446", "change": "Published", "url": ""},
+        ]
+        self.assertEqual(
+            notification_key(self.user.pk, first),
+            notification_key(self.user.pk, list(reversed(first))),
+        )
+
+    def test_the_url_is_not_part_of_the_key(self):
+        """It is derived from the document, so two events differing only there are
+        the same news."""
+        one = [{"doc": "rfc9110", "change": "Published", "url": "a"}]
+        other = [{"doc": "rfc9110", "change": "Published", "url": "b"}]
+        self.assertEqual(notification_key(1, one), notification_key(1, other))
+
+    def test_a_delivered_notification_stops_blocking_its_key(self):
+        """Rows are deleted on delivery, so what this forbids is a duplicate still
+        owed -- which is the shape the race actually has."""
+        notification = self.queue()
+        deliver_notification(notification.pk)
+        self.queue()  # must not raise
+        self.assertEqual(PendingNotification.objects.count(), 1)

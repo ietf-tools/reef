@@ -243,6 +243,16 @@ class PendingNotification(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications"
     )
+    # A fingerprint of who is being written to and what about, so that the database
+    # refuses a second copy rather than trusting the code not to make one. The
+    # advisory lock already stops two runs overlapping; this is the guarantee under
+    # it, because a lock is a convention between processes and a unique index is not.
+    #
+    # It protects the window it can: a row is deleted once delivered, so what this
+    # forbids is a duplicate that is still owed. That is the shape the race actually
+    # has, since two runs racing have neither delivered yet, and a run an hour later
+    # would find the snapshot advanced and detect nothing to duplicate.
+    dedupe_key = models.CharField(max_length=64, unique=True)
     # The subscriptions that matched, so the message can say why it arrived. Ids
     # rather than a relation: a subscription deleted before the send should drop out
     # of the reasons, not cascade the notification away with it.

@@ -24,6 +24,8 @@ subscriptions.changes.as_event composes them from a diff.
 """
 
 import datetime
+import hashlib
+import json
 import logging
 from collections import defaultdict
 
@@ -36,6 +38,7 @@ from django.utils import timezone
 
 from reef import rfcmeta
 from reef.docids import display_doc_id, normalize_doc_id
+from reef.locks import advisory_lock
 from reef.mail import EmailMessage
 from reef.tasks import RetryTask
 
@@ -46,6 +49,9 @@ logger = logging.getLogger("reef")
 
 # Red's slug for a document that has been superseded or set aside.
 HISTORIC_STATUS = "hist"
+
+# Held for the length of a change-notification run; see reef.locks.
+LOCK_NAME = "subscriptions.detect_rfc_changes"
 
 # Subjects name the series rather than Reef: the reader subscribed to the RFC
 # series and has no reason to know which service sent the mail.
@@ -383,16 +389,50 @@ def send_subscription_digest(
     return True
 
 
-def queue_notification(user_id, subscription_ids, events):
+def notification_key(user_id, events, scope=""):
+    """A fingerprint of one reader being told one thing.
+
+    Over the events rather than the subscriptions, because what makes two mails
+    duplicates is that they say the same thing to the same person; which of their
+    subscriptions matched is why it reached them, not what it tells them.
+
+    `scope` separates two occasions that would otherwise look identical. The change
+    run passes the index reading it worked from, so that a document making the same
+    transition again months later is a new notification rather than one the database
+    refuses.
+    """
+    canonical = json.dumps(
+        {
+            "user": user_id,
+            "scope": scope,
+            "events": sorted(
+                ((e.get("doc", ""), e.get("change", "")) for e in events),
+            ),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def queue_notification(user_id, subscription_ids, events, scope=""):
     """Write down that a digest is owed, and enqueue it once the write has landed.
 
     Written first, enqueued after: a row with nothing to deliver it is recoverable by
     the sweeper, while a queued task with no row behind it is not recoverable at all.
     on_commit for the same reason -- a task that starts before its row is visible
     would find nothing and give up.
+
+    Raises IntegrityError if this reader already has this notification owed to them.
+    Deliberately not swallowed: a caller queueing a duplicate is a caller that has
+    lost track of what it has done, and for the change run that means the whole
+    transaction rolls back, which is the right outcome for a run duplicating another.
     """
     notification = PendingNotification.objects.create(
-        user_id=user_id, subscription_ids=list(subscription_ids), events=list(events)
+        user_id=user_id,
+        subscription_ids=list(subscription_ids),
+        events=list(events),
+        dedupe_key=notification_key(user_id, events, scope),
     )
     transaction.on_commit(lambda: deliver_notification.delay(notification.pk))
     return notification
@@ -557,6 +597,19 @@ def detect_rfc_changes() -> int:
     Returns the number of readers written to, which is the number that matters
     operationally; the changes themselves are logged.
     """
+    with advisory_lock(LOCK_NAME) as acquired:
+        if not acquired:
+            # Two of these at once is the one overlap that costs a reader something.
+            # Both would read the snapshot before either advanced it, both would find
+            # the same changes, and everybody would be written to twice. Skipping is
+            # right: the run holding the lock is doing this work, and the next tick
+            # finds the lock free.
+            logger.info("Skipping change detection: another run holds the lock")
+            return 0
+        return _detect_and_notify()
+
+
+def _detect_and_notify():
     result = detect()
     if result is None:
         # Red unreachable. The snapshot deliberately does not move, so the next run
@@ -582,6 +635,10 @@ def detect_rfc_changes() -> int:
                 user_id,
                 sorted(reader["subscriptions"]),
                 list(reader["events"].values()),
+                # The reading these changes came from, so that the same transition
+                # happening again later is a new notification rather than one the
+                # unique index mistakes for a repeat.
+                scope=str(result.created_on),
             )
         result.save()
 

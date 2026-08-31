@@ -16,12 +16,12 @@ from django.test import TestCase, TransactionTestCase, override_settings
 
 from popularity.models import PopularEntry
 from precomputer.blobstore import LocalBlobStore, get_blob_store
-from precomputer.locks import _key, advisory_lock
 from precomputer.registry import TASKS
 from precomputer.signals import CURATED_DEBOUNCE_SECONDS
 from precomputer.tasks import precompute_all, precompute_curated, precompute_engagement
 from ratings.models import Rating
 from reef import rfcmeta
+from reef.locks import _key, advisory_lock
 from subjects.models import Subject, SubjectAssignment
 from surveys.models import Survey
 
@@ -525,6 +525,16 @@ class AdvisoryLockTests(TransactionTestCase):
                 raise RuntimeError("boom")
         with advisory_lock("precomputer.test") as again:
             self.assertTrue(again)
+
+    def test_the_same_connection_can_take_a_lock_it_already_holds(self):
+        """Postgres advisory locks are per session and re-entrant, so this guards
+        against two workers rather than against one calling twice. That is the case
+        it is for -- two runs are two processes -- but it is worth knowing that a
+        single process is not stopped from re-entering."""
+        with advisory_lock("precomputer.test") as first:
+            with advisory_lock("precomputer.test") as again:
+                self.assertTrue(first)
+                self.assertTrue(again)
 
     def test_different_names_do_not_collide(self):
         with advisory_lock("precomputer.a") as a:

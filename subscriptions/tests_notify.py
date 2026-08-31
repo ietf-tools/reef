@@ -2,6 +2,7 @@
 """The whole path: a change in Red's index becomes mail to the readers who asked."""
 
 import datetime
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -10,9 +11,12 @@ from docsets.models import DocumentSet, DocumentSetEntry
 from reef import rfcmeta
 from reef.testing import stub_rfc_index
 from subjects.models import Subject, SubjectAssignment
-from subscriptions.changes import diff, reduce_index
+from subscriptions.changes import diff, load_snapshot, reduce_index
 from subscriptions.models import PendingNotification, Subscription
-from subscriptions.tasks import detect_rfc_changes, subscriptions_for_change
+from subscriptions.tasks import (
+    detect_rfc_changes,
+    subscriptions_for_change,
+)
 
 User = get_user_model()
 
@@ -295,3 +299,33 @@ class SubseriesMembershipTests(TestCase):
     def test_a_newly_published_document_has_departed_nothing(self):
         change = self.change({}, {"rfc2119": meta(subseries=["bcp14"])})
         self.assertEqual(change.fields, {})
+
+
+class ConcurrentRunTests(TestCase):
+    """Two notification runs at once would write to every subscriber twice.
+
+    Worse than the overlap the precomputer guards against, which only wastes work:
+    both runs read the snapshot before either advances it, so both find the same
+    changes and both queue notifications for them.
+    """
+
+    def setUp(self):
+        stub_rfc_index(self, {"rfc9110": meta()})
+        self.user = User.objects.create(
+            username="u", oidc_sub="s", email="r@example.org"
+        )
+        Subscription.objects.create(user=self.user, kind=Subscription.Kind.NEW_RFC)
+
+    def test_a_run_that_cannot_take_the_lock_does_nothing(self):
+        with mock.patch("subscriptions.tasks.advisory_lock") as lock:
+            lock.return_value.__enter__.return_value = False
+            with self.assertLogs("reef", level="INFO") as logs:
+                self.assertEqual(detect_rfc_changes(), 0)
+        self.assertIn("another run holds the lock", "\n".join(logs.output))
+        self.assertEqual(PendingNotification.objects.count(), 0)
+        self.assertIsNone(load_snapshot())
+
+    def test_the_lock_is_released_so_the_next_run_proceeds(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            detect_rfc_changes()
+        self.assertIsNotNone(load_snapshot())

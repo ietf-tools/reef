@@ -23,7 +23,7 @@ import logging
 from celery import shared_task
 from django.core.management import call_command
 
-from .locks import advisory_lock
+from reef.locks import advisory_lock
 
 logger = logging.getLogger("reef")
 

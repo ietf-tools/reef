@@ -175,6 +175,7 @@ reef/
     settings/logging/{development,production}.py
     celery.py  urls.py  wsgi.py  openapi.py
     docids.py              shared document-identifier parsing and canonical form
+    locks.py               postgres advisory lock, so two runs of a job cannot overlap
     rfcmeta.py             titles and subseries contents, read from Red's public files
     admin_documents.py     the title column the admin shows beside an identifier
     schemas/               JSON Schema for data Reef reads from elsewhere; synced copies
@@ -200,7 +201,7 @@ reef/
     render.py              runs a DRF view in process and returns the bytes it served
     registry.py            one job per public read, each owning the keys it may purge
     tasks.py               celery tasks that run the command on a schedule
-    locks.py               postgres advisory lock, so two runs cannot overlap
+
     signals.py             a staff edit to curated content enqueues a refresh
     management/commands/precompute.py   the single entry point
   vendor/                  package.json for self-hosted SurveyJS Creator/Analytics bundles into Django static
@@ -941,6 +942,11 @@ Then, for precomputed reads:
 - Subseries membership: a document joining a subseries reaches somebody following the
   container, and so does a document leaving one, including through a set or subject that
   holds the container. A change that is not about membership does not reach them.
+- Overlapping runs: a change-notification run that cannot take the lock does nothing
+  at all -- no notifications written and the snapshot left where it was -- and the next
+  tick finds the lock free. The lock is per Postgres session and re-entrant within one,
+  so it guards against two workers rather than against one process calling twice, which
+  is what two runs of a scheduled job actually are.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;

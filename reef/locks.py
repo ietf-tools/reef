@@ -1,10 +1,13 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""A lock that keeps two precomputer runs from overlapping.
+"""A lock that keeps two runs of the same scheduled job from overlapping.
 
-Two runs at once race on the purge: one deletes keys the other has not written yet,
-because a key absent from the run doing the purging looks stale rather than in
-flight. Runs are also pure waste in parallel, since the second recomputes what the
-first just wrote.
+Two jobs want it, for costs of different sizes. Two precomputer runs at once race on
+the purge -- one deletes keys the other has not written yet, because a key absent
+from the run doing the purging looks stale rather than in flight -- and are pure
+waste besides, since the second recomputes what the first just wrote. Two
+change-notification runs at once are worse: both read the same snapshot before
+either advances it, both find the same changes, and every subscriber is written to
+twice.
 
 A Postgres advisory lock rather than the usual cache.add() one. Reef configures
 memcached in production and staging but DummyCache in development, where every
@@ -35,6 +38,10 @@ def advisory_lock(name):
     Non-blocking on purpose: a scheduled run that finds another in progress should
     say so and stop, not queue up behind it and then do work that has just been
     done.
+
+    Per session, and re-entrant within one. That matches what it is for, since two
+    runs of a scheduled job are two worker processes and so two connections, but it
+    does mean a single process calling this twice is not stopped from doing so.
     """
     key = _key(name)
     with connection.cursor() as cursor:
