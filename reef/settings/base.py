@@ -281,6 +281,20 @@ MESSAGE_ID_DOMAIN = os.environ.get("REEF_MESSAGE_ID_DOMAIN", "ietf.org")
 REEF_SUBSCRIPTIONS_URL = os.environ.get("REEF_SUBSCRIPTIONS_URL", "")
 ADMINS = []
 
+# Document metadata. Reef resolves an identifier to a title, and a subseries to its
+# contents, by reading Red's public files; it stores none of it. See reef/rfcmeta.py
+# and reef/schemas/README.md.
+REEF_RFC_DATA_BASE_URL = os.environ.get(
+    "REEF_RFC_DATA_BASE_URL", "https://www.rfc-editor.org"
+)
+REEF_RFC_DATA_TIMEOUT = int(os.environ.get("REEF_RFC_DATA_TIMEOUT", "30"))
+# How old Red's index may get before a run says so. Red rebuilds it when RFCs are
+# published rather than on a clock, and publication is bursty: over the last five
+# years the gaps between publication dates ran to a median of 3 days, a p95 of 12 and
+# a maximum of 23. Thirty is above every gap observed in that time. This is a backstop
+# anyway; the signal that matters is a document Reef holds and Red's index does not.
+REEF_RFC_INDEX_MAX_AGE_DAYS = int(os.environ.get("REEF_RFC_INDEX_MAX_AGE_DAYS", "30"))
+
 # Precomputer. Where `manage.py precompute` writes the public API responses it
 # renders ahead of time, so that a reader is served a file rather than a query
 # that aggregates every rating, subscription and set entry.
@@ -299,6 +313,11 @@ REEF_PRECOMPUTE_S3_SECRET_ACCESS_KEY = os.environ.get(
     "REEF_PRECOMPUTE_S3_SECRET_ACCESS_KEY", ""
 )
 REEF_PRECOMPUTE_DIR = os.environ.get("REEF_PRECOMPUTE_DIR") or BASE_DIR / "precomputed"
+# Whether a run may fall back to REEF_PRECOMPUTE_DIR when no bucket is named. False
+# here so that development works with no object storage; production sets it True,
+# because a worker writing into its own container reports success while publishing
+# nothing, which is worse than refusing.
+REEF_PRECOMPUTE_REQUIRE_S3 = False
 # Parallel uploads. Rendering is serial database work; this is how many of the
 # resulting files are in flight to the store at once.
 REEF_PRECOMPUTE_CONCURRENCY = int(os.environ.get("REEF_PRECOMPUTE_CONCURRENCY", "8"))

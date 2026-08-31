@@ -28,6 +28,7 @@ what is stored here is the anonymous half, which is what an unauthenticated
 reader would have got.
 """
 
+import json
 import re
 
 from popularity.api import PopularityList
@@ -42,6 +43,39 @@ from surveys.models import Survey
 from .render import render_anonymous
 
 TASKS = {}
+
+
+def _reserialize(payload):
+    """Back to bytes the way DRF's JSONRenderer would have written them.
+
+    Matched deliberately: every task that adds nothing writes the view's own bytes
+    untouched, and the ones that do add something must differ only by the keys they
+    added. The test strips the additions and compares byte for byte, which holds only
+    if the separators and escaping agree with the renderer's.
+    """
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+def _augment(body, add):
+    """Parse a rendered payload, let `add` put keys into it, and re-serialise.
+
+    Only ever adds keys. Retyping an existing one is the change that breaks a caller,
+    and it is what Reef asks Red not to do to it, so the precomputer holds itself to
+    the same rule.
+    """
+    payload = json.loads(body)
+    add(payload)
+    return _reserialize(payload)
+
+
+def _meta(index, doc_id):
+    """The metadata block a row carries, null when it cannot be resolved.
+
+    Null rather than omitted or echoed back as the identifier, so a reader can tell
+    "no such document" from "not looked up".
+    """
+    resolved = index.get(doc_id) if index is not None else None
+    return resolved if resolved is not None else {"title": None, "subseries": []}
 
 
 def task(name, *, owns, per_document=False):
@@ -63,30 +97,36 @@ def task(name, *, owns, per_document=False):
 
 
 @task("stats", owns=r"^stats\.json$")
-def stats(docs=None):
+def stats(docs=None, index=None):
     """Rating, subscriber and set counts for the whole series, in one file.
 
     The expensive one, and the reason this command exists: the endpoint is
     unpaginated by design because Red wants the series in a single call, so it
     aggregates every rating, subscription and set entry on each request.
     """
-    yield (
-        "stats.json",
-        render_anonymous(DocumentStatsList.as_view(), "/api/reef/stats/"),
-    )
+    body = render_anonymous(DocumentStatsList.as_view(), "/api/reef/stats/")
+
+    def add(rows):
+        for row in rows:
+            row.update(_meta(index, row["doc"]))
+
+    yield "stats.json", _augment(body, add)
 
 
 @task("popularity", owns=r"^popularity\.json$")
-def popularity(docs=None):
+def popularity(docs=None, index=None):
     """The curated most-popular list."""
-    yield (
-        "popularity.json",
-        render_anonymous(PopularityList.as_view(), "/api/reef/popularity/"),
-    )
+    body = render_anonymous(PopularityList.as_view(), "/api/reef/popularity/")
+
+    def add(rows):
+        for row in rows:
+            row.update(_meta(index, row["rfc"]))
+
+    yield "popularity.json", _augment(body, add)
 
 
 @task("subjects", owns=r"^subjects\.json$|^subjects/[^/]+\.json$")
-def subjects(docs=None):
+def subjects(docs=None, index=None):
     """The whole vocabulary, and each subject with the documents carrying it."""
     yield (
         "subjects.json",
@@ -94,14 +134,21 @@ def subjects(docs=None):
     )
     detail = SubjectDetail.as_view()
     for slug in Subject.objects.values_list("slug", flat=True).order_by("slug"):
-        yield (
-            f"subjects/{slug}.json",
-            render_anonymous(detail, f"/api/reef/subjects/{slug}/", slug=slug),
-        )
+        body = render_anonymous(detail, f"/api/reef/subjects/{slug}/", slug=slug)
+
+        def add(payload):
+            # A sibling map rather than turning `documents` into a list of objects:
+            # retyping an existing key is the change that breaks a caller, and a map
+            # also grows a field later without retyping anything.
+            payload["document_meta"] = {
+                doc: _meta(index, doc) for doc in payload.get("documents", [])
+            }
+
+        yield f"subjects/{slug}.json", _augment(body, add)
 
 
 @task("surveys", owns=r"^surveys/open\.json$|^surveys/[^/]+/definition\.json$")
-def surveys(docs=None):
+def surveys(docs=None, index=None):
     """Open surveys, and the definition of each one a visitor may run.
 
     Only OPEN surveys get a definition file. An authenticated-visibility survey
@@ -126,7 +173,7 @@ def surveys(docs=None):
 
 
 @task("ratings", owns=r"^ratings/[^/]+\.json$", per_document=True)
-def ratings(docs=None):
+def ratings(docs=None, index=None):
     """One file per rated document: the public average and count.
 
     Documents nobody has rated are left out rather than stored as zeros. The
@@ -139,7 +186,9 @@ def ratings(docs=None):
         rated = rated.filter(rfc__in=docs)
     detail = RatingDetail.as_view()
     for doc in rated:
-        yield (
-            f"ratings/{doc}.json",
-            render_anonymous(detail, f"/api/reef/ratings/{doc}/", rfc=doc),
-        )
+        body = render_anonymous(detail, f"/api/reef/ratings/{doc}/", rfc=doc)
+
+        def add(payload, doc=doc):
+            payload.update(_meta(index, doc))
+
+        yield f"ratings/{doc}.json", _augment(body, add)

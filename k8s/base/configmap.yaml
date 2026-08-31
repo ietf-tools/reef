@@ -11,6 +11,15 @@ data:
   REEF_DB_NAME: "reef"
   REEF_DB_USER: "reef"
   REEF_BROKER_URL: "amqp://mq:5672//"
+
+  # Precomputer blob store. The bucket is what switches the precomputer from
+  # writing into its own container to writing somewhere a reader can see; with it
+  # empty a production run refuses rather than silently writing nowhere. Endpoint is
+  # for an S3-compatible service and stays empty for AWS itself. Credentials are in
+  # the secret.
+  REEF_PRECOMPUTE_S3_BUCKET: ""
+  REEF_PRECOMPUTE_S3_ENDPOINT: ""
+  REEF_PRECOMPUTE_S3_REGION: "auto"
   REEF_OIDC_APP_SLUG: "reef"
   REEF_OIDC_RP_CLIENT_ID: ""
   REEF_OIDC_STAFF_GROUPS: ""

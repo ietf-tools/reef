@@ -1,5 +1,6 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 import contextlib
+import datetime
 import json
 import re
 import tempfile
@@ -20,14 +21,43 @@ from precomputer.registry import TASKS
 from precomputer.signals import CURATED_DEBOUNCE_SECONDS
 from precomputer.tasks import precompute_all, precompute_curated, precompute_engagement
 from ratings.models import Rating
+from reef import rfcmeta
 from subjects.models import Subject, SubjectAssignment
 from surveys.models import Survey
 
 User = get_user_model()
 
 
+# Two documents' worth of Red's index, in the shape load_index() returns. Enough to
+# cover resolved, unresolved and subseries without going near the network.
+FAKE_INDEX_ENTRIES = [
+    {
+        "number": 9110,
+        "title": "HTTP Semantics",
+        "subseries": [{"type": "std", "number": 97}],
+    },
+    {
+        "number": 2119,
+        "title": "Key words",
+        "subseries": [{"type": "bcp", "number": 14}],
+    },
+]
+
+
+def fake_index(entries=None, created_on=None):
+    return rfcmeta.DocumentIndex(
+        FAKE_INDEX_ENTRIES if entries is None else entries,
+        created_on or datetime.date.today(),
+    )
+
+
 class PrecomputeTestCase(TestCase):
-    """Runs the command against a temporary output directory."""
+    """Runs the command against a temporary output directory.
+
+    Red's index is stubbed for every test in here. Letting it through would put a
+    6.8 MB fetch and a schema validation in front of each one, and make the suite
+    fail when somebody runs it on a train.
+    """
 
     def setUp(self):
         self.out_dir = Path(tempfile.mkdtemp())
@@ -36,6 +66,11 @@ class PrecomputeTestCase(TestCase):
         )
         overrides.enable()
         self.addCleanup(overrides.disable)
+
+        self.index = fake_index()
+        patcher = mock.patch("reef.rfcmeta.load_index", side_effect=lambda: self.index)
+        self.load_index = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def precompute(self, *args, **options):
         out, err = StringIO(), StringIO()
@@ -66,11 +101,38 @@ class OutputTests(PrecomputeTestCase):
         )
         self.assertEqual(self.read("stats.json"), [])
 
-    def test_payload_is_byte_identical_to_the_live_endpoint(self):
+    def test_a_payload_that_adds_nothing_is_byte_identical_to_the_live_endpoint(self):
+        Survey.objects.create(
+            title="Open",
+            slug="open-one",
+            status=Survey.Status.PUBLISHED,
+            visibility=Survey.Visibility.OPEN,
+        )
+        self.precompute("surveys")
+        live = self.client.get(
+            "/api/reef/surveys/open/", HTTP_ACCEPT="application/json"
+        )
+        self.assertEqual(
+            (self.out_dir / "surveys/open.json").read_bytes(), live.content
+        )
+
+    def test_an_augmented_payload_is_the_live_response_plus_added_keys(self):
+        """The invariant that replaced byte-identity: strip what the precomputer
+        added and the rest must match the endpoint exactly, so nothing it writes can
+        quietly disagree with what Reef serves."""
         PopularEntry.objects.create(rfc="rfc9110", rank=1)
         self.precompute("popularity")
+
+        written = self.read("popularity.json")
+        for row in written:
+            del row["title"]
+            del row["subseries"]
+
         live = self.client.get("/api/reef/popularity/", HTTP_ACCEPT="application/json")
-        self.assertEqual((self.out_dir / "popularity.json").read_bytes(), live.content)
+        self.assertEqual(
+            json.dumps(written, ensure_ascii=False, separators=(",", ":")).encode(),
+            live.content,
+        )
 
     def test_stats_covers_engagement(self):
         Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
@@ -118,6 +180,128 @@ class OutputTests(PrecomputeTestCase):
             self.written(),
             {"surveys/open.json", "surveys/open-one/definition.json"},
         )
+
+
+class DocumentMetadataTests(PrecomputeTestCase):
+    """Every file that names a document carries that document's metadata.
+
+    The reason is Red's rather than Reef's: an SPA route wants one resource, and a
+    page that fetches a list of identifiers and then resolves them loads slower than
+    one that fetches a file it can render.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create(username="a", oidc_sub="a")
+
+    def test_stats_rows_carry_metadata(self):
+        Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
+        self.precompute("stats")
+        row = next(r for r in self.read("stats.json") if r["doc"] == "rfc9110")
+        self.assertEqual(row["title"], "HTTP Semantics")
+        self.assertEqual(row["subseries"], ["std97"])
+        self.assertEqual(row["rating_count"], 1)  # the endpoint's own fields survive
+
+    def test_popularity_rows_carry_metadata(self):
+        PopularEntry.objects.create(rfc="rfc2119", rank=1)
+        self.precompute("popularity")
+        row = self.read("popularity.json")[0]
+        self.assertEqual(row["title"], "Key words")
+        self.assertEqual(row["subseries"], ["bcp14"])
+
+    def test_rating_files_carry_metadata(self):
+        Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
+        self.precompute("ratings")
+        self.assertEqual(self.read("ratings/rfc9110.json")["title"], "HTTP Semantics")
+
+    def test_subject_detail_gains_a_map_and_keeps_its_documents_array(self):
+        """A sibling map rather than retyping `documents`: retyping an existing key
+        is the change that breaks a caller."""
+        subject = Subject.objects.create(name="Security", slug="security")
+        SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
+        self.precompute("subjects")
+        payload = self.read("subjects/security.json")
+        self.assertEqual(payload["documents"], ["rfc9110"])
+        self.assertEqual(payload["document_meta"]["rfc9110"]["title"], "HTTP Semantics")
+
+    def test_an_unresolvable_document_gets_null_metadata_not_omission(self):
+        """Null rather than omitted or echoed back, so a reader can tell "no such
+        document" from "not looked up"."""
+        Rating.objects.create(rfc="rfc8446", user=self.user, value=4)
+        self.precompute("stats")
+        row = next(r for r in self.read("stats.json") if r["doc"] == "rfc8446")
+        self.assertIsNone(row["title"])
+        self.assertEqual(row["subseries"], [])
+
+    def test_red_being_unreachable_still_writes_every_file(self):
+        """Reef's own numbers do not depend on Red, so a failed fetch costs titles
+        and nothing else."""
+        self.index = None
+        Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
+        self.precompute()
+        row = next(r for r in self.read("stats.json") if r["doc"] == "rfc9110")
+        self.assertIsNone(row["title"])
+        self.assertIn("ratings/rfc9110.json", self.written())
+
+    def test_no_metadata_skips_the_fetch_entirely(self):
+        Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
+        self.precompute("stats", "--no-metadata")
+        self.load_index.assert_not_called()
+        row = next(r for r in self.read("stats.json") if r["doc"] == "rfc9110")
+        self.assertIsNone(row["title"])
+
+    def test_the_index_is_loaded_once_per_run_not_per_document(self):
+        """Validating ten thousand entries is a couple of seconds; doing it per
+        lookup would make a run unusable."""
+        for number in (9110, 2119, 8446):
+            Rating.objects.create(rfc=f"rfc{number}", user=self.user, value=3)
+        self.precompute()
+        self.assertEqual(self.load_index.call_count, 1)
+
+
+class StaleIndexTests(PrecomputeTestCase):
+    def setUp(self):
+        super().setUp()
+        user = User.objects.create(username="a", oidc_sub="a")
+        Rating.objects.create(rfc="rfc9110", user=user, value=4)
+
+    def _run_and_capture_logs(self, *args):
+        with self.assertLogs("reef", level="INFO") as logs:
+            self.precompute(*args)
+        return "\n".join(logs.output)
+
+    def test_a_fresh_index_logs_its_age_and_does_not_warn(self):
+        output = self._run_and_capture_logs()
+        self.assertIn("Red index: 2 documents", output)
+        self.assertNotIn("over the", output)
+
+    def test_an_old_index_warns_but_the_run_still_succeeds(self):
+        stale = datetime.date.today() - datetime.timedelta(days=45)
+        self.index = fake_index(created_on=stale)
+        output = self._run_and_capture_logs()
+        self.assertIn("45 days old, over the 30 day limit", output)
+        self.assertIn("stats.json", self.written())
+
+    def test_the_threshold_is_configurable(self):
+        self.index = fake_index(
+            created_on=datetime.date.today() - datetime.timedelta(days=5)
+        )
+        with override_settings(REEF_RFC_INDEX_MAX_AGE_DAYS=3):
+            output = self._run_and_capture_logs()
+        self.assertIn("over the 3 day limit", output)
+
+    def test_a_document_reef_holds_that_red_lacks_is_warned_about(self):
+        """The signal that actually matters: a frozen index does no harm until Reef
+        knows about a document Red's copy does not."""
+        user = User.objects.get(username="a")
+        Rating.objects.create(rfc="rfc8446", user=user, value=2)
+        output = self._run_and_capture_logs()
+        self.assertIn("not in Red's index", output)
+        self.assertIn("rfc8446", output)
+
+    def test_nothing_is_warned_about_when_everything_resolves(self):
+        output = self._run_and_capture_logs()
+        self.assertNotIn("not in Red's index", output)
 
 
 class SelectionTests(PrecomputeTestCase):
@@ -256,6 +440,15 @@ class BlobStoreTests(TestCase):
                 REEF_PRECOMPUTE_S3_BUCKET="", REEF_PRECOMPUTE_DIR=tmp
             ):
                 self.assertIsInstance(get_blob_store(), LocalBlobStore)
+
+    def test_a_deployment_requiring_s3_refuses_to_use_a_directory(self):
+        """Production sets this: a worker writing into its own container would log a
+        successful run every hour and publish nothing."""
+        with override_settings(
+            REEF_PRECOMPUTE_S3_BUCKET="", REEF_PRECOMPUTE_REQUIRE_S3=True
+        ):
+            with self.assertRaises(ImproperlyConfigured):
+                get_blob_store()
 
     def test_a_bucket_without_credentials_is_an_error_not_a_fallback(self):
         with override_settings(

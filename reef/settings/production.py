@@ -37,6 +37,11 @@ DATABASES = {
     }
 }
 
+# The precomputer publishes for Red to read, so a deployment that has not been given
+# a bucket is misconfigured rather than opting out. Falling back to a directory inside
+# an ephemeral worker would log a successful run every hour and publish nothing.
+REEF_PRECOMPUTE_REQUIRE_S3 = True
+
 # Caches. Use the memcached service if the k8s environment provides one.
 _memcached_host = os.environ.get("MEMCACHED_SERVICE_HOST")
 if _memcached_host is not None:

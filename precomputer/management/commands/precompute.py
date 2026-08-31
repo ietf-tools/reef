@@ -26,6 +26,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from precomputer.blobstore import get_blob_store
 from precomputer.registry import TASKS
+from reef import rfcmeta
 from reef.docids import normalize_doc_id
 
 
@@ -68,6 +69,15 @@ class Command(BaseCommand):
             help="Render everything and report, without writing or deleting.",
         )
         parser.add_argument(
+            "--no-metadata",
+            action="store_false",
+            dest="metadata",
+            help=(
+                "Skip resolving document titles from Red, writing null metadata "
+                "instead. For working offline; the files stay the right shape."
+            ),
+        )
+        parser.add_argument(
             "--callback-url",
             help=(
                 "POST a JSON {type, message} result here when the run finishes, "
@@ -101,6 +111,20 @@ class Command(BaseCommand):
             + (" (dry run)" if dry_run else "")
         )
 
+        # Once per run, not per lookup: validating roughly ten thousand entries is a
+        # couple of seconds, and every task shares the one index.
+        index = None
+        if options["metadata"]:
+            index = rfcmeta.load_index()
+            if index is None:
+                # Red being unreachable is not a reason to publish nothing. The files
+                # are written with null metadata and the warning above says why.
+                self.stderr.write(
+                    self.style.WARNING(
+                        "Could not load Red's index; writing null document metadata."
+                    )
+                )
+
         started = time.monotonic()
         written = set()
         clean_tasks = []
@@ -110,7 +134,7 @@ class Command(BaseCommand):
             func = TASKS[name]
             try:
                 keys = self._run_task(
-                    func, docs, store, options["concurrency"], dry_run
+                    func, docs, index, store, options["concurrency"], dry_run
                 )
             except Exception as exc:
                 # One task's failure does not cancel the rest: the point of a
@@ -137,6 +161,11 @@ class Command(BaseCommand):
                 )
             )
 
+        if index is not None:
+            # After the tasks, so that the unresolved list covers everything the run
+            # actually asked for.
+            index.report()
+
         elapsed = time.monotonic() - started
         summary = (
             f"{len(written)} file(s) and {purged} purge(s) planned, in {elapsed:.1f}s"
@@ -147,7 +176,7 @@ class Command(BaseCommand):
             raise CommandError(f"Failed: {'; '.join(failures)}. {summary}.")
         return summary
 
-    def _run_task(self, func, docs, store, concurrency, dry_run):
+    def _run_task(self, func, docs, index, store, concurrency, dry_run):
         """Render a task's files and upload them, returning the keys written.
 
         Rendering runs here, one at a time, because it is database work on this
@@ -156,7 +185,7 @@ class Command(BaseCommand):
         keys = set()
         with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
             uploads = []
-            for key, body in func(docs=docs):
+            for key, body in func(docs=docs, index=index):
                 keys.add(key)
                 if dry_run:
                     self.stdout.write(f"  would write {key} ({len(body)} bytes)")

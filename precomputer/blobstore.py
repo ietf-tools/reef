@@ -134,6 +134,12 @@ def get_blob_store():
     """The configured store: S3 if a bucket is named, otherwise a directory."""
     bucket = settings.REEF_PRECOMPUTE_S3_BUCKET
     if not bucket:
+        if settings.REEF_PRECOMPUTE_REQUIRE_S3:
+            raise ImproperlyConfigured(
+                "REEF_PRECOMPUTE_S3_BUCKET is empty and this deployment requires a "
+                "bucket. Falling back to a local directory here would write into a "
+                "container nobody reads and report the run as a success."
+            )
         return LocalBlobStore(settings.REEF_PRECOMPUTE_DIR)
 
     missing = [

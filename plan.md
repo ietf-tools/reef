@@ -131,7 +131,7 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 - Break-glass: one local Django superuser for admin access if Authentik is
   unavailable.
 - Async: Celery plus a broker for subscription emails (scaffolded in this phase).
-- - Precomputer: a management command, run by celery beat rather than a process of its
+- Precomputer: a management command, run by celery beat rather than a process of its
   own. It renders the public reads by
   calling the DRF views in process, so a precomputed file cannot describe a different
   shape from the live response, and then adds resolved document metadata to whatever
@@ -139,7 +139,7 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
   carries what the route renders rather than identifiers the caller must resolve
   elsewhere. Additions are new keys only, so every file stays the live response plus
   zero or more of them. Run on a schedule; nothing serves traffic from it inside Reef.
-- - Document metadata: reef/rfcmeta.py, an anonymous HTTP read of Red's public files,
+- Document metadata: reef/rfcmeta.py, an anonymous HTTP read of Red's public files,
   validated against a JSON Schema generated from Red's Zod definition and synced into
   reef/schemas/. No credential, no generated client, and no row written anywhere in
   Reef.
@@ -172,6 +172,7 @@ reef/
     docids.py              shared document-identifier parsing and canonical form
     rfcmeta.py             titles and subseries contents, read from Red's public files
     schemas/               JSON Schema for data Reef reads from elsewhere; synced copies
+      rfc-mini-index.schema.json  generated from Red's RfcMiniSchema, synced by hand
   reefauth/                OIDC RP login (mozilla_django_oidc) plus DRF bearer resource-server
                              auth plus custom User: models, backends, authentication, apps, utils, migrations
   surveys/                 full build
@@ -595,21 +596,26 @@ Then, for subjects:
 Then, for precomputed reads:
 
 20. Precomputer: the precomputer app and manage.py precompute, its single entry point.
-    One task per anonymous public read — stats, popularity, subjects and each
-    subject, the open-survey list and each open survey's definition, and each rated
-    document — rendered by calling the DRF view in process so the file and the live
-    response cannot disagree. Selection by task name, --doc to narrow the
-    per-document tasks, --dry-run, --no-purge and --callback-url. Writes to S3 when a
-    bucket is configured and to a directory when none is, chosen by configuration
-    alone so a deployment cannot be argued into writing production payloads inside its
-    own container. Each task declares the keys it owns, so a full run purges what it no
-    longer produces and leaves anything else in the bucket alone; the purge is skipped
-    after a failed task and under --doc, where a missing key may be one this run did
-    not rebuild. Excluded on purpose: me/documents/ and subscriptions/ are per-caller,
-    surveys/ and results/ are staff-only, and sets/{id}/ reads anonymously only
-    because holding the unguessable id is the permission, which does not survive a
-    store whose keys can be listed. Commit: "Add API response precomputer".
-21. 21. Document metadata: reef/rfcmeta.py, resolving an identifier to a small metadata
+    One task per anonymous public read — stats, popularity, subjects and each subject,
+    the open-survey list and each open survey's definition, and each rated document —
+    rendered by calling the DRF view in process so the file and the live response cannot
+    disagree. Selection by task name, --doc to narrow the per-document tasks, --dry-run,
+    --no-purge and --callback-url. Writes to S3 when a bucket is configured and to a
+    directory when none is, chosen by configuration alone so a deployment cannot be
+    argued into writing production payloads inside its own container. Production goes
+    further and sets REEF_PRECOMPUTE_REQUIRE_S3, so an unconfigured deployment refuses
+    rather than falling back: a scheduled worker writing into its own filesystem would
+    log a successful run every hour and publish nothing, which is the failure that looks
+    healthiest. The bucket and endpoint are in the k8s configmap and the credentials in
+    the secret, both empty until an environment supplies them. Each task declares the
+    keys it owns, so a full run purges what it no longer produces and leaves anything
+    else in the bucket alone; the purge is skipped after a failed task and under --doc,
+    where a missing key may be one this run did not rebuild. Excluded on purpose:
+    me/documents/ and subscriptions/ are per-caller, surveys/ and results/ are
+    staff-only, and sets/{id}/ reads anonymously only because holding the unguessable id
+    is the permission, which does not survive a store whose keys can be listed. Commit:
+    "Add API response precomputer".
+21. Document metadata: reef/rfcmeta.py, resolving an identifier to a small metadata
     object (title, and whatever else the field-set item settles), and a subseries to its
     contents, from Red's public files over anonymous HTTP. It validates what it fetches
     against reef/schemas/rfc-mini-index.schema.json, a JSON Schema generated from Red's
@@ -672,7 +678,7 @@ Then, for precomputed reads:
     outage read as a Reef failure. createdOn and its age are logged on every run
     regardless, since that is the line somebody will want when debugging. Commit: "Warn
     on a stale or incomplete Red index".
-24. 24. Scheduling: django-celery-beat, with the default entries in CELERY_BEAT_SCHEDULE
+24. Scheduling: django-celery-beat, with the default entries in CELERY_BEAT_SCHEDULE
     so that DatabaseScheduler materialises them on first start and staff can retime one
     in the admin afterwards without a deploy. Two entries, because the halves go stale
     for different reasons: precompute_engagement hourly for stats and ratings, which
@@ -743,7 +749,7 @@ Then, for precomputed reads:
   rating, a subscription and a set entry for one document moves all three numbers; a
   user subscribed both directly and through a set counts once; ?set= returns the
   members of a set to any caller holding its id, and 404s for an id that names none.
-- - Precomputer: manage.py precompute with no bucket configured writes the whole set of
+- Precomputer: manage.py precompute with no bucket configured writes the whole set of
   files under ./precomputed and exits 0; a named task writes only its own; --doc narrows
   the per-document files while still rebuilding the whole-series ones; --dry-run writes
   nothing. Stripping the added metadata keys from a precomputed payload leaves the live
@@ -757,7 +763,7 @@ Then, for precomputed reads:
   nothing. Naming a bucket without credentials is refused rather than falling back to
   the directory. All covered by manage.py test; the S3 path itself is exercised by hand
   against MinIO.
-- - Scheduling: celery beat starts with DatabaseScheduler and creates the precompute-all
+- Scheduling: celery beat starts with DatabaseScheduler and creates the precompute-all
   and precompute-engagement periodic tasks; a worker started with
   --queues=celery,precompute binds both; dispatching precompute_engagement writes
   stats.json and the ratings files from the worker. Saving a curated model enqueues
@@ -765,6 +771,18 @@ Then, for precomputed reads:
   rating enqueues nothing. Two runs landing together leave one running and one logging
   that another holds the lock, both succeeding. All but the beat and queue bindings are
   covered by manage.py test; those were exercised by hand against the dev containers.
+- Document metadata: rfcmeta resolves rfc9110 to its title and std97 from Red's live
+  index, expands bcp14 to RFC 2119 and RFC 8174, and returns None for an identifier that
+  names nothing. Every precomputed file that names a document carries title and
+  subseries; the subject detail keeps its documents array and gains a document_meta map
+  beside it. Stripping the added keys from a payload leaves the live endpoint's response
+  byte for byte, and a task that adds nothing matches it directly. An unresolvable
+  identifier carries null metadata rather than being dropped, and the run warns naming
+  it. Red unreachable still writes every file, with null metadata throughout. An index
+  older than REEF_RFC_INDEX_MAX_AGE_DAYS warns and the run still exits 0. The index is
+  fetched once per run, not per lookup. All covered by manage.py test, with Red's index
+  stubbed so the suite neither reaches the network nor validates ten thousand entries
+  per test.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
@@ -896,7 +914,7 @@ Then, for precomputed reads:
   and often. If that arrives, this still wants caching or a materialized counter
   rather than a live aggregate, and the precomputer is not a substitute, because its
   files are only as fresh as its last run. Decide when Red's usage is known.
-- - - Writing the additive-only guarantee down on Red's side. Most of this is now done.
+- Writing the additive-only guarantee down on Red's side. Most of this is now done.
   The mini index has its own Zod schema in Red rather than being a Pick of RfcCommon,
   that schema is exported to JSON Schema and committed, a comment on it says Reef reads
   the published file and that fields are only added, and a test fails if the committed
