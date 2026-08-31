@@ -806,6 +806,16 @@ Then, for precomputed reads:
     historic. A run also warns if Red's index createdOn has not moved since the last
     one, because a frozen index produces no diff and therefore no mail, and nothing else
     would notice. Commit: "Notify subscribers of RFC changes".
+32. 32. Subject lifecycle: retiring, merging, and refusing a delete that would take
+    somebody's subscription with it. subjects/merge.py holds the merge because it is not
+    one write -- it moves two kinds of row, decides what to do about a reader who
+    follows both, retires the source and tells everybody affected -- and a model method
+    doing the first four and leaving the fifth to whoever remembered is how a
+    subscription changes meaning silently. SubjectDetail serves a retired subject as
+    slug, retired and merged_into alone: the precomputer renders the view, so the
+    endpoint has to return the redirect itself or the published file and the live
+    response would disagree, which is the invariant every other precomputed file holds
+    to. Commit: "Retire and merge subjects".
 
 ## Verification
 
@@ -912,6 +922,19 @@ Then, for precomputed reads:
   until the suite got slower: the admin title column, subscription matching and change
   notification. Anything wanting the index stubs it with reef.testing.stub_rfc_index,
   and anything exercising the fetch patches urlopen itself, which overrides the refusal.
+- Unsubscribing: with REEF_REQUIRE_UNSUBSCRIBE_URL set and no URL configured, a digest
+  is held rather than sent or discarded, its attempts stay at zero so the sweeper keeps
+  offering it, and it goes out in full with both the line and the List-Unsubscribe
+  header once the URL is set. Development sends without one, so mail can be exercised
+  against mailpit.
+- Subject lifecycle: a followed subject cannot be deleted and an unfollowed one can; a
+  retired subject leaves the vocabulary, keeps matching for its existing followers, and
+  refuses new ones; merging moves documents without duplicating them, repoints
+  followers, keeps one subscription for somebody who followed both, and refuses a merge
+  into a retired subject or a subject into itself. Everybody affected gets one notice. A
+  retired subject resolves at /subjects/<slug>/ to slug, retired and merged_into and
+  nothing else, and its precomputed file is that same redirect, while the vocabulary
+  file omits it.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
@@ -923,19 +946,18 @@ Then, for precomputed reads:
 - open/ API contract with Red (#225): agree the exact response shape (id, slug, title,
   description, url) and user-targeting semantics. Red owns taken/dismissed tracking, so
   Reef stays stateless there. This is a cross-repo dependency.
-- Subscriptions depth (#139): the source question is settled and the work is steps 27
-  to 31. What the ticket called datatracker change-feed ingestion is a diff of Red's
-  published index, because the datatracker has no feed to ingest. Two things to confirm
-  as it lands, both unchanged: the param key for by_status ("status") was named ahead of
-  its matching logic, and matching it is now step 31's job; and unsubscribe is a hard
-  delete, so the uniqueness constraint is unconditional, which has to become partial if
-  a soft unsubscribed_at or a pending-verification state is ever added, or it will block
-  resubscribing. Two new ones. Notifications now depend on Red's precomputer running,
-  since a frozen index yields no diff and so no mail, which is why step 31 warns when
-  createdOn has not moved. And a change to a subseries' constitution is detectable now
-  that the snapshot holds the previous membership, which is the one thing the subseries
-  item said would need state Reef does not keep: it does keep it now, so that item can
-  be revisited rather than treated as blocked.
+- Subscriptions depth (#139): built, as steps 27 to 31. What the ticket called
+  datatracker change-feed ingestion is a diff of Red's published index, because the
+  datatracker has no feed to ingest. Three things to watch now that it runs. The param
+  key for by_status ("status") was named ahead of its matching logic and is now matched
+  against Red's status name lowercased, so the two have to stay in step if Red renames a
+  status. Unsubscribe is a hard delete, so the uniqueness constraint is unconditional,
+  which has to become partial if a soft unsubscribed_at or a pending-verification state
+  is ever added, or it will block resubscribing. And notifications now depend on Red's
+  precomputer running: a frozen index yields no diff and so no mail, which the daily
+  precompute run warns about through the index age check rather than the notification
+  run, since an unmoved createdOn is the ordinary quiet case and warning on it daily
+  would be noise.
 - Email subscriptions: the data model above says "user or email" but Subscription is
   user-only. Adding an email column puts a fourth nullable identity column in the
   uniqueness constraint, alongside user, the set FK and the subject FK. Postgres counts
@@ -958,15 +980,23 @@ Then, for precomputed reads:
   keep. And if Red cannot be reached the expansion is skipped, so a bcp14 subscriber
   misses a notification; the retry that would fix it belongs to ingest, which does not
   exist yet.
-- Retiring and merging subjects: a curated vocabulary changes, and neither change has
-  an answer yet. Deleting a subject cascades its subscriptions away, which is right for
-  a mistake made this morning and wrong for a subject a thousand people follow that is
-  being renamed into another. Merging is the case with no mechanism at all: there is no
-  way to say "security is now part of security and privacy" and move both assignments
-  and subscribers. The cheap first move is a retired flag that hides a subject from the
-  picker and from new subscriptions while leaving existing ones matching; the real one
-  is a merge that rewrites the FK. Neither is built. Until then the admin is a sharp
-  tool: deleting a subject silently unsubscribes people who never asked to be.
+- Retiring and merging subjects: built. Three operations that used to be one delete.
+  Deleting is now refused while anybody follows the subject, because
+  Subscription.subject is PROTECT rather than CASCADE and Django's admin reports the
+  refusal; an unfollowed subject created by mistake still deletes. Retiring sets
+  retired_at, which takes the subject out of the vocabulary and out of the picker and
+  refuses new subscribers, while leaving existing subscriptions matching, so the
+  population decays instead of being cut off; clearing retired_at brings it back.
+  Merging moves the assignments, repoints the followers, deletes rather than repoints a
+  subscription for somebody who already follows the target since the uniqueness
+  constraint holds only one, retires the source with merged_into pointing at the target,
+  and tells everybody affected -- including the reader whose own subscription did not
+  move but changed meaning. The notice goes through the ordinary notification queue as
+  an event with no document, so it inherits being written down before it is enqueued,
+  one mail per reader, and the unsubscribe hold. What is left open is the wording of
+  that notice, which is composed in subjects/merge.py rather than in a template, and
+  whether a merge should ever be undoable: unretiring the source brings it back empty,
+  since its documents and followers have gone.
 - Assigning subjects at scale: the vocabulary is small and staff can type it, but the
   back catalogue is roughly 9,800 RFCs and the admin assigns one document at a time.
   Nothing decides whether subjects apply only to documents published from now on, or
@@ -1010,21 +1040,24 @@ Then, for precomputed reads:
   subscribe time. The send path already does this for one case:
   a subscription whose set has been soft-deleted sends nothing, since a real delete
   would have cascaded the subscription away.
-- Notification volume: half of this is now settled and half is not. The shape is
-  settled, ahead of the templates as intended: delivery is
-  send_subscription_digest(subscription_id, events), one call is one mail, and a batch
-  of changes to a set arrives as one digest. What is not settled is who batches. A
-  subscriber holding both a set and an overlapping rfc subscription still gets two
-  mails, because the task sees one subscription and cannot know about the other, so
-  coalescing per subscriber over a window and deduplicating per user per event have to
-  happen in ingest_rfc_change before it enqueues anything. That is the remaining work
-  here, and it is already reachable today with obsoleted plus rfc.
-- One-click unsubscribe: notifications carry List-Unsubscribe pointing at
-  REEF_SUBSCRIPTIONS_URL, but not List-Unsubscribe-Post, because RFC 8058 one-click
-  needs an unauthenticated tokenized endpoint to POST to and Reef's unsubscribe is an
-  authenticated delete. Mailbox providers increasingly weight one-click support, so
-  decide whether to add a signed-token endpoint. It is the same token machinery the
-  unbuilt subscribe-by-bare-email case needs, so decide the two together.
+- Notification volume: settled. Delivery is send_subscription_digest(user, matched
+  subscriptions, events), one call is one mail, a batch of changes to a set arrives as
+  one digest, and a reader holding both a set and an overlapping rfc subscription now
+  gets one mail naming both reasons. What made that possible was moving the grouping out
+  of delivery: the task sees one reader, and detect_rfc_changes groups by reader and
+  deduplicates by document before writing anything.
+- Unsubscribing: notifications carry List-Unsubscribe pointing at
+  REEF_SUBSCRIPTIONS_URL, a page on Red, because Reef has no unsubscribe route of its
+  own. That setting is empty in every environment and no deployment supplied it, which
+  mattered little while nothing sent mail and matters a great deal now that the daily
+  run does. Production therefore refuses: REEF_REQUIRE_UNSUBSCRIBE_URL holds digests in
+  the database, unsent and with their attempts untouched, until the URL is configured,
+  so a first deployment cannot quietly send mail that nobody can stop. Two things are
+  still open. The URL itself needs Red to have the page, which is the same cross-repo
+  conversation as the open/ contract. And true one-click unsubscribe (RFC 8058) needs an
+  unauthenticated tokenized endpoint to POST to, which Reef does not have and which is
+  why List-Unsubscribe-Post is deliberately absent: offering the header without the
+  endpoint would advertise a capability that does not answer.
 - Sets are user-generated content on an ietf.org origin: a title and description are
   free text, shareable, and attributable to an IETF account. Staff need a way to take
   one down without deleting a user's data, and that is the soft delete: deleted_at

@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import ProtectedError
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
@@ -375,10 +376,18 @@ class SubjectSubscriptionTests(APITestCase):
         listing = self.client.get("/api/reef/subscriptions/").json()
         self.assertEqual([row["id"] for row in listing], [subscription_id])
 
-    def test_deleting_a_subject_deletes_its_subscriptions(self):
+    def test_a_followed_subject_cannot_be_deleted(self):
+        """It used to cascade, which silently stopped mail somebody had asked for.
+        Retiring or merging is now the only way to take one out of use."""
         self.subscribe(kind="subject", subject=self.subject.pk)
+        with self.assertRaises(ProtectedError), transaction.atomic():
+            self.subject.delete()
+        self.assertTrue(Subscription.objects.exists())
+
+    def test_an_unfollowed_subject_can_still_be_deleted(self):
+        """A subject created by mistake this morning has nothing to preserve."""
         self.subject.delete()
-        self.assertFalse(Subscription.objects.exists())
+        self.assertFalse(Subject.objects.filter(pk=self.subject.pk).exists())
 
     def test_model_save_enforces_the_subject_rule(self):
         with self.assertRaises(ValidationError):

@@ -68,7 +68,11 @@ class Subscription(models.Model):
     )
     subject = models.ForeignKey(
         "subjects.Subject",
-        on_delete=models.CASCADE,
+        # Protected, not cascaded. Deleting a subject used to take its subscriptions
+        # with it, which silently stopped mail somebody had asked for; now a subject
+        # with followers cannot be deleted at all, and has to be retired or merged
+        # instead. Django's admin reports the refusal rather than failing.
+        on_delete=models.PROTECT,
         related_name="subscriptions",
         null=True,
         blank=True,

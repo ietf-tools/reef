@@ -141,15 +141,26 @@ def subjects(docs=None, index=None):
         render_anonymous(SubjectList.as_view(), "/api/reef/subjects/"),
     )
     detail = SubjectDetail.as_view()
-    for slug in Subject.objects.values_list("slug", flat=True).order_by("slug"):
+    # all_objects, so a retired subject still gets a file. subjects.json above does
+    # not list it -- it is not offered any more -- but Red has links naming it, and
+    # the file is what redirects them. What the view returns for one is only slug,
+    # retired and merged_into.
+    for slug in Subject.all_objects.values_list("slug", flat=True).order_by("slug"):
         body = render_anonymous(detail, f"/api/reef/subjects/{slug}/", slug=slug)
 
         def add(payload):
             # A sibling map rather than turning `documents` into a list of objects:
             # retyping an existing key is the change that breaks a caller, and a map
-            # also grows a field later without retyping anything.
+            # also grows a field later without retyping anything. A retired subject
+            # has no documents key at all, so this adds nothing to its redirect stub.
+            if "documents" not in payload:
+                # A retired subject's payload is a redirect and nothing else, so
+                # there is nothing to describe. Keyed on the array's presence rather
+                # than on its length, so a live subject with no documents still
+                # carries an empty map beside its empty array.
+                return
             payload["document_meta"] = {
-                doc: _meta(index, doc) for doc in payload.get("documents", [])
+                doc: _meta(index, doc) for doc in payload["documents"]
             }
 
         yield f"subjects/{slug}.json", _augment(body, add)

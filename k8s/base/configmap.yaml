@@ -12,6 +12,12 @@ data:
   REEF_DB_USER: "reef"
   REEF_BROKER_URL: "amqp://mq:5672//"
 
+  # Where a notification tells its reader to go to change or stop it. Red owns the
+  # subscription UI, so this is a page on Red rather than a Reef route. Production
+  # refuses to send digests while it is empty: a notification that does not say how
+  # to stop it should not go out at all.
+  REEF_SUBSCRIPTIONS_URL: ""
+
   # Precomputer blob store. The bucket is what switches the precomputer from
   # writing into its own container to writing somewhere a reader can see; with it
   # empty a production run refuses rather than silently writing nowhere. Endpoint is

@@ -282,6 +282,10 @@ MESSAGE_ID_DOMAIN = os.environ.get("REEF_MESSAGE_ID_DOMAIN", "ietf.org")
 # leaves the line and the List-Unsubscribe header out rather than linking
 # nowhere.
 REEF_SUBSCRIPTIONS_URL = os.environ.get("REEF_SUBSCRIPTIONS_URL", "")
+# Whether a digest may go out without one. False here so that development can send
+# mail to mailpit without configuring Red's page; production sets it True, because a
+# notification that does not tell its reader how to stop it should not be sent.
+REEF_REQUIRE_UNSUBSCRIBE_URL = False
 ADMINS = []
 
 # Document metadata. Reef resolves an identifier to a title, and a subseries to its

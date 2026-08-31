@@ -29,10 +29,32 @@ class SubjectDetailSerializer(SubjectSerializer):
     """
 
     documents = serializers.SerializerMethodField()
+    # Always false here: a retired subject is served by RetiredSubjectSerializer
+    # instead. Carried so that a caller can tell the two shapes apart by reading one
+    # field rather than by noticing which keys are missing.
+    retired = serializers.BooleanField(source="is_retired", read_only=True)
 
     class Meta(SubjectSerializer.Meta):
-        fields = [*SubjectSerializer.Meta.fields, "documents"]
+        fields = [*SubjectSerializer.Meta.fields, "retired", "documents"]
         read_only_fields = fields
 
     def get_documents(self, obj) -> list[str]:
         return [assignment.doc for assignment in obj.assignments.all()]
+
+
+class RetiredSubjectSerializer(serializers.ModelSerializer):
+    """A retired subject, as the only thing a retired subject is still for.
+
+    Deliberately not the detail shape. A retired subject is not offered, does not
+    appear in the vocabulary, and should not be rendered as though it were current;
+    what is left is enough to redirect a link that names it. Callers tell the two
+    apart by `retired`, which the live shape also carries.
+    """
+
+    merged_into = serializers.SlugRelatedField(slug_field="slug", read_only=True)
+    retired = serializers.BooleanField(source="is_retired", read_only=True)
+
+    class Meta:
+        model = Subject
+        fields = ["slug", "retired", "merged_into"]
+        read_only_fields = fields

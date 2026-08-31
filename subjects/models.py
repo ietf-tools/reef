@@ -20,11 +20,35 @@ rating or a set entry naming a nonexistent RFC already is.
 """
 
 from django.db import models
+from django.utils import timezone
 
 from reef.docids import DOC_ID_MAX_LENGTH, normalize_doc_id
 
 NAME_MAX_LENGTH = 100
 SLUG_MAX_LENGTH = 50
+
+
+class SubjectQuerySet(models.QuerySet):
+    def live(self):
+        return self.filter(retired_at__isnull=True)
+
+    def retired(self):
+        return self.filter(retired_at__isnull=False)
+
+
+class LiveSubjectManager(models.Manager.from_queryset(SubjectQuerySet)):
+    """The default manager, which does not see retired subjects.
+
+    Following docsets.DocumentSet: the read paths that offer a subject to somebody
+    should not have to remember to exclude the retired ones, and the few places that
+    need them ask for all_objects by name. It cannot be the base manager, because
+    related lookups use that and a subscription must keep matching through the
+    subject it points at even after the subject is retired -- that is the whole
+    point of retiring rather than deleting.
+    """
+
+    def get_queryset(self):
+        return super().get_queryset().live()
 
 
 class Subject(models.Model):
@@ -65,14 +89,55 @@ class Subject(models.Model):
         help_text="What belongs under this subject, for whoever curates it "
         "next and for a caller drawing a picker.",
     )
+    # Retired, not deleted. A vocabulary changes, and a subject somebody follows
+    # cannot simply go: deleting one used to cascade its subscriptions away, which
+    # silently stopped mail that a reader had asked for. Retiring takes it out of the
+    # picker and refuses new subscribers while leaving the existing ones matching, so
+    # the population decays rather than being cut off. Clearing this restores it.
+    retired_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this subject stopped being offered. Clear it to bring the "
+        "subject back; existing subscriptions keep working either way.",
+    )
+    # Where its followers went, when it was retired by being merged. Kept so that a
+    # link naming the old subject can be redirected rather than broken, which is the
+    # only reason a retired subject is still published at all.
+    merged_into = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="merged_from",
+        help_text="Set by a merge. The subject this one's documents and followers "
+        "were moved to.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    objects = LiveSubjectManager()
+    all_objects = models.Manager.from_queryset(SubjectQuerySet)()
 
     class Meta:
         ordering = ["name"]
 
     def __str__(self):
-        return self.name
+        return f"{self.name} (retired)" if self.is_retired else self.name
+
+    @property
+    def is_retired(self):
+        return self.retired_at is not None
+
+    def retire(self, merged_into=None):
+        self.retired_at = timezone.now()
+        self.merged_into = merged_into
+        self.save(update_fields=["retired_at", "merged_into", "updated_at"])
+
+    def unretire(self):
+        """Bring a subject back. Retired means retired until this is called."""
+        self.retired_at = None
+        self.merged_into = None
+        self.save(update_fields=["retired_at", "merged_into", "updated_at"])
 
 
 class SubjectAssignment(models.Model):

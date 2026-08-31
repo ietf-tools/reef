@@ -404,6 +404,25 @@ def deliver_notification(notification_id: int) -> None:
     that is the accepted trade rather than an oversight.
     """
     what = "deliver_notification"
+
+    if settings.REEF_REQUIRE_UNSUBSCRIBE_URL and not settings.REEF_SUBSCRIPTIONS_URL:
+        # Held rather than sent or discarded. Reef has no unsubscribe route of its
+        # own, so with REEF_SUBSCRIPTIONS_URL unset the message would carry neither
+        # the line telling a reader how to stop it nor the List-Unsubscribe header,
+        # and a notification with no opt-out cannot be taken back once sent.
+        #
+        # Deliberately before the attempt is counted, so the row keeps its attempts
+        # at zero and the sweeper goes on offering it: this is a deployment that has
+        # not finished being configured, not a message that cannot be delivered, and
+        # it should go out in full once somebody sets the URL.
+        logger.error(
+            "%s: REEF_SUBSCRIPTIONS_URL is not set, so notification=%s is held. "
+            "Nothing will be sent until it is configured.",
+            what,
+            notification_id,
+        )
+        return
+
     notification = PendingNotification.objects.filter(pk=notification_id).first()
     if notification is None:
         logger.info("%s: notification=%s no longer exists", what, notification_id)

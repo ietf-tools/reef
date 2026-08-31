@@ -614,3 +614,32 @@ class CuratedSignalTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             PopularEntry.objects.create(rfc="rfc8446", rank=2)  # must not raise
         self.assertEqual(PopularEntry.objects.filter(rfc="rfc8446").count(), 1)
+
+
+class RetiredSubjectOutputTests(PrecomputeTestCase):
+    """A retired subject is published only so a link naming it can be redirected."""
+
+    def setUp(self):
+        super().setUp()
+        self.live = Subject.objects.create(name="Security and privacy", slug="secpriv")
+        self.retired = Subject.objects.create(name="Security", slug="sec")
+        self.retired.retire(merged_into=self.live)
+
+    def test_it_is_absent_from_the_vocabulary(self):
+        self.precompute("subjects")
+        self.assertEqual([s["slug"] for s in self.read("subjects.json")], ["secpriv"])
+
+    def test_its_file_is_the_redirect_and_nothing_else(self):
+        self.precompute("subjects")
+        self.assertEqual(
+            self.read("subjects/sec.json"),
+            {"slug": "sec", "retired": True, "merged_into": "secpriv"},
+        )
+
+    def test_a_live_subject_with_no_documents_still_carries_an_empty_map(self):
+        """Keyed on the documents array being there, not on it having anything in
+        it, so the live shape stays uniform."""
+        self.precompute("subjects")
+        payload = self.read("subjects/secpriv.json")
+        self.assertEqual(payload["documents"], [])
+        self.assertEqual(payload["document_meta"], {})

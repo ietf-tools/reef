@@ -19,7 +19,11 @@ from rest_framework.permissions import AllowAny
 from reef.docids import normalize_doc_id
 
 from .models import Subject
-from .serializers import SubjectDetailSerializer, SubjectSerializer
+from .serializers import (
+    RetiredSubjectSerializer,
+    SubjectDetailSerializer,
+    SubjectSerializer,
+)
 
 
 @extend_schema(
@@ -74,9 +78,25 @@ class SubjectList(ListAPIView):
     ),
 )
 class SubjectDetail(RetrieveAPIView):
-    """One subject, with its document list."""
+    """One subject, with its document list; or, if it has been retired, where it went.
 
-    queryset = Subject.objects.prefetch_related("assignments")
-    serializer_class = SubjectDetailSerializer
+    Retired subjects resolve here and nowhere else. They are gone from the
+    vocabulary, so nothing offers them any more, but Red has links naming them and a
+    reader following one has to be able to find out what it became. What comes back
+    is only slug, retired and merged_into: enough to redirect, and deliberately not
+    enough to render as though the subject were still current.
+    """
+
+    queryset = Subject.all_objects.prefetch_related("assignments")
     permission_classes = [AllowAny]
     lookup_field = "slug"
+
+    def get_serializer_class(self):
+        if getattr(self, "_subject_is_retired", False):
+            return RetiredSubjectSerializer
+        return SubjectDetailSerializer
+
+    def get_object(self):
+        subject = super().get_object()
+        self._subject_is_retired = subject.is_retired
+        return subject

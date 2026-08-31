@@ -181,3 +181,58 @@ class SweepTests(TestCase):
         with mock.patch("subscriptions.tasks.deliver_notification.delay"):
             with self.assertNoLogs("reef", level="WARNING"):
                 self.assertEqual(sweep_unsent_notifications(), 0)
+
+
+@override_settings(REEF_REQUIRE_UNSUBSCRIBE_URL=True, REEF_SUBSCRIPTIONS_URL="")
+class UnsubscribeUrlRequiredTests(TestCase):
+    """A notification with no way to stop it does not go out.
+
+    Reef has no unsubscribe route of its own -- Red owns the subscription UI -- so an
+    unset REEF_SUBSCRIPTIONS_URL means mail carrying neither the line telling a reader
+    how to stop it nor the List-Unsubscribe header.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create(
+            username="u", oidc_sub="s", email="reader@example.org"
+        )
+        self.subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.NEW_RFC
+        )
+        self.notification = PendingNotification.objects.create(
+            user=self.user, subscription_ids=[self.subscription.pk], events=EVENTS
+        )
+
+    def test_nothing_is_sent_while_the_url_is_unset(self):
+        with self.assertLogs("reef", level="ERROR"):
+            deliver_notification(self.notification.pk)
+        self.assertEqual(mail.outbox, [])
+
+    def test_the_notification_is_held_rather_than_discarded(self):
+        """A deployment that has not finished being configured, not a message that
+        cannot be delivered."""
+        with self.assertLogs("reef", level="ERROR"):
+            deliver_notification(self.notification.pk)
+        self.notification.refresh_from_db()
+        self.assertIsNone(self.notification.sent_at)
+        self.assertEqual(self.notification.attempts, 0)
+
+    def test_it_goes_out_in_full_once_the_url_is_configured(self):
+        with self.assertLogs("reef", level="ERROR"):
+            deliver_notification(self.notification.pk)
+        with override_settings(REEF_SUBSCRIPTIONS_URL="https://example.org/account/"):
+            deliver_notification(self.notification.pk)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("https://example.org/account/", mail.outbox[0].body)
+        self.assertEqual(
+            mail.outbox[0].extra_headers["List-Unsubscribe"],
+            "<https://example.org/account/>",
+        )
+        self.assertEqual(PendingNotification.objects.count(), 0)
+
+    @override_settings(REEF_REQUIRE_UNSUBSCRIBE_URL=False)
+    def test_development_may_send_without_one(self):
+        """So that mail can be exercised against mailpit without Red's page."""
+        deliver_notification(self.notification.pk)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertNotIn("List-Unsubscribe", mail.outbox[0].extra_headers)

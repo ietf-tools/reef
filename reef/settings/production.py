@@ -37,6 +37,12 @@ DATABASES = {
     }
 }
 
+# No notification goes out without a way to stop it. Reef has no unsubscribe route of
+# its own -- Red owns the subscription UI -- so an unset REEF_SUBSCRIPTIONS_URL means
+# mail with no opt-out, which is not a thing to discover after it has been sent.
+# Digests wait, in the database, until this is configured.
+REEF_REQUIRE_UNSUBSCRIBE_URL = True
+
 # The precomputer publishes for Red to read, so a deployment that has not been given
 # a bucket is misconfigured rather than opting out. Falling back to a directory inside
 # an ephemeral worker would log a successful run every hour and publish nothing.
