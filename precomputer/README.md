@@ -59,6 +59,34 @@ surveys/<slug>/definition.json      an open survey's definition and theme
 ratings/<doc>.json                  a rated document's public average and count
 ```
 
+## Document metadata
+
+Every file that names a document also carries that document's `title` and
+`subseries`, resolved through `reef.rfcmeta` from Red's published index. The
+reason is Red's rather than Reef's: an SPA route wants one resource, and a page
+that fetches a list of identifiers and then has to resolve them loads slower
+than one that fetches a file it can render.
+
+Additions are new keys, never changes to existing ones. Where the payload is a
+list of objects — `stats`, `popularity`, `ratings` — each object gains the
+fields. Where a document is named as a bare string, as the subject detail's
+`documents` array does, a sibling `document_meta` map keyed by identifier is
+added rather than that array becoming a list of objects. Retyping an existing
+key is what breaks a caller, and it is what Reef asks Red not to do to it.
+
+So the invariant is that a precomputed file is the live endpoint's response plus
+zero or more added keys, which stays testable: strip the additions and compare.
+
+A document Red's index does not have gets `{"title": null, "subseries": []}` —
+null rather than omitted or echoed back as the identifier, so a reader can tell
+"no such document" from "not looked up". The run warns and names it, which is
+the real staleness signal: a frozen index does no harm until Reef holds a
+document Red's copy lacks. Red being unreachable costs titles and nothing else;
+every file is still written.
+
+The index is fetched and schema-validated once per run, not per lookup. Pass
+`--no-metadata` to skip the fetch and write nulls, for working offline.
+
 ## Purging
 
 A full run deletes keys that a task owns but no longer produces, so a renamed
