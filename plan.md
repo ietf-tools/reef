@@ -32,9 +32,11 @@ https://account.ietf.org/.
   carry which subject; Red renders them on its RFC pages and offers them to subscribe
   to. Reef's own, not the datatracker's: the decision is that a subject is something
   the RFC series curates here rather than something read out of another system.
-- Subscriptions and notifications, API only plus email delivery. Red has the
-  subscribe UI; Reef stores subscriptions, ingests RFC-change events from
-  datatracker, and sends notification emails.
+- Subscriptions and notifications, API only plus email delivery. Red has the subscribe
+  UI; Reef stores subscriptions, detects RFC changes by diffing Red's published index,
+  and sends notification emails. Not from the datatracker: it publishes no change feed,
+  no events endpoint and no webhook, so there is nothing to subscribe to. See the
+  detection step below.
 - Per-document statistics, API only. Reef serves the rating aggregate, subscriber
   count and set count for a document; Red precomputes the whole series in one call
   at build time and renders the numbers on its RFC pages.
@@ -116,7 +118,7 @@ Browser -> NGINX :8088 -+- /manage,/admin,/oidc,/api,/static -> Django + DRF :80
 Red  --------------------  GET /api/reef/... (bearer / anon) ---> Django + DRF
 Red  <-- precomputed JSON <---- blob store <---- manage.py precompute (scheduled)
 All logins ----------------------------------------------------> Authentik (account.ietf.org)
-Celery worker: subscription emails <- datatracker RFC-change feed
+Celery worker: subscription emails <- daily diff of Red's published index
 Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 ```
 
@@ -723,6 +725,77 @@ Then, for precomputed reads:
     gains a LocMemCache, because base is DummyCache and under it every cache write
     succeeds and every read misses, which is how a caching bug hides until staging.
     Commit: "Show document titles in the admin".
+26. Subseries in subscription matching: subscriptions_for_document expands the
+    changed document to the subseries containing it, so a change to rfc2119 reaches
+    somebody who subscribed to bcp14, whether they named it directly, held it in a set
+    or carried it on a subject. The membership is read off the shared index rather than
+    asked of Red per document, because an index entry's subseries field already is this:
+    nothing to invert and no second lookup table worth building. This read fetches when
+    the index is cold, unlike the admin's, because skipping the expansion costs somebody
+    an email rather than a title. rfcmeta.fetch_doc and fetch_subseries are deleted in
+    the same step, having never acquired a caller: the admin reads the shared index and
+    so does this, so the per-document and per-container files Red publishes are unused.
+    reef/testing.py arrives with it, because two call sites in a row have accidentally
+    made the test suite fetch from Red and a third will. Commit: "Expand subseries when
+    matching subscriptions".
+27. Change detection: a DocumentSnapshot model and a daily task that diffs Red's index
+    against it. The datatracker was the assumed source and turns out not to be one: it
+    publishes no change feed, no events endpoint and no webhook registration, only a
+    document list filterable by publication date. Red's index carries what all six
+    subscription kinds need, Reef already fetches and validates it hourly, and diffing
+    two real snapshots four days apart produced three new documents and no spurious
+    changes at all. Watched fields are appearance, status, obsoleted_by, updates,
+    updated_by and subseries; title, authors, abstract and formats are ignored, because
+    a typo correction must not mail everybody tracking the document. The snapshot is one
+    row holding zlib-compressed JSON, 57 KiB against 878 KiB uncompressed, keyed by a
+    fixed primary key so a second row cannot appear. A blob rather than a table with a
+    column per field, for two reasons: the watched set will change and a table would
+    need a migration each time, and a queryable table of statuses is document metadata
+    that something will eventually read as truth, which is the drift the data model
+    forbids. Related documents reduce to bare numbers, since keeping Red's {id, number,
+    title} would triple the payload and make an upstream title correction look like an
+    obsoletion. With no snapshot the run seeds and emits nothing, rather than treating
+    all 9,834 documents as new; seeding on first run rather than in a data migration,
+    because a migration runs in CI and image builds where a 6.8 MB fetch has no
+    business. Commit: "Detect RFC changes by diffing Red's index".
+28. Rendering a change: Reef composes the sentence the digest shows, which the templates
+    had assumed would arrive written from the feed. One event per document per run,
+    changes joined with "; ", so the template's existing `{{ doc_display }}: {{ change
+    }}` renders "RFC 2119: Obsoleted by RFC 9999; status changed to Historic". Wordings
+    are "Published as <status>", "Obsoleted by <doc>", "Updated by <doc>", "Status
+    changed to <status>", "Added to <subseries>" and "Removed from <subseries>", taking
+    the status name from the index's own status.name and document names through
+    display_doc_id. The url is https://www.rfc-editor.org/info/rfc9110/, which is Red's
+    canonical form: /rfc/rfc9110 302s to it. Commit: "Render RFC changes as digest
+    lines".
+29. Per-subscriber coalescing: send_subscription_digest takes a user rather than a
+    subscription, and subscriptions/mail/_subscription_line.txt becomes a list of the
+    reasons somebody is being written to rather than one sentence. This closes the
+    notification-volume open item, which no amount of care inside the task could: a task
+    sees one subscription, so a reader who holds an rfc subscription and a set
+    containing the same document gets two mails about one change unless the caller
+    groups them. Events are grouped by user and deduplicated by document before anything
+    is enqueued. Commit: "Coalesce notifications per subscriber".
+30. Durable notifications: a persisted row per pending mail, with the task carrying only
+    its primary key, following Purple's MailMessage. Reef's RabbitMQ has no persistent
+    volume, so a broker restart drops every queued message and Celery's own durability
+    does not reach; putting the body in Postgres moves the guarantee to where the data
+    already lives. The row carries recipient, subject, body, attempts and sent, so
+    delivery is at-most-once through the sent flag, a crash mid-run leaves an auditable
+    record of what was and was not delivered, and a sweeper can re-enqueue anything left
+    unsent. The snapshot advances only after the rows are written, so a crash repeats a
+    run rather than skipping one: duplicates are recoverable and a missed change is not.
+    Commit: "Persist notifications before enqueuing them".
+31. Ingest wiring: the daily task runs detection, resolves each change through
+    subscriptions_for_document and the predicate kinds, coalesces per subscriber, writes
+    the notification rows and enqueues them. ingest_rfc_change and its event-dict
+    interface go: they were shaped for a feed that does not exist, and the diff is the
+    caller now. The predicate kinds resolve here rather than by join, as the model
+    always said: new_rfc is a document appearing, by_status is a document appearing with
+    that status, obsoleted is obsoleted_by gaining an entry or the status becoming
+    historic. A run also warns if Red's index createdOn has not moved since the last
+    one, because a frozen index produces no diff and therefore no mail, and nothing else
+    would notice. Commit: "Notify subscribers of RFC changes".
 
 ## Verification
 
@@ -809,6 +882,21 @@ Then, for precomputed reads:
   a hundred rows cost well under a millisecond. The shared cache is compressed, a
   corrupt entry is discarded and refetched, a failed fetch is not memoised, and each
   caller gets its own miss tracking.
+- Subseries matching: a change to rfc2119 matches an rfc subscription to bcp14, a set
+  holding bcp14 and a subject assigned to bcp14; a change to a document in no subseries
+  matches only subscriptions naming it; a subscriber reached both directly and through a
+  subseries is returned once. With no index reachable the expansion is skipped and
+  warned about rather than raising. Verified against Red's live index: rfc2119 and
+  rfc8174 report bcp14, rfc9110 reports std97, rfc8446 reports none.
+- Change notification: a first run with no snapshot seeds and sends nothing; a second
+  run with an unchanged index sends nothing; a document appearing notifies new_rfc, a
+  by_status subscription matching its status, and anybody whose rfc, set or subject
+  subscription names it or a subseries containing it. Gaining an obsoleted_by entry or
+  becoming historic notifies obsoleted. A title-only change notifies nobody. A reader
+  holding two subscriptions that both match one change gets one mail naming both
+  reasons. Notifications are written to the database before being enqueued, are not sent
+  twice across a redelivery, and survive the broker losing its queue. A run whose index
+  createdOn has not moved since the last one warns. All covered by manage.py test.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
@@ -820,15 +908,19 @@ Then, for precomputed reads:
 - open/ API contract with Red (#225): agree the exact response shape (id, slug, title,
   description, url) and user-targeting semantics. Red owns taken/dismissed tracking, so
   Reef stays stateless there. This is a cross-repo dependency.
-- Subscriptions depth: datatracker change-feed ingestion (#139) and email templates are
-  scaffolded here; full wiring is a follow-up phase. Two things to confirm as it
-  lands: the param key for by_status ("status") is named ahead of its matching logic,
-  since the uniqueness constraint needs every kind to have a settled shape; and
-  unsubscribe is a hard delete, so the constraint is unconditional. If a soft
-  unsubscribed_at or a pending-verification state is ever added, the constraint has to
-  become partial or it will block resubscribing. This item used to cover subject_tag's
-  "tag" key as well. Hosting the vocabulary here settled that one by removing it: a
-  subject is a relation now, so there is no free-text key left to agree.
+- Subscriptions depth (#139): the source question is settled and the work is steps 27
+  to 31. What the ticket called datatracker change-feed ingestion is a diff of Red's
+  published index, because the datatracker has no feed to ingest. Two things to confirm
+  as it lands, both unchanged: the param key for by_status ("status") was named ahead of
+  its matching logic, and matching it is now step 31's job; and unsubscribe is a hard
+  delete, so the uniqueness constraint is unconditional, which has to become partial if
+  a soft unsubscribed_at or a pending-verification state is ever added, or it will block
+  resubscribing. Two new ones. Notifications now depend on Red's precomputer running,
+  since a frozen index yields no diff and so no mail, which is why step 31 warns when
+  createdOn has not moved. And a change to a subseries' constitution is detectable now
+  that the snapshot holds the previous membership, which is the one thing the subseries
+  item said would need state Reef does not keep: it does keep it now, so that item can
+  be revisited rather than treated as blocked.
 - Email subscriptions: the data model above says "user or email" but Subscription is
   user-only. Adding an email column puts a fourth nullable identity column in the
   uniqueness constraint, alongside user, the set FK and the subject FK. Postgres counts
@@ -836,22 +928,21 @@ Then, for precomputed reads:
   already set and already carrying two relations. Adding a third is not a new risk but
   it is more weight on one setting, and the failure if it is ever lost is silent
   duplicate subscriptions rather than an error.
-- Subseries in a subscribable set: a BCP or STD is a container whose membership
-  changes (BCP 14 is currently RFC 2119 plus RFC 8174). "Updates to bcp14" therefore
-  means two different things: a change to a constituent RFC, and a change to which
-  RFCs constitute it. Decide whether ingest expands a subseries to its RFCs at match
-  time, treats a constitution change as its own event, or both. The lookup half is now
-  settled, in both directions. Container to contents comes from
-  /api/v1/info-subseries/{type}{n}.json on an anonymous read (bcp14 returns RFC 2119
-  and RFC 8174), so reef/rfcmeta.py can answer it at match time. Document to
-  containers now comes free with the bulk sweep, since Red's mini index carries
-  subseries per RFC, so a precomputed row can say what a document belongs to without
-  a second fetch. What is still open is the second reading — a change to which RFCs
-  constitute a subseries is an event in its own right, and nothing detects one.
-  Comparing successive reads of that file would detect one, at the cost of Reef
-  holding the previous membership between runs — which is the document state the data
-  model says it does not keep. That trade is the remaining unknown in the sets
-  proposal.
+- Subseries as an event: a BCP or STD is a container whose membership changes (BCP 14
+  is currently RFC 2119 plus RFC 8174), so "updates to bcp14" means two things: a change
+  to a constituent RFC, and a change to which RFCs constitute it. The first is built.
+  subscriptions_for_document expands a changed document to the subseries containing it,
+  read off Red's index through reef.rfcmeta, so a change to rfc2119 matches an rfc, set
+  or subject subscription naming bcp14. Membership comes from Red rather than a Reef
+  table because it changes over time and Reef holds no document state to keep in step;
+  matching against what Red says today is the point, the same way a set subscription
+  matches membership as it stands when the change lands. Two things are still open. A
+  change to a subseries' constitution is an event in its own right and nothing detects
+  one: comparing successive reads would, at the cost of Reef holding the previous
+  membership between runs, which is the document state the data model says it does not
+  keep. And if Red cannot be reached the expansion is skipped, so a bcp14 subscriber
+  misses a notification; the retry that would fix it belongs to ingest, which does not
+  exist yet.
 - Retiring and merging subjects: a curated vocabulary changes, and neither change has
   an answer yet. Deleting a subject cascades its subscriptions away, which is right for
   a mistake made this morning and wrong for a subject a thousand people follow that is

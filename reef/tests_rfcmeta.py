@@ -248,82 +248,61 @@ class DocumentIndexTests(SimpleTestCase):
 
 
 @override_settings(REEF_RFC_DATA_BASE_URL=BASE_URL)
-class FetchDocTests(SimpleTestCase):
-    def test_one_document_resolves(self):
-        with mock.patch("urllib.request.urlopen", return_value=_response(entry())):
-            self.assertEqual(
-                rfcmeta.fetch_doc("rfc9110"),
-                {"title": "HTTP Semantics", "subseries": ["std97"]},
-            )
+class ContainingSubseriesTests(SimpleTestCase):
+    """What subscription matching uses to decide that a change to rfc2119 is also a
+    change to bcp14."""
 
-    def test_the_identifier_is_canonicalised_into_the_url(self):
+    def setUp(self):
+        rfcmeta.clear_cache()
+        self.addCleanup(rfcmeta.clear_cache)
+
+    def warm(self, mapping):
+        rfcmeta._memo["value"] = (mapping, None)
+        rfcmeta._memo["expires"] = float("inf")
+
+    def test_a_document_in_a_subseries_reports_it(self):
+        self.warm({"rfc2119": {"title": "Key words", "subseries": ["bcp14"]}})
+        self.assertEqual(rfcmeta.containing_subseries("rfc2119"), ["bcp14"])
+
+    def test_a_document_in_none_reports_an_empty_list(self):
+        self.warm({"rfc8446": {"title": "TLS 1.3", "subseries": []}})
+        self.assertEqual(rfcmeta.containing_subseries("rfc8446"), [])
+
+    def test_a_document_the_index_lacks_reports_an_empty_list(self):
+        self.warm({})
+        self.assertEqual(rfcmeta.containing_subseries("rfc9999"), [])
+
+    def test_the_identifier_is_canonicalised(self):
+        self.warm({"rfc2119": {"title": "Key words", "subseries": ["bcp14"]}})
+        self.assertEqual(rfcmeta.containing_subseries("RFC 2119"), ["bcp14"])
+
+    def test_an_unparseable_identifier_reports_an_empty_list(self):
+        self.warm({})
+        self.assertEqual(rfcmeta.containing_subseries("nonsense"), [])
+
+    def test_the_caller_cannot_mutate_the_shared_index(self):
+        """It hands back a copy: the mapping behind it is shared with every other
+        caller in this process."""
+        mapping = {"rfc2119": {"title": "Key words", "subseries": ["bcp14"]}}
+        self.warm(mapping)
+        rfcmeta.containing_subseries("rfc2119").append("std99")
+        self.assertEqual(mapping["rfc2119"]["subseries"], ["bcp14"])
+
+    def test_it_fetches_when_the_index_is_not_loaded(self):
+        """Unlike a display read: skipping the expansion costs somebody an email."""
         with mock.patch(
-            "urllib.request.urlopen", return_value=_response(entry())
+            "urllib.request.urlopen", return_value=_response(index_payload())
         ) as urlopen:
-            rfcmeta.fetch_doc("RFC 9110")
-        self.assertEqual(
-            urlopen.call_args.args[0], f"{BASE_URL}/api/v1/rfc-common/9110.json"
-        )
+            rfcmeta.containing_subseries("rfc9110")
+        self.assertEqual(urlopen.call_count, 1)
 
-    def test_a_subseries_has_no_rfc_common_file(self):
-        with mock.patch("urllib.request.urlopen") as urlopen:
-            self.assertIsNone(rfcmeta.fetch_doc("bcp14"))
-        urlopen.assert_not_called()
-
-    def test_an_identifier_that_is_not_one_returns_none(self):
-        with mock.patch("urllib.request.urlopen") as urlopen:
-            self.assertIsNone(rfcmeta.fetch_doc("not-a-document"))
-        urlopen.assert_not_called()
-
-    def test_an_unreachable_red_returns_none(self):
+    def test_an_unreachable_red_warns_and_expands_nothing(self):
         with mock.patch(
             "urllib.request.urlopen", side_effect=urllib.error.URLError("refused")
         ):
-            with self.assertLogs("reef", level="WARNING"):
-                self.assertIsNone(rfcmeta.fetch_doc("rfc9110"))
-
-
-@override_settings(REEF_RFC_DATA_BASE_URL=BASE_URL)
-class FetchSubseriesTests(SimpleTestCase):
-    CONTENTS = {
-        "type": "bcp",
-        "number": 14,
-        "contents": [{"number": 2119}, {"number": 8174}],
-    }
-
-    def test_a_subseries_expands_to_its_rfcs(self):
-        with mock.patch(
-            "urllib.request.urlopen", return_value=_response(self.CONTENTS)
-        ):
-            self.assertEqual(rfcmeta.fetch_subseries("bcp14"), ["rfc2119", "rfc8174"])
-
-    def test_the_identifier_is_canonicalised_into_the_url(self):
-        with mock.patch(
-            "urllib.request.urlopen", return_value=_response(self.CONTENTS)
-        ) as urlopen:
-            rfcmeta.fetch_subseries("BCP 14")
-        self.assertEqual(
-            urlopen.call_args.args[0], f"{BASE_URL}/api/v1/info-subseries/bcp14.json"
-        )
-
-    def test_an_rfc_is_not_a_subseries(self):
-        with mock.patch("urllib.request.urlopen") as urlopen:
-            self.assertIsNone(rfcmeta.fetch_subseries("rfc9110"))
-        urlopen.assert_not_called()
-
-    def test_an_empty_subseries_is_an_empty_list_not_none(self):
-        """Distinct from a failed fetch, which is None."""
-        with mock.patch(
-            "urllib.request.urlopen", return_value=_response({"contents": []})
-        ):
-            self.assertEqual(rfcmeta.fetch_subseries("bcp14"), [])
-
-    def test_an_unreachable_red_returns_none(self):
-        with mock.patch(
-            "urllib.request.urlopen", side_effect=urllib.error.URLError("refused")
-        ):
-            with self.assertLogs("reef", level="WARNING"):
-                self.assertIsNone(rfcmeta.fetch_subseries("bcp14"))
+            with self.assertLogs("reef", level="WARNING") as logs:
+                self.assertEqual(rfcmeta.containing_subseries("rfc2119"), [])
+        self.assertIn("without expanding subseries", "\n".join(logs.output))
 
 
 class SyncedSchemaTests(SimpleTestCase):

@@ -8,9 +8,13 @@ value is replaced wholesale on the next read.
 
 Three files, all anonymous, all on Red's public origin:
 
-    /api/v1/rfc-mini-index.json          the whole series, for a bulk sweep
-    /api/v1/rfc-common/{number}.json     one document, fuller
-    /api/v1/info-subseries/{t}{n}.json   a container and the RFCs in it
+    /api/v1/rfc-mini-index.json          the whole series
+
+Only the index. Red also publishes rfc-common per document and info-subseries per
+container, and readers for both were written and then deleted unused: the index
+carries the title and the subseries membership Reef actually needs, and one shared
+copy of it beats a request per document. They are worth remembering if something ever
+needs a field the index does not carry, such as an abstract.
 
 The index is validated against reef/schemas/rfc-mini-index.schema.json, generated
 from Red's Zod definition and synced by hand. The asymmetry that matters is JSON
@@ -55,8 +59,6 @@ PROCESS_MEMO_SECONDS = 60
 
 _memo = {"value": None, "expires": 0.0}
 _memo_lock = threading.Lock()
-DOC_PATH = "/api/v1/rfc-common/{number}.json"
-SUBSERIES_PATH = "/api/v1/info-subseries/{doc}.json"
 
 
 @lru_cache(maxsize=1)
@@ -319,55 +321,37 @@ def cached_mapping():
     return shared[0] if shared else None
 
 
+def containing_subseries(doc_id):
+    """The subseries a document belongs to: rfc2119 -> ["bcp14"].
+
+    Read off the index rather than asked of Red per document, because the index
+    already carries it. An entry's subseries field is exactly this, so there is
+    nothing to invert and no second lookup table worth building.
+
+    Fetches if the index is not loaded, unlike cached_mapping(). The caller is
+    subscription matching, where skipping the expansion means somebody does not get
+    an email they asked for, and that is worth waiting on a fetch for in a background
+    task. It still returns an empty list rather than raising when Red cannot be
+    reached: what a change event should do about that is a retry decision, which
+    belongs with ingest and does not exist yet. See the subseries open item.
+    """
+    try:
+        doc_id = normalize_doc_id(doc_id)
+    except DjangoValidationError:
+        return []
+    shared = _shared(fetch=True)
+    if shared is None:
+        logger.warning(
+            "No document index, so %s was matched without expanding subseries", doc_id
+        )
+        return []
+    meta = shared[0].get(doc_id)
+    return list(meta["subseries"]) if meta else []
+
+
 def clear_cache():
     """Drop both the shared entry and this process's copy. For tests and the admin."""
     cache.delete(CACHE_KEY)
     with _memo_lock:
         _memo["value"] = None
         _memo["expires"] = 0.0
-
-
-def fetch_doc(doc_id):
-    """Metadata for one document, read per-document rather than from the sweep.
-
-    For the callers that want one title and not ten thousand: an admin page, a
-    confirmation email. Only RFCs have an rfc-common file, so a subseries identifier
-    returns None here.
-    """
-    try:
-        doc_id = normalize_doc_id(doc_id)
-    except DjangoValidationError:
-        return None
-    if not doc_id.startswith("rfc"):
-        return None
-    payload = _fetch(
-        DOC_PATH.format(number=doc_id.removeprefix("rfc")),
-        settings.REEF_RFC_DATA_TIMEOUT,
-    )
-    if payload is None:
-        return None
-    return _meta_from_entry(payload)
-
-
-def fetch_subseries(doc_id):
-    """The canonical identifiers a subseries contains, or None.
-
-    This is what a BCP or STD in a document set or a subscription expands to. It
-    comes from Red rather than from a Reef table because subseries membership
-    changes over time and Reef holds no document state to keep in step.
-    """
-    try:
-        doc_id = normalize_doc_id(doc_id)
-    except DjangoValidationError:
-        return None
-    if doc_id.startswith("rfc"):
-        return None
-    payload = _fetch(SUBSERIES_PATH.format(doc=doc_id), settings.REEF_RFC_DATA_TIMEOUT)
-    if payload is None:
-        return None
-    contents = []
-    for entry in payload.get("contents") or []:
-        number = entry.get("number")
-        if number is not None:
-            contents.append(f"rfc{number}")
-    return contents

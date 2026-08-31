@@ -31,6 +31,7 @@ from django.conf import settings
 from django.db.models import Q
 from django.template.loader import render_to_string
 
+from reef import rfcmeta
 from reef.docids import display_doc_id, normalize_doc_id
 from reef.mail import EmailMessage
 from reef.tasks import RetryTask
@@ -68,33 +69,48 @@ def subscriptions_for_document(doc):
     datatracker; hosting the vocabulary here turned it into a join and moved
     it off the ingest path's critical list.
 
-    The predicate kinds (new_rfc, by_status, obsoleted) match on what happened
-    rather than on which document it happened to, so they are not here; they
-    belong to the ingest path once the event shape is known.
+    Subseries are expanded, so a change to rfc2119 matches a subscription to bcp14,
+    which is what somebody subscribing to BCP 14 meant. The membership comes from
+    Red's published index through reef.rfcmeta rather than from a Reef table, because
+    it changes over time and Reef holds no document state to keep in step: BCP 14 is
+    currently RFC 2119 and RFC 8174 and has not always been. Matching against what
+    Red says today is the point, in the same way that a set subscription matches
+    membership as it stands when the change lands rather than when somebody
+    subscribed.
 
-    Subseries are not expanded. A change to rfc2119 does not match a
-    subscription to bcp14, even though BCP 14 currently consists of RFC 2119
-    and RFC 8174, because Reef holds no document metadata and cannot know that.
-    That expansion has to come from the datatracker feed. See the subseries
-    open item in plan.md; it is the substantive unknown in this area.
+    All three kinds expand alike: a set holding bcp14 and a subject assigned to bcp14
+    both match a change to rfc2119, because in each case what the subscriber named
+    covers the document that changed.
+
+    If Red cannot be reached the expansion is skipped, and a bcp14 subscriber misses
+    a notification they should have had. That is a real gap rather than a tidy
+    degradation; it is left here because the retry that would fix it belongs to the
+    ingest path, which does not exist yet. See the subseries open item in plan.md.
+
+    The predicate kinds (new_rfc, by_status, obsoleted) match on what happened rather
+    than on which document it happened to, so they are not here; they belong to the
+    ingest path once the event shape is known.
     """
     doc = normalize_doc_id(doc)
+    # The changed document, plus every container it belongs to. A subscription naming
+    # any of them is about this change.
+    docs = [doc, *rfcmeta.containing_subseries(doc)]
     return (
         Subscription.objects.filter(
-            Q(kind=Subscription.Kind.RFC, params__rfc=doc)
+            Q(kind=Subscription.Kind.RFC, params__rfc__in=docs)
             # A set staff have taken down matches nothing. The join reaches the
             # rows directly and so does not go through DocumentSet's manager,
             # which is what would otherwise have excluded them; a real delete
             # would have taken the subscription with it.
             | Q(
                 kind=Subscription.Kind.SET,
-                document_set__entries__doc=doc,
+                document_set__entries__doc__in=docs,
                 document_set__deleted_at__isnull=True,
             )
             # No equivalent takedown filter for subjects: a subject is staff's
             # own and has no state between existing and not, so there is no
             # row here that a read has to pretend is absent.
-            | Q(kind=Subscription.Kind.SUBJECT, subject__assignments__doc=doc)
+            | Q(kind=Subscription.Kind.SUBJECT, subject__assignments__doc__in=docs)
         )
         .distinct()
         .select_related("user", "document_set", "subject")

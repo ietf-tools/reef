@@ -84,7 +84,9 @@ the real staleness signal: a frozen index does no harm until Reef holds a
 document Red's copy lacks. Red being unreachable costs titles and nothing else;
 every file is still written.
 
-The index is fetched and schema-validated once per run, not per lookup. Pass
+The index is fetched and schema-validated at most once an hour and shared with
+anything else in Reef that resolves an identifier, rather than fetched per run or
+per lookup. Pass
 `--no-metadata` to skip the fetch and write nulls, for working offline.
 
 ## Purging

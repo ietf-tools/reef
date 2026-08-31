@@ -10,8 +10,10 @@ from django.test import override_settings
 from rest_framework.test import APITestCase
 
 from docsets.models import DocumentSet, DocumentSetEntry
+from reef import rfcmeta
 from reef.celery import app as celery_app
 from reef.mail import EmailMessage
+from reef.testing import stub_rfc_index
 from subjects.models import Subject, SubjectAssignment
 
 from .models import Subscription
@@ -389,9 +391,14 @@ class SubjectSubscriptionTests(APITestCase):
 
 
 class DocumentMatchingTests(APITestCase):
-    """subscriptions_for_document: the kinds that name a document."""
+    """subscriptions_for_document: the kinds that name a document.
+
+    Matching consults Red's index to expand subseries, so these work from a stubbed
+    index rather than the network.
+    """
 
     def setUp(self):
+        stub_rfc_index(self)
         self.user = User.objects.create(username="u", oidc_sub="s")
         self.set = DocumentSet.objects.create(owner=self.user, title="HTTP core")
         DocumentSetEntry.objects.create(document_set=self.set, doc="rfc9110")
@@ -481,15 +488,60 @@ class DocumentMatchingTests(APITestCase):
         Subscription.objects.create(user=self.user, kind=Subscription.Kind.OBSOLETED)
         self.assertEqual(list(subscriptions_for_document("rfc9110")), [])
 
-    def test_subseries_are_not_expanded_yet(self):
-        # BCP 14 is RFC 2119 plus RFC 8174, but Reef has no document metadata,
-        # so a change to a constituent does not reach the subseries. See the
-        # subseries open item in plan.md.
+    def test_a_set_holding_a_subseries_matches_its_constituents(self):
+        """BCP 14 is RFC 2119 plus RFC 8174, and somebody whose set holds bcp14 meant
+        to hear about both."""
+        DocumentSetEntry.objects.create(document_set=self.set, doc="bcp14")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SET, document_set=self.set
+        )
+        self.assertEqual(list(subscriptions_for_document("rfc2119")), [subscription])
+
+    def test_an_rfc_subscription_to_a_subseries_matches_its_constituents(self):
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "bcp14"}
+        )
+        self.assertEqual(list(subscriptions_for_document("rfc2119")), [subscription])
+
+    def test_a_subject_assigned_to_a_subseries_matches_its_constituents(self):
+        subject = Subject.objects.create(name="Requirements", slug="requirements")
+        SubjectAssignment.objects.create(subject=subject, doc="bcp14")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        self.assertEqual(list(subscriptions_for_document("rfc2119")), [subscription])
+
+    def test_a_document_in_no_subseries_matches_only_itself(self):
         DocumentSetEntry.objects.create(document_set=self.set, doc="bcp14")
         Subscription.objects.create(
             user=self.user, kind=Subscription.Kind.SET, document_set=self.set
         )
-        self.assertEqual(list(subscriptions_for_document("rfc2119")), [])
+        self.assertEqual(list(subscriptions_for_document("rfc8446")), [])
+
+    def test_a_subscriber_reached_two_ways_is_returned_once(self):
+        """Directly and through the subseries: still one subscription."""
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc2119"}
+        )
+        DocumentSetEntry.objects.create(document_set=self.set, doc="bcp14")
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SET, document_set=self.set
+        )
+        matched = list(subscriptions_for_document("rfc2119"))
+        self.assertEqual(len(matched), 2)  # two subscriptions, not four rows
+        self.assertIn(subscription, matched)
+
+    def test_no_index_means_no_expansion_rather_than_an_error(self):
+        """A real gap: the bcp14 subscriber misses a notification. Whether that
+        should be retried belongs to ingest, which does not exist yet."""
+        rfcmeta.clear_cache()
+        DocumentSetEntry.objects.create(document_set=self.set, doc="bcp14")
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SET, document_set=self.set
+        )
+        with mock.patch("reef.rfcmeta._shared", return_value=None):
+            with self.assertLogs("reef", level="WARNING"):
+                self.assertEqual(list(subscriptions_for_document("rfc2119")), [])
 
 
 class DigestSubjectTests(APITestCase):
