@@ -38,6 +38,13 @@ https://account.ietf.org/.
 - Per-document statistics, API only. Reef serves the rating aggregate, subscriber
   count and set count for a document; Red precomputes the whole series in one call
   at build time and renders the numbers on its RFC pages.
+- Precomputed reads, written rather than served. Every anonymous public read above is
+  also rendered ahead of time to a blob store, so that a caller can be handed a file
+  instead of a query that aggregates every rating, subscription and set entry. Reef
+  still serves all of them live: the files are the fast path, not a replacement.
+- Document metadata, read but never stored. Reef resolves an identifier to a title or
+  a subseries' contents from Red's public files when it needs to show one. It holds no
+  copy; see the data model for why that distinction carries the weight it does.
 
 ### Scope of this plan
 
@@ -61,6 +68,12 @@ new scope, arriving with the decision to host the vocabulary in Reef rather than
 it from the datatracker, and they are the one part of the subscription story whose
 matching does not wait on ingestion: because Reef owns the association, a subject
 resolves to documents by a join here rather than by a tag arriving on an event.
+
+The precomputer is built: one management command renders every anonymous public read
+to a blob store, S3 where a bucket is configured and a local directory where none is.
+It is the counterpart of Red's precomputer, which has five entry points differing only
+in what they select and how they report; both are arguments rather than programs, so
+this is one command.
 
 Document sets are built: models, the owner-scoped API, the public read path, and
 subscribing to a set. They were new scope rather than a gap in the scaffold, so they
@@ -101,8 +114,10 @@ tokens.
 Browser -> NGINX :8088 -+- /manage,/admin,/oidc,/api,/static -> Django + DRF :8001 -> PostgreSQL
                         +- /,/s/*  ------------------------------> Nuxt survey runner :3001
 Red  --------------------  GET /api/reef/... (bearer / anon) ---> Django + DRF
+Red  <-- precomputed JSON <---- blob store <---- manage.py precompute (scheduled)
 All logins ----------------------------------------------------> Authentik (account.ietf.org)
 Celery worker: subscription emails <- datatracker RFC-change feed
+Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 ```
 
 - Django site (builder and analytics): server-rendered template pages that mount the
@@ -116,6 +131,17 @@ Celery worker: subscription emails <- datatracker RFC-change feed
 - Break-glass: one local Django superuser for admin access if Authentik is
   unavailable.
 - Async: Celery plus a broker for subscription emails (scaffolded in this phase).
+- - Precomputer: a management command, not a process. It renders the public reads by
+  calling the DRF views in process, so a precomputed file cannot describe a different
+  shape from the live response, and then adds resolved document metadata to whatever
+  names a document. A file is meant to serve one of Red's routes in one fetch, so it
+  carries what the route renders rather than identifiers the caller must resolve
+  elsewhere. Additions are new keys only, so every file stays the live response plus
+  zero or more of them. Run on a schedule; nothing serves traffic from it inside Reef.
+- - Document metadata: reef/rfcmeta.py, an anonymous HTTP read of Red's public files,
+  validated against a JSON Schema generated from Red's Zod definition and synced into
+  reef/schemas/. No credential, no generated client, and no row written anywhere in
+  Reef.
 
 ### Authentication model (single IdP: Authentik at account.ietf.org)
 
@@ -143,6 +169,8 @@ reef/
     settings/logging/{development,production}.py
     celery.py  urls.py  wsgi.py  openapi.py
     docids.py              shared document-identifier parsing and canonical form
+    rfcmeta.py             titles and subseries contents, read from Red's public files
+    schemas/               JSON Schema for data Reef reads from elsewhere; synced copies
   reefauth/                OIDC RP login (mozilla_django_oidc) plus DRF bearer resource-server
                              auth plus custom User: models, backends, authentication, apps, utils, migrations
   surveys/                 full build
@@ -159,6 +187,11 @@ reef/
   subjects/                Subject vocabulary and SubjectAssignment, public read API, admin curation
   subscriptions/           scaffold: Subscription model, API, email task, datatracker-feed ingest interface
   stats/                   per-document engagement numbers for Red; no models of its own
+  precomputer/             renders the public reads to a blob store; one management command
+    blobstore.py           S3 when a bucket is configured, a local directory when not
+    render.py              runs a DRF view in process and returns the bytes it served
+    tasks.py               one task per public read, each owning the keys it may purge
+    management/commands/precompute.py   the single entry point
   vendor/                  package.json for self-hosted SurveyJS Creator/Analytics bundles into Django static
   client/                  Nuxt 4 survey runner (themed)
     nuxt.config.ts         ssr enabled, :3001; server-side API base for render-time fetches
@@ -224,6 +257,53 @@ reef/
   to an identifier that names nothing, which is a curation error rather than something
   the database catches, exactly as a rating or a set entry naming a nonexistent RFC
   already is.
+
+  Reading that metadata is a different act from storing it, and Reef now does the first
+  without the second. reef/rfcmeta.py resolves an identifier against Red's public files:
+  /api/v1/rfc-mini-index.json for the whole series in one response, which is where the
+  precomputer's per-run sweep gets title and subseries membership;
+  /api/v1/rfc-common/{n}.json for one document, which is fuller and is what an admin
+  page or a confirmation email reads; and /api/v1/info-subseries/{type}{n}.json for a
+  container's contents. All three are anonymous, so there is no key to hold and no
+  client to generate. The rule above survives intact, because the argument for it was
+  staleness and nothing here is written to a column: a precomputer run fetches the index
+  once and holds it for that run, and an admin page or a confirmation email fetches one
+  document. Existence checking becomes possible on the same read, which is what would
+  close the curation gap in the paragraph above; whether to enforce it at write time is
+  not decided.
+
+  The datatracker was the other candidate and was not chosen. Its /api/red/ tag serves
+  the same metadata, and Purple already consumes the neighbouring /api/purple/ tag
+  through a generated client, so the machinery is proven. What it costs is an
+  openapi-generator step in the image, a generated package installed from a path in
+  requirements.txt, an API key per deployment, and a cache backend: Reef configures
+  DummyCache in base and overrides it in no environment, so a per-document client
+  would re-fetch on every lookup. Red's files need none of that. The objection to
+  reading Red is that Red reads Reef's precomputed bucket, so this closes a loop —
+  but it is a loop of static-file reads, where neither side calls the other
+  synchronously and the worst case is one run's lag, which is what the datatracker
+  route would give too. What it does add is a second hop of staleness and a dependency
+  on Red's precomputer succeeding; see the open item on stale reads.
+
+  Red's side guarantees those files change additively: new keys may appear, existing
+  ones do not change meaning or go away. That is what makes an artifact shaped for
+  somebody else's index table safe to depend on, and it answers what would otherwise
+  be the strongest objection to reading Red rather than the datatracker — that Reef
+  would be building on a private shape with no promise attached. The guarantee binds
+  Reef too, in a way worth being explicit about, because a consumer that rejects
+  unknown keys turns every additive change into a break: rfcmeta reads the fields it
+  needs and ignores the rest, and must not later acquire a strict schema that forbids
+  extras. What the guarantee does not cover is the file being published at all, or
+  Red's contributors knowing the guarantee exists; both are open items.
+
+  One consequence is worth stating plainly, because it looks like the rule above being
+  bent. The precomputed files carry document metadata, so a title does sit in something
+  Reef writes. It is not a second copy in the sense the rule forbids: nothing is in a
+  column, nothing is read back as truth, and every value is replaced wholesale on the
+  next run. What it is instead is a cache with a schedule, and Red has accepted the
+  drift that comes with one, because a route that fetches one file beats a route that
+  fetches a list of identifiers and then resolves them. The rule holds where it was
+  aimed, which is Reef's own tables.
 - Document identifiers, shared: ratings.Rating.rfc and popularity.PopularEntry.rfc
   store whatever string they are handed, while subscriptions canonicalizes through
   normalize_doc_id. Sets would be a third rule in a fourth place, and a set cannot be
@@ -507,6 +587,87 @@ Then, for subjects:
     the kind was matched on the ingest path and that is a stub. Export the schema.
     Commit: "Add subjects and subject subscriptions".
 
+Then, for precomputed reads:
+
+20. Precomputer: the precomputer app and manage.py precompute, its single entry point.
+    One task per anonymous public read — stats, popularity, subjects and each
+    subject, the open-survey list and each open survey's definition, and each rated
+    document — rendered by calling the DRF view in process so the file and the live
+    response cannot disagree. Selection by task name, --doc to narrow the
+    per-document tasks, --dry-run, --no-purge and --callback-url. Writes to S3 when a
+    bucket is configured and to a directory when none is, chosen by configuration
+    alone so a deployment cannot be argued into writing production payloads inside its
+    own container. Each task declares the keys it owns, so a full run purges what it no
+    longer produces and leaves anything else in the bucket alone; the purge is skipped
+    after a failed task and under --doc, where a missing key may be one this run did
+    not rebuild. Excluded on purpose: me/documents/ and subscriptions/ are per-caller,
+    surveys/ and results/ are staff-only, and sets/{id}/ reads anonymously only
+    because holding the unguessable id is the permission, which does not survive a
+    store whose keys can be listed. Commit: "Add API response precomputer".
+21. 21. Document metadata: reef/rfcmeta.py, resolving an identifier to a small metadata
+    object (title, and whatever else the field-set item settles), and a subseries to its
+    contents, from Red's public files over anonymous HTTP. It validates what it fetches
+    against reef/schemas/rfc-mini-index.schema.json, a JSON Schema generated from Red's
+    RfcMiniSchema by `npm run generate:schema` in Red's precomputer and synced here by
+    hand. JSON Schema is the interchange because the shape is defined in Zod and Reef is
+    Python, and it is exported with Zod's `io: 'input'` so that it carries no
+    `additionalProperties: false`: Red changes these files additively, so a schema that
+    rejected unseen keys would turn every field Red adds into a Reef outage. Removing a
+    required field or retyping one fails; adding one passes. A failure is logged naming
+    the field and the run continues with null metadata, because Reef's own payloads do
+    not depend on Red. Validate the index once per run rather than per lookup; it is
+    9,800 entries and about two seconds. Callers to follow it, in the order they are
+    worth doing: titles beside the bare identifiers in the subjects, popularity and
+    document-set admin, which is where staff curate against 9,800 documents they
+    currently see only as numbers; the subscription confirmation email, which names a
+    document at a moment when no change event exists to carry a title; and subseries
+    expansion for set and subscription matching. What the precomputer's own output
+    should carry is settled in the next step, not here. Adds jsonschema to requirements.
+    Commit: "Resolve document titles from Red's published files".
+22. Document metadata in the precomputed output: every precomputed file that names a
+    document carries that document's metadata, so stats.json and popularity.json and
+    subjects/{slug}.json and ratings/{doc}.json all do. The reason is Red's, not Reef's:
+    an SPA route wants one resource, and a page that has to fetch a list of identifiers
+    and then resolve them loads slower than one that fetches a file it can render. So
+    the rule is that a precomputed file serves a route in a single fetch, and an
+    identifier a caller would have to look up somewhere else is a fetch this was
+    supposed to save. The earlier reasoning here was that titles in stats.json would
+    send Red its own data back; that weighed a duplicated byte against a round trip,
+    which is the wrong comparison. Drift is accepted explicitly: a title in these files
+    is a snapshot from Red's last published index, it can disagree with Red's own copy
+    between runs, and that is cheaper than the fetch it removes. Additions are new keys,
+    never changes to existing ones. Where the payload is a list of objects, as
+    popularity and stats and ratings are, each object gains the metadata fields. Where a
+    document is named as a bare string, as the subject detail's documents array does, a
+    sibling map keyed by identifier is added rather than that array becoming a list of
+    objects: retyping an existing key is what would break a caller, and it is what Reef
+    is asking Red not to do to it, so the precomputer holds itself to the same rule. A
+    map also grows a field without retyping anything. The invariant becomes that a
+    precomputed file is the live response plus added keys, still testable by stripping
+    the additions and comparing. Metadata rfcmeta cannot resolve is null rather than
+    omitted or echoed back as the identifier, so a reader can tell "no such document"
+    from "not looked up". Which fields a row needs beyond title is the open item below.
+    Commit: "Add document metadata to precomputed reads".
+23. Stale-source guard: a run warns when a document Reef holds cannot be resolved
+    against Red's index, and separately when the index is older than
+    REEF_RFC_INDEX_MAX_AGE_DAYS, defaulting to 30. The unresolved-document check is the
+    real signal and the age one is a backstop, which is the opposite of how this
+    started. Red rebuilds the index when RFCs are published rather than on a clock, and
+    RFC publication is bursty: over the last five years the gaps between publication
+    dates run to a median of 3 days, p95 of 12 and a maximum of 23, so a threshold tight
+    enough to catch a stopped pipeline quickly would fire through every ordinary quiet
+    fortnight. Thirty days is above every gap observed in five years and roughly triple
+    p95. The deeper reason age is weak is that a frozen index does no harm while no RFCs
+    are being published: what harms Reef is a document it knows about that Red's index
+    does not have, which happens the moment somebody rates or files a newly published
+    RFC, and is exactly what the unresolved check sees. So the age warning exists only
+    for the case where Red's pipeline has died and no publication has yet exposed it.
+    Neither ever blocks a run: Reef's own payloads are correct whatever Red's age, only
+    the titles are old, and coupling Reef's exit status to Red's uptime would make a Red
+    outage read as a Reef failure. createdOn and its age are logged on every run
+    regardless, since that is the line somebody will want when debugging. Commit: "Warn
+    on a stale or incomplete Red index".
+
 ## Verification
 
 - Dev bring-up: devcontainer (or docker/run); migrate and collectstatic run; tmux
@@ -551,6 +712,20 @@ Then, for subjects:
   rating, a subscription and a set entry for one document moves all three numbers; a
   user subscribed both directly and through a set counts once; ?set= returns the
   members of a set to any caller holding its id, and 404s for an id that names none.
+- - Precomputer: manage.py precompute with no bucket configured writes the whole set of
+  files under ./precomputed and exits 0; a named task writes only its own; --doc narrows
+  the per-document files while still rebuilding the whole-series ones; --dry-run writes
+  nothing. Stripping the added metadata keys from a precomputed payload leaves the live
+  endpoint's response byte for byte, and a task that adds nothing matches it directly. A
+  document identifier rfcmeta cannot resolve carries null metadata rather than being
+  dropped from the file, and the run warns naming it. A run whose mini index is older
+  than REEF_RFC_INDEX_MAX_AGE_DAYS warns and still exits 0, and one that cannot reach
+  Red at all still writes every payload, with metadata null throughout. A second run
+  after deleting a rating purges that document's file and leaves a key no task owns in
+  place; a run in which one task raises still refreshes the others, exits 1, and purges
+  nothing. Naming a bucket without credentials is refused rather than falling back to
+  the directory. All covered by manage.py test; the S3 path itself is exercised by hand
+  against MinIO.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
@@ -582,9 +757,17 @@ Then, for subjects:
   changes (BCP 14 is currently RFC 2119 plus RFC 8174). "Updates to bcp14" therefore
   means two different things: a change to a constituent RFC, and a change to which
   RFCs constitute it. Decide whether ingest expands a subseries to its RFCs at match
-  time, treats a constitution change as its own event, or both. Reef holds no document
-  metadata, so whichever way it goes, the expansion has to come from the datatracker
-  feed rather than from Reef's own tables. This is the substantive unknown in the sets
+  time, treats a constitution change as its own event, or both. The lookup half is now
+  settled, in both directions. Container to contents comes from
+  /api/v1/info-subseries/{type}{n}.json on an anonymous read (bcp14 returns RFC 2119
+  and RFC 8174), so reef/rfcmeta.py can answer it at match time. Document to
+  containers now comes free with the bulk sweep, since Red's mini index carries
+  subseries per RFC, so a precomputed row can say what a document belongs to without
+  a second fetch. What is still open is the second reading — a change to which RFCs
+  constitute a subseries is an event in its own right, and nothing detects one.
+  Comparing successive reads of that file would detect one, at the cost of Reef
+  holding the previous membership between runs — which is the document state the data
+  model says it does not keep. That trade is the remaining unknown in the sets
   proposal.
 - Retiring and merging subjects: a curated vocabulary changes, and neither change has
   an answer yet. Deleting a subject cascades its subscriptions away, which is right for
@@ -596,12 +779,19 @@ Then, for subjects:
   is a merge that rewrites the FK. Neither is built. Until then the admin is a sharp
   tool: deleting a subject silently unsubscribes people who never asked to be.
 - Assigning subjects at scale: the vocabulary is small and staff can type it, but the
-  back catalogue is roughly 9,500 RFCs and the admin assigns one document at a time.
+  back catalogue is roughly 9,800 RFCs and the admin assigns one document at a time.
   Nothing decides whether subjects apply only to documents published from now on, or
-  whether the catalogue gets backfilled, and if so from what. The point of hosting the
-  vocabulary here was not to depend on the datatracker for it, so a bulk import has no
-  obvious source. This is the practical unknown in subjects, in the way subseries is
-  the substantive one in sets.
+  whether the catalogue gets backfilled, and if so from what. Two things have moved
+  since this was written. Staff no longer have to curate against bare identifiers:
+  rfcmeta can put a title beside each one in the admin, which is the cheapest
+  improvement available here and is worth doing whatever is decided about backfilling.
+  A bulk import has no source in the sweep, though: the mini index carries a title but
+  not abstract or keywords, which are the fields anyone would try to derive subjects
+  from, and they are rfc-common only, so reading them for the back catalogue is 9,800
+  fetches. Deriving a curated vocabulary's assignments from keywords would be a guess
+  dressed as data in any case, and the point of hosting the vocabulary here was to
+  decide it rather than read it. Assigning at scale is still
+  the practical unknown in subjects.
 - Assignment as an event: "changes to anything on the subject of X" is ambiguous in the
   same way the subseries question is. A subscriber could mean a change to a document
   carrying X, which is what is built, or a document being newly given X, which is not.
@@ -661,9 +851,36 @@ Then, for subjects:
   exactly the thing another person would want to subscribe to, which makes the
   own-sets-only restriction in the first cut a stopgap rather than a settled position.
 - Statistics freshness and cost: /stats/ aggregates on every request, which is fine
-  for a build-time caller and wrong for a hot public endpoint. If Red ever fetches it
-  per page view, or the tables grow, this wants caching or a materialized counter
-  rather than a live aggregate. Decide when Red's usage is known, not before.
+  for a build-time caller and wrong for a hot public endpoint. The precomputer answers
+  the build-time half — Red can read stats.json from the blob store and never touch
+  the endpoint — so what is left is the case where something wants the numbers live
+  and often. If that arrives, this still wants caching or a materialized counter
+  rather than a live aggregate, and the precomputer is not a substitute, because its
+  files are only as fresh as its last run. Decide when Red's usage is known.
+- - - Writing the additive-only guarantee down on Red's side. Most of this is now done.
+  The mini index has its own Zod schema in Red rather than being a Pick of RfcCommon,
+  that schema is exported to JSON Schema and committed, a comment on it says Reef reads
+  the published file and that fields are only added, and a test fails if the committed
+  schema falls behind the definition. What is left is narrower and in two parts.
+  rfc-common and info-subseries have no schema and no comment, so the guarantee covers
+  them only by conversation. And the synced copy in reef/schemas/ can fall behind Red's
+  without anything noticing, which is the accepted cost of not fetching the schema at
+  runtime; if that stops being acceptable, the fix is a scheduled job that diffs the two
+  rather than a runtime fetch, so that Reef still validates offline.
+- Which document fields a precomputed row carries. The rule is that a file serves a
+  route in one fetch, so the field set is whatever Red's rows render, and that is Red's
+  to name rather than Reef's to guess. Title is certain, and subseries is now settled:
+  the mini index did not carry it, and rfcToRfcMini was changed in Red to pass it
+  through, which is what the additive-only guarantee is for. What the mini index carries
+  is number, title, published, authors, formats, identifiers, status, stream, obsoletes,
+  obsoleted_by, updates, updated_by and subseries. What it does not, and an earlier
+  draft of this item wrongly said it did, is abstract and keywords, along with area,
+  group and pages: those are rfc-common only, so wanting one of them means either a
+  second change in Red or a per-document fetch, which is a different cost from a field
+  that is already in the sweep. Worth settling in the same exchange as the open/
+  contract and the additive-only guarantee, since all three are the same cross-repo
+  agreement about shapes. Until then title and subseries are the safe subset, and adding
+  a field later is additive.
 - Nuxt OIDC client registration: confirm a public (PKCE) Authentik client for the runner
   versus reusing Red's client configuration.
 - Survey targeting: the audience and user-specific-offer rules (subscription-driven)

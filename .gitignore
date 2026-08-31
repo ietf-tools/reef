@@ -49,6 +49,9 @@ client/app/types/reef-api.ts
 # Collected static
 /static
 
+# Precomputer output, when it falls back to a local directory
+/precomputed
+
 # Vendored SurveyJS bundles (fetched via npm; not committed)
 vendor/node_modules/
 vendor/static/vendor/surveyjs/*

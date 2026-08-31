@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     "subscriptions",
     "stats",
     "me",
+    "precomputer",
 ]
 
 MIDDLEWARE = [
@@ -276,6 +277,28 @@ MESSAGE_ID_DOMAIN = os.environ.get("REEF_MESSAGE_ID_DOMAIN", "ietf.org")
 # nowhere.
 REEF_SUBSCRIPTIONS_URL = os.environ.get("REEF_SUBSCRIPTIONS_URL", "")
 ADMINS = []
+
+# Precomputer. Where `manage.py precompute` writes the public API responses it
+# renders ahead of time, so that a reader is served a file rather than a query
+# that aggregates every rating, subscription and set entry.
+#
+# Naming a bucket switches it to S3; leaving REEF_PRECOMPUTE_S3_BUCKET empty
+# writes to REEF_PRECOMPUTE_DIR instead, which is what a developer with no
+# object storage to hand gets. The endpoint is for S3-compatible services and
+# is left empty for AWS itself.
+REEF_PRECOMPUTE_S3_BUCKET = os.environ.get("REEF_PRECOMPUTE_S3_BUCKET", "")
+REEF_PRECOMPUTE_S3_ENDPOINT = os.environ.get("REEF_PRECOMPUTE_S3_ENDPOINT", "")
+REEF_PRECOMPUTE_S3_REGION = os.environ.get("REEF_PRECOMPUTE_S3_REGION", "auto")
+REEF_PRECOMPUTE_S3_ACCESS_KEY_ID = os.environ.get(
+    "REEF_PRECOMPUTE_S3_ACCESS_KEY_ID", ""
+)
+REEF_PRECOMPUTE_S3_SECRET_ACCESS_KEY = os.environ.get(
+    "REEF_PRECOMPUTE_S3_SECRET_ACCESS_KEY", ""
+)
+REEF_PRECOMPUTE_DIR = os.environ.get("REEF_PRECOMPUTE_DIR") or BASE_DIR / "precomputed"
+# Parallel uploads. Rendering is serial database work; this is how many of the
+# resulting files are in flight to the store at once.
+REEF_PRECOMPUTE_CONCURRENCY = int(os.environ.get("REEF_PRECOMPUTE_CONCURRENCY", "8"))
 
 # Celery
 CELERY_TIMEZONE = "UTC"
