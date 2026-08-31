@@ -128,6 +128,10 @@ drf-spectacular is the source of truth. Regenerate and validate the schema:
 
 ```
 REEF_DEPLOYMENT_MODE=build ./manage.py spectacular --file reef_api.yaml --validate
+
+A test checks the committed file still matches the code, because nothing else does:
+`spectacular --validate` says the schema is well formed, not that reef_api.yaml is
+current, and the file is what Red and the Nuxt client generate their types from.
 ```
 
 `reef_api.yaml` is committed. The Nuxt client generates TypeScript types from it

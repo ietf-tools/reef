@@ -33,8 +33,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Subscription
-        fields = ["id", "kind", "params", "set", "subject", "verified", "created_at"]
-        read_only_fields = ["id", "verified", "created_at"]
+        fields = ["id", "kind", "params", "set", "subject", "created_at"]
+        read_only_fields = ["id", "created_at"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

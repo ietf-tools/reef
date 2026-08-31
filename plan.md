@@ -56,13 +56,16 @@ later phase. Subscription email is built: reef.mail carries the project's mail
 defaults, templates/subscriptions/mail holds the two message bodies and the sentence
 they share, and both send on a retrying celery task. A confirmation goes out when a
 subscription is created, which is the one of the two that is wired end to end. The
-digest has no caller yet, because the datatracker change-feed remains scaffolded.
+digest is sent by the daily change run; see the detection steps below.
 
-The confirmation is a courtesy rather than a verification: subscribers authenticate
-through Authentik, so the address is already known good and nothing waits on the
-message. Subscribe-by-bare-email, if it is ever built, needs a real verification
-message and Subscription.verified starting False; that is a second message, not a
-flag on this one.
+The confirmation is a courtesy rather than a verification, and no verification exists
+anywhere in Reef, because none is needed: every subscriber authenticates through
+Authentik and the address is the one on that account, which account.ietf.org has already
+verified. Reef never accepts an address typed into a form, so there is nothing for it to
+prove. Subscription.verified, which came from a design where it might have been, is
+removed: it defaulted True, nothing ever set it otherwise and nothing read it. Removing
+it drops a field from the published contract, so Red drops the "awaiting email
+verification" line that read it.
 
 Subjects are built: the vocabulary, the assignments that put a document under a
 subject, the public read API, admin curation, and subscribing to a subject. They were
@@ -806,7 +809,7 @@ Then, for precomputed reads:
     historic. A run also warns if Red's index createdOn has not moved since the last
     one, because a frozen index produces no diff and therefore no mail, and nothing else
     would notice. Commit: "Notify subscribers of RFC changes".
-32. 32. Subject lifecycle: retiring, merging, and refusing a delete that would take
+32. Subject lifecycle: retiring, merging, and refusing a delete that would take
     somebody's subscription with it. subjects/merge.py holds the merge because it is not
     one write -- it moves two kinds of row, decides what to do about a reader who
     follows both, retires the source and tells everybody affected -- and a model method
@@ -958,13 +961,14 @@ Then, for precomputed reads:
   precompute run warns about through the index age check rather than the notification
   run, since an unmoved createdOn is the ordinary quiet case and warning on it daily
   would be noise.
-- Email subscriptions: the data model above says "user or email" but Subscription is
-  user-only. Adding an email column puts a fourth nullable identity column in the
-  uniqueness constraint, alongside user, the set FK and the subject FK. Postgres counts
-  NULLs as distinct, so this needs nulls_distinct=False (Django 5.0+, PG15+), which is
-  already set and already carrying two relations. Adding a third is not a new risk but
-  it is more weight on one setting, and the failure if it is ever lost is silent
-  duplicate subscriptions rather than an error.
+- Subscribing by bare email: not doing it. The data model once said "user or email",
+  and Subscription is user-only, which is now the settled answer rather than an
+  unfinished one. Every address comes from Authentik, which has verified it, so Reef
+  needs no verification flow, no pending state and no second message. It also avoids
+  what the column would have cost: a fourth nullable identity column in the uniqueness
+  constraint, alongside user, the set FK and the subject FK, where Postgres counts NULLs
+  as distinct and only nulls_distinct=False holds it together. If anonymous subscription
+  is ever wanted, it is a new design and not a column.
 - Subseries as an event: a BCP or STD is a container whose membership changes (BCP 14
   is currently RFC 2119 plus RFC 8174), so "updates to bcp14" means two things: a change
   to a constituent RFC, and a change to which RFCs constitute it. The first is built.

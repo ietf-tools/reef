@@ -11,7 +11,11 @@ they would be subscribing to before they have signed in.
 """
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    PolymorphicProxySerializer,
+    extend_schema,
+)
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.permissions import AllowAny
@@ -72,10 +76,20 @@ class SubjectList(ListAPIView):
 @extend_schema(
     summary="Read one subject and the documents carrying it",
     description=(
-        "Addressed by slug rather than id, because this is the path whose "
-        "URL a reader sees. Subscribing names the id instead, which the "
-        "response also carries."
+        "Two shapes, told apart by `retired`. A live subject comes back in full. A "
+        "retired one comes back as `slug`, `retired` and `merged_into` only: it is "
+        "no longer offered and should not be rendered as current, and what is left "
+        "is enough to redirect a link that names it."
     ),
+    responses={
+        200: PolymorphicProxySerializer(
+            component_name="SubjectDetailOrRedirect",
+            serializers=[SubjectDetailSerializer, RetiredSubjectSerializer],
+            # No discriminator field: `retired` is what a caller branches on, and a
+            # boolean cannot be an OpenAPI discriminator, so this is a plain oneOf.
+            resource_type_field_name=None,
+        )
+    },
 )
 class SubjectDetail(RetrieveAPIView):
     """One subject, with its document list; or, if it has been retired, where it went.

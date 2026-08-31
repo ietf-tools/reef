@@ -77,7 +77,6 @@ class Subscription(models.Model):
         null=True,
         blank=True,
     )
-    verified = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

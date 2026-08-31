@@ -16,10 +16,15 @@ SECRET_KEY = "django-insecure-build-only-key"
 DEBUG = False
 ALLOWED_HOSTS = []
 
-# No database connection is made during builds; use a local sqlite file.
+# No database connection is made during builds, but the engine still has to be the
+# real one. drf-spectacular reads integer bounds from the backend, so generating the
+# schema against sqlite published PositiveIntegerField as int64 while the Postgres
+# deployment will only ever produce int32 -- a contract that quietly disagreed with
+# the API, and that differed depending on which of the two documented commands
+# somebody ran. Named after nothing, because nothing connects.
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "build.sqlite3",
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "unused-during-build",
     }
 }

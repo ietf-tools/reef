@@ -497,12 +497,11 @@ def send_subscription_confirmation(subscription_id: int) -> None:
     created: POST is idempotent, so a second click must not send a second
     message.
 
-    A courtesy, not a verification. The subscriber authenticated through
-    Authentik and the address comes from that account, so there is nothing to
-    prove; nothing waits on this message and a failure to send it never stops a
-    digest. If subscribing by bare email is ever built, that case needs a real
-    verification message and Subscription.verified starting False, which is a
-    different message from this one rather than a flag on it.
+    A courtesy, not a verification, and Reef has no verification anywhere because it
+    needs none: the subscriber authenticated through Authentik and the address is the
+    one on that account, which account.ietf.org has already verified. Reef never
+    accepts an address typed into a form. Nothing waits on this message and a failure
+    to send it never stops a digest.
     """
     subscription = _subscriber_to_mail(
         subscription_id, "send_subscription_confirmation"

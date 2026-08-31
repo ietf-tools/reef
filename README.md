@@ -80,7 +80,8 @@ Authentik application setup, including the redirect URIs to register.
 ./manage.py test          # Django tests
 ruff check .              # lint
 ruff format --check .     # format check
-./manage.py spectacular --file reef_api.yaml --validate   # API schema
+REEF_DEPLOYMENT_MODE=build ./manage.py spectacular \
+  --file reef_api.yaml --validate            # API schema
 cd client && npm run typecheck                            # client types
 ```
 

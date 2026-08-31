@@ -12,7 +12,6 @@ class SubscriptionAdmin(admin.ModelAdmin):
         "params",
         "document_set",
         "subject",
-        "verified",
         "created_at",
     ]
-    list_filter = ["kind", "verified"]
+    list_filter = ["kind"]
