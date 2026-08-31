@@ -39,7 +39,7 @@ from reef.docids import display_doc_id, normalize_doc_id
 from reef.mail import EmailMessage
 from reef.tasks import RetryTask
 
-from .changes import _added, as_event, detect
+from .changes import _added, _removed, as_event, detect
 from .models import PendingNotification, Subscription
 
 logger = logging.getLogger("reef")
@@ -139,6 +139,16 @@ def subscriptions_for_change(change, index):
     """
     matched = set(subscriptions_for_document(change.doc))
 
+    # A subseries the document has left. Joining one is already covered, because
+    # subscriptions_for_document expands against current membership and the document
+    # is in it by then; leaving one is not, because by the time the run looks the
+    # document is no longer a constituent and the expansion no longer reaches the
+    # people following the container. Their subseries lost a document, which is news
+    # about the subseries rather than about the document, and until the snapshot
+    # started holding the previous membership there was no way to know it happened.
+    for departed in _departed_subseries(change):
+        matched |= set(subscriptions_for_document(departed))
+
     meta = (index.mapping.get(change.doc) or {}) if index is not None else {}
     predicates = Q(pk__in=[])  # matches nothing, so the ors below need no condition
 
@@ -163,6 +173,13 @@ def subscriptions_for_change(change, index):
         )
     )
     return matched
+
+
+def _departed_subseries(change):
+    """The subseries this change took the document out of."""
+    if change.is_new or "subseries" not in change.fields:
+        return []
+    return _removed(change.fields["subseries"])
 
 
 def _was_obsoleted(change):

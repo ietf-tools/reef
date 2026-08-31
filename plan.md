@@ -938,6 +938,9 @@ Then, for precomputed reads:
   retired subject resolves at /subjects/<slug>/ to slug, retired and merged_into and
   nothing else, and its precomputed file is that same redirect, while the vocabulary
   file omits it.
+- Subseries membership: a document joining a subseries reaches somebody following the
+  container, and so does a document leaving one, including through a set or subject that
+  holds the container. A change that is not about membership does not reach them.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
@@ -969,21 +972,18 @@ Then, for precomputed reads:
   constraint, alongside user, the set FK and the subject FK, where Postgres counts NULLs
   as distinct and only nulls_distinct=False holds it together. If anonymous subscription
   is ever wanted, it is a new design and not a column.
-- Subseries as an event: a BCP or STD is a container whose membership changes (BCP 14
-  is currently RFC 2119 plus RFC 8174), so "updates to bcp14" means two things: a change
-  to a constituent RFC, and a change to which RFCs constitute it. The first is built.
-  subscriptions_for_document expands a changed document to the subseries containing it,
-  read off Red's index through reef.rfcmeta, so a change to rfc2119 matches an rfc, set
-  or subject subscription naming bcp14. Membership comes from Red rather than a Reef
-  table because it changes over time and Reef holds no document state to keep in step;
-  matching against what Red says today is the point, the same way a set subscription
-  matches membership as it stands when the change lands. Two things are still open. A
-  change to a subseries' constitution is an event in its own right and nothing detects
-  one: comparing successive reads would, at the cost of Reef holding the previous
-  membership between runs, which is the document state the data model says it does not
-  keep. And if Red cannot be reached the expansion is skipped, so a bcp14 subscriber
-  misses a notification; the retry that would fix it belongs to ingest, which does not
-  exist yet.
+- Subseries as an event: settled. A BCP or STD is a container whose membership
+  changes, and "updates to bcp14" meant two things: a change to a constituent RFC, and a
+  change to which RFCs constitute it. Both are now matched. A constituent changing
+  reaches the container's followers because subscriptions_for_document expands to the
+  subseries holding the document. A document joining one reaches them for the same
+  reason, since it is a constituent by the time the run looks. A document leaving one
+  needed the snapshot: current membership no longer names the container, so nothing in
+  the index could find the people following it, and the diff of the subseries field is
+  the only record that it happened. The remaining question is not detection but wording
+  -- a departure is announced as "RFC 2119: Removed from BCP 14", which reads correctly
+  to somebody following either, and there is no separate message written from the
+  container's point of view.
 - Retiring and merging subjects: built. Three operations that used to be one delete.
   Deleting is now refused while anybody follows the subject, because
   Subscription.subject is PROTECT rather than CASCADE and Django's admin reports the

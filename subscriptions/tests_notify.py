@@ -227,3 +227,71 @@ class NotifyRfcChangesTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             self.assertEqual(detect_rfc_changes(), 0)
         self.assertEqual(PendingNotification.objects.count(), 1)
+
+
+class SubseriesMembershipTests(TestCase):
+    """A subseries gaining or losing a constituent is news to whoever follows it.
+
+    Gaining was already covered, because matching expands against current membership
+    and the document is in it by the time the run looks. Losing was not: by then the
+    document has gone, so the expansion no longer reaches the container's followers.
+    Knowing it happened at all needs the previous membership, which is what the
+    snapshot holds.
+    """
+
+    def setUp(self):
+        stub_rfc_index(self, {"rfc2119": meta()})
+        self.user = User.objects.create(
+            username="u", oidc_sub="s", email="r@example.org"
+        )
+        self.follows_bcp14 = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "bcp14"}
+        )
+
+    def change(self, before, after):
+        return diff(reduce_index(before), reduce_index(after))[0]
+
+    def index(self, mapping):
+        return rfcmeta.DocumentIndex(mapping, None)
+
+    def test_joining_a_subseries_reaches_its_followers(self):
+        after = {"rfc2119": meta(subseries=["bcp14"])}
+        change = self.change({"rfc2119": meta()}, after)
+        rfcmeta._memo["value"] = (after, None)
+        self.assertIn(
+            self.follows_bcp14, subscriptions_for_change(change, self.index(after))
+        )
+
+    def test_leaving_a_subseries_reaches_its_followers(self):
+        """The case that needed the snapshot: current membership no longer names
+        bcp14, so nothing in the index could have found these people."""
+        after = {"rfc2119": meta(subseries=[])}
+        change = self.change({"rfc2119": meta(subseries=["bcp14"])}, after)
+        rfcmeta._memo["value"] = (after, None)
+        self.assertIn(
+            self.follows_bcp14, subscriptions_for_change(change, self.index(after))
+        )
+
+    def test_a_change_that_is_not_about_membership_does_not_reach_them(self):
+        after = {"rfc2119": meta(status="hist")}
+        change = self.change({"rfc2119": meta()}, after)
+        rfcmeta._memo["value"] = (after, None)
+        self.assertNotIn(
+            self.follows_bcp14, subscriptions_for_change(change, self.index(after))
+        )
+
+    def test_a_set_holding_the_departed_subseries_is_reached_too(self):
+        """They follow bcp14 through the set, so the same news is theirs."""
+        document_set = DocumentSet.objects.create(owner=self.user, title="Requirements")
+        DocumentSetEntry.objects.create(document_set=document_set, doc="bcp14")
+        through_set = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SET, document_set=document_set
+        )
+        after = {"rfc2119": meta(subseries=[])}
+        change = self.change({"rfc2119": meta(subseries=["bcp14"])}, after)
+        rfcmeta._memo["value"] = (after, None)
+        self.assertIn(through_set, subscriptions_for_change(change, self.index(after)))
+
+    def test_a_newly_published_document_has_departed_nothing(self):
+        change = self.change({}, {"rfc2119": meta(subseries=["bcp14"])})
+        self.assertEqual(change.fields, {})
