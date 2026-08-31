@@ -798,8 +798,18 @@ Then, for precomputed reads:
     service that otherwise keeps almost nothing about people. What stays in the table is
     what is still owed, plus the few that could never be delivered. The snapshot
     advances only after the rows are written, so a crash repeats a run rather than
-    skipping one: duplicates are recoverable and a missed change is not. Commit:
-    "Persist notifications before enqueuing them".
+    skipping one: duplicates are recoverable and a missed change is not. What makes a
+    repeat recoverable is a unique dedupe_key, a hash of the reader, the events and the
+    reading they came from, so the database refuses a second copy rather than the code
+    being trusted not to make one -- the advisory lock is a convention between processes
+    and a unique index is not. Hashed over the events rather than the subscriptions,
+    because what makes two mails duplicates is that they say the same thing to the same
+    person, and which subscription matched is why it reached them rather than what it
+    tells them. The reading is in the hash so that a document making the same transition
+    again months later is new rather than refused. It guards the window it can: a
+    delivered row is deleted, so what it forbids is a duplicate still owed, which is the
+    shape the race actually has, since two runs racing have neither delivered yet.
+    Commit: "Persist notifications before enqueuing them".
 31. Ingest wiring: the daily task runs detection, resolves each change through
     subscriptions_for_document and the predicate kinds, coalesces per subscriber, writes
     the notification rows and enqueues them. ingest_rfc_change and its event-dict
@@ -947,6 +957,13 @@ Then, for precomputed reads:
   tick finds the lock free. The lock is per Postgres session and re-entrant within one,
   so it guards against two workers rather than against one process calling twice, which
   is what two runs of a scheduled job actually are.
+- Duplicate notifications: queueing the same news to the same reader twice is refused
+  by the database, while the same news to another reader, different news to the same
+  one, and the same news under a later reading all queue normally. Event order does not
+  change the key. A delivered row stops blocking its key, which is the documented limit
+  rather than a gap. Verified end to end by forcing the race the lock prevents: with
+  delivery suppressed, the second run is refused and the first run's rows survive
+  untouched.
 - Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
   and typecheck in client/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
