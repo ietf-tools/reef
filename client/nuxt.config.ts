@@ -1,22 +1,30 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: "2025-07-01",
-  ssr: true,
+  // No server rendering: `npm run generate` emits a static bundle that talks to
+  // the Reef API from the browser and nothing else. There is no Node runtime in
+  // front of it, so every route below has to be a real file NGINX can serve,
+  // which is why the runner takes its slug as a query parameter rather than as
+  // a path segment: /s?slug=<slug> is one prerendered page, /s/<slug> would be
+  // an unbounded set of them.
+  ssr: false,
   devtools: { enabled: true },
   devServer: {
     // 3001, not the Nuxt default of 3000, so the dev server does not collide
     // with Red's Nuxt server when both projects are running.
     port: 3001,
   },
+  nitro: {
+    prerender: {
+      routes: ["/", "/s", "/auth/callback"],
+    },
+  },
   modules: ["@nuxtjs/tailwindcss", "reka-ui/nuxt"],
   css: ["~/assets/css/tailwind.css"],
   runtimeConfig: {
-    // Server-side (render-time) API base. The Nuxt server cannot use a relative
-    // URL, so it needs a reachable host: the Django server in the same dev
-    // container, or the internal service URL in production.
-    apiBaseServer: "http://localhost:8001", // NUXT_API_BASE_SERVER
     public: {
-      // Client-side base. Same NGINX origin as the Django API, so relative works.
+      // The API shares this origin behind NGINX, so a relative base works and
+      // requests carry the session cookie.
       apiBase: "", // NUXT_PUBLIC_API_BASE
       // Authentik OIDC application issuer (discovery is fetched from here).
       oidcAuthority: "https://account.ietf.org/application/o/reef/", // NUXT_PUBLIC_OIDC_AUTHORITY

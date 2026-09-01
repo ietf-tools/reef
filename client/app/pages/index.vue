@@ -12,7 +12,7 @@ const { data: surveys, error } = await useAsyncData("open-surveys", () =>
     <ul v-else class="mt-4 space-y-2">
       <li v-for="s in surveys" :key="s.slug">
         <NuxtLink
-          :to="`/s/${s.slug}`"
+          :to="{ path: '/s', query: { slug: s.slug } }"
           class="block rounded border border-gray-200 p-4 hover:bg-gray-50"
         >
           <span class="font-medium">{{ s.title }}</span>

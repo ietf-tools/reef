@@ -9,9 +9,12 @@ export function useSurveyApi() {
   const config = useRuntimeConfig();
   const oidc = useOidc();
 
-  // During SSR use the server-reachable host; in the browser use the relative
-  // (same-origin) base so requests carry the session cookie via NGINX.
-  const baseURL = import.meta.server ? config.apiBaseServer : config.public.apiBase;
+  // The bundle is static and runs only in the browser. The base is empty (and
+  // so relative) wherever the API is proxied onto the site's own origin, as the
+  // dev NGINX does; where the API answers on a different host, set
+  // NUXT_PUBLIC_API_BASE to its absolute URL at build time. Auth travels as a
+  // bearer token either way, so nothing here depends on a cookie.
+  const baseURL = config.public.apiBase;
 
   async function authHeaders(): Promise<Record<string, string>> {
     const token = await oidc.getAccessToken();

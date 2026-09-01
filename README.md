@@ -9,7 +9,7 @@ SurveyJS on our own infrastructure and exposes engagement APIs that Red consumes
 - Surveys, full stack:
   - A Django-hosted survey builder (SurveyJS Creator) and analytics dashboard
     (SurveyJS Analytics), under `/manage/`, for staff.
-  - A themed Nuxt survey runner (`/s/<slug>`) where visitors fill out surveys.
+  - A themed Nuxt survey runner (`/s?slug=<slug>`) where visitors fill out surveys.
   - An API that lists open surveys, serves definitions, and stores responses.
     Red queries the open-survey list and links out to the runner.
 - Ratings, popularity, and subscriptions: APIs consumed by Red (their UI lives

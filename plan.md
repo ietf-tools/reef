@@ -117,7 +117,7 @@ tokens.
 ```
                          +----------------- Reef -----------------+
 Browser -> NGINX :8088 -+- /manage,/admin,/oidc,/api,/static -> Django + DRF :8001 -> PostgreSQL
-                        +- /,/s/*  ------------------------------> Nuxt survey runner :3001
+                        +- /,/s    ------------------------------> Nuxt survey runner :3001
 Red  --------------------  GET /api/reef/... (bearer / anon) ---> Django + DRF
 Red  <-- precomputed JSON <---- blob store <---- manage.py precompute (scheduled)
 All logins ----------------------------------------------------> Authentik (account.ietf.org)
@@ -128,7 +128,7 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 - Django site (builder and analytics): server-rendered template pages that mount the
   vanilla SurveyJS bundles (survey-creator-js, survey-analytics), self-hosted, no CDN.
   Login uses mozilla_django_oidc. The /manage/ paths require login.
-- Nuxt runner (client/, SSR enabled): themed survey pages (survey-vue3-ui plus a
+- Nuxt runner (client/, static SPA, no SSR): themed survey pages (survey-vue3-ui plus a
   per-survey theme JSON). Browser OIDC uses oidc-client-ts (PKCE), the same library
   Red uses. Protected surveys require login; open surveys are anonymous.
 - DRF APIs (/api/reef/): Reef acts as an OIDC resource server, validating Authentik
@@ -207,8 +207,8 @@ reef/
     management/commands/precompute.py   the single entry point
   vendor/                  package.json for self-hosted SurveyJS Creator/Analytics bundles into Django static
   client/                  Nuxt 4 survey runner (themed)
-    nuxt.config.ts         ssr enabled, :3001; server-side API base for render-time fetches
-    app/pages/{index,s/[slug]}.vue
+    nuxt.config.ts         ssr disabled, :3001; prerendered routes, browser-only API base
+    app/pages/{index,s}.vue
     app/components/SurveyRunner.client.vue
     app/composables/{useOidc,useSurveyApi}.ts
     app/assets/theme/
@@ -533,7 +533,7 @@ Each step ends with a commit.
 2. Settings package and modes: reef/settings/* plus logging plus celery.py. Commit:
    "Add settings package with deployment modes".
 3. Dev Docker and compose: docker/{base,app,db}.Dockerfile, configs/nginx-proxy.conf
-   (8088 to Django for /manage, /admin, /oidc, /api, /static; to Nuxt for / and /s/*),
+   (8088 to Django for /manage, /admin, /oidc, /api, /static; to Nuxt for / and /s),
    scripts/app-*.sh (tmux: runserver, nuxt, nginx, celery), run and cleanall,
    docker-compose.yml (db, app, mailpit, pgadmin, mq, celery). Commit: "Add Docker dev
    environment".
@@ -868,7 +868,7 @@ Then, for precomputed reads:
   1. /manage/surveys/new/ builds and saves a survey in the embedded Creator; publish,
      set theme and visibility.
   2. GET /surveys/open/ returns it; a visitor opens the popover link to the Reef Nuxt
-     /s/<slug> runner and submits.
+     /s?slug=<slug> runner and submits.
   3. A Response row is stored (POST .../responses/ returns 201) and is visible in
      /admin/.
   4. /manage/surveys/<id>/analytics/ renders the results.

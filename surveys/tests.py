@@ -42,7 +42,7 @@ class OpenSurveyListTests(APITestCase):
     def test_open_item_includes_runner_url(self):
         resp = self.client.get("/api/reef/surveys/open/")
         item = resp.json()[0]
-        self.assertEqual(item["url"], "/s/open-pub")
+        self.assertEqual(item["url"], "/s?slug=open-pub")
 
 
 class DefinitionAndResponseTests(APITestCase):

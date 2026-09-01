@@ -59,8 +59,12 @@ class OpenSurveySerializer(serializers.ModelSerializer):
         fields = ["id", "slug", "title", "description", "url", "documents"]
 
     def get_url(self, obj) -> str:
+        # The runner is a static bundle with no server in front of it, so the
+        # slug travels as a query parameter: /s is one real prerendered page,
+        # where /s/<slug> would need a path NGINX cannot know ahead of time.
+        # Slugs match ^[-a-zA-Z0-9_]+$, so none of this needs escaping.
         base = getattr(settings, "REEF_SURVEY_RUNNER_BASE_URL", "") or ""
-        return f"{base}/s/{obj.slug}"
+        return f"{base}/s?slug={obj.slug}"
 
     @extend_schema_field(
         serializers.ListField(child=serializers.CharField(), allow_null=True)
