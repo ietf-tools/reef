@@ -3,5 +3,14 @@ services:
     # Keep the container running so VS Code can attach; the servers are started
     # by the term-server.sh / term-client.sh tasks.
     command: /bin/sh -c "while sleep 1000; do :; done"
+    environment:
+      # Set here rather than via devcontainer.json's containerEnv: this overlay
+      # is loaded only by the devcontainer, and compose `environment` is applied
+      # reliably. Without EDITOR_VSCODE the term-*.sh tasks skip their bodies and
+      # docker-init.sh takes its tmux branch, which hangs postCreateCommand.
+      - EDITOR_VSCODE=true
+      # Oh My Zsh's update check prompts in the interactive zsh the tasks use to
+      # run the servers, and the prompt would block them from ever starting.
+      - DISABLE_AUTO_UPDATE=true
     volumes:
       - .:/workspace
