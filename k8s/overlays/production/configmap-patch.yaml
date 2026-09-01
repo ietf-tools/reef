@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: reef-config
-data:
-  REEF_ALLOWED_HOSTS: "reef.ietf.org"
-  REEF_DB_HOST: "postgres"
-  NUXT_PUBLIC_OIDC_CLIENT_ID: "" # production Authentik client id
-  REEF_OIDC_RP_CLIENT_ID: "" # production Authentik client id

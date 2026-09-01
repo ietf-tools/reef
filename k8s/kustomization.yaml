@@ -1,0 +1,6 @@
+resources:
+  - backend.yaml
+  - celery.yaml
+  - beat.yaml
+  - memcached.yaml
+  - mq.yaml

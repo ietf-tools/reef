@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/part-of: reef
     app.kubernetes.io/component: backend
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/component: backend
@@ -16,38 +16,61 @@ spec:
         app.kubernetes.io/part-of: reef
         app.kubernetes.io/component: backend
     spec:
+      securityContext:
+        runAsNonRoot: true
       initContainers:
         # Apply migrations before the API starts (runs on every rollout).
         - name: migrate
-          image: ghcr.io/ietf-tools/reef-backend:latest
+          image: ghcr.io/ietf-tools/reef-backend:$APP_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
           command: ["./start.sh"]
           env:
             - name: CONTAINER_ROLE
               value: migrations
           envFrom:
-            - configMapRef:
-                name: reef-config
             - secretRef:
-                name: reef-secrets
+                name: reef-secrets-env
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsUser: 1000
+            runAsGroup: 1000
       containers:
         - name: backend
-          image: ghcr.io/ietf-tools/reef-backend:latest
+          image: ghcr.io/ietf-tools/reef-backend:$APP_IMAGE_TAG
+          imagePullPolicy: IfNotPresent
           env:
             - name: CONTAINER_ROLE
               value: backend
           envFrom:
-            - configMapRef:
-                name: reef-config
             - secretRef:
-                name: reef-secrets
+                name: reef-secrets-env
           ports:
             - containerPort: 8000
+              name: http
+              protocol: TCP
           readinessProbe:
             httpGet:
               path: /health/
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          resources:
+            requests:
+              cpu: 250m
+              memory: 2Gi
+      terminationGracePeriodSeconds: 60
 ---
 apiVersion: v1
 kind: Service
@@ -59,5 +82,7 @@ spec:
   selector:
     app.kubernetes.io/component: backend
   ports:
-    - port: 8000
-      targetPort: 8000
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http

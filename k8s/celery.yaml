@@ -16,16 +16,30 @@ spec:
         app.kubernetes.io/part-of: reef
         app.kubernetes.io/component: celery
     spec:
+      securityContext:
+        runAsNonRoot: true
       containers:
         - name: celery
-          image: ghcr.io/ietf-tools/reef-backend:latest
+          image: ghcr.io/ietf-tools/reef-backend:$APP_IMAGE_TAG
+          imagePullPolicy: Always
           env:
             - name: CONTAINER_ROLE
               value: celery
             - name: CELERY_APP
               value: reef
           envFrom:
-            - configMapRef:
-                name: reef-config
             - secretRef:
-                name: reef-secrets
+                name: reef-secrets-env
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+      terminationGracePeriodSeconds: 600
