@@ -678,10 +678,10 @@ paths:
   /api/reef/subjects/{slug}/:
     get:
       operationId: subjects_retrieve
-      description: 'Two shapes, told apart by `retired`. A live subject comes back
-        in full. A retired one comes back as `slug`, `retired` and `merged_into` only:
-        it is no longer offered and should not be rendered as current, and what is
-        left is enough to redirect a link that names it.'
+      description: |-
+        Three shapes, told apart by which key is present. A live subject comes back in full, with `documents` and its other names in `aliases`. A retired one comes back as `slug`, `retired` and `merged_into` only: it is no longer offered and should not be rendered as current, and what is left is enough to redirect a link that names it. An alias comes back as `slug` and `alias_of`, naming the subject to redirect to.
+
+        A subject's own slug always wins, so a name is never both.
       summary: Read one subject and the documents carrying it
       parameters:
       - in: path
@@ -1350,18 +1350,18 @@ components:
         slug:
           type: string
           readOnly: true
-          description: Stable identifier used in URLs and by Red. Changing it breaks
-            links that name the old one; the name is the field to edit when the wording
-            is what changed.
+          description: Stable identifier used in URLs and by Red. Changing it leaves
+            the old one behind as an alias, so links naming it still resolve; the
+            name is still the field to edit when only the wording changed.
           pattern: ^[-a-zA-Z0-9_]+$
         retired:
           type: boolean
           readOnly: true
         merged_into:
           type: string
-          description: Stable identifier used in URLs and by Red. Changing it breaks
-            links that name the old one; the name is the field to edit when the wording
-            is what changed.
+          description: Stable identifier used in URLs and by Red. Changing it leaves
+            the old one behind as an alias, so links naming it still resolve; the
+            name is still the field to edit when only the wording changed.
           readOnly: true
       required:
       - merged_into
@@ -1393,9 +1393,9 @@ components:
         slug:
           type: string
           readOnly: true
-          description: Stable identifier used in URLs and by Red. Changing it breaks
-            links that name the old one; the name is the field to edit when the wording
-            is what changed.
+          description: Stable identifier used in URLs and by Red. Changing it leaves
+            the old one behind as an alias, so links naming it still resolve; the
+            name is still the field to edit when only the wording changed.
           pattern: ^[-a-zA-Z0-9_]+$
         name:
           type: string
@@ -1410,6 +1410,32 @@ components:
       - description
       - id
       - name
+      - slug
+    SubjectAlias:
+      type: object
+      description: |-
+        An alias, as the only thing an alias is for: the name it resolves to.
+
+        Not the subject's own payload served under the alias's URL. That would answer
+        the read in one fetch, at the cost of publishing the same subject under two
+        addresses with nothing saying which one is canonical, and canonicalising a link
+        is the whole reason a caller asked. So the same stub shape a retired subject
+        gets, and callers tell the shapes apart by which key is present.
+      properties:
+        slug:
+          type: string
+          readOnly: true
+          description: A name that resolves to this subject. Readers following a link
+            that uses it are redirected to the subject's own slug.
+          pattern: ^[-a-zA-Z0-9_]+$
+        alias_of:
+          type: string
+          description: Stable identifier used in URLs and by Red. Changing it leaves
+            the old one behind as an alias, so links naming it still resolve; the
+            name is still the field to edit when only the wording changed.
+          readOnly: true
+      required:
+      - alias_of
       - slug
     SubjectDetail:
       type: object
@@ -1427,9 +1453,9 @@ components:
         slug:
           type: string
           readOnly: true
-          description: Stable identifier used in URLs and by Red. Changing it breaks
-            links that name the old one; the name is the field to edit when the wording
-            is what changed.
+          description: Stable identifier used in URLs and by Red. Changing it leaves
+            the old one behind as an alias, so links naming it still resolve; the
+            name is still the field to edit when only the wording changed.
           pattern: ^[-a-zA-Z0-9_]+$
         name:
           type: string
@@ -1443,12 +1469,20 @@ components:
         retired:
           type: boolean
           readOnly: true
+        aliases:
+          type: array
+          items:
+            type: string
+            description: A name that resolves to this subject. Readers following a
+              link that uses it are redirected to the subject's own slug.
+          readOnly: true
         documents:
           type: array
           items:
             type: string
           readOnly: true
       required:
+      - aliases
       - description
       - documents
       - id
@@ -1459,6 +1493,7 @@ components:
       oneOf:
       - $ref: '#/components/schemas/SubjectDetail'
       - $ref: '#/components/schemas/RetiredSubject'
+      - $ref: '#/components/schemas/SubjectAlias'
     Subscription:
       type: object
       properties:

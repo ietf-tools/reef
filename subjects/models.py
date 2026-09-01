@@ -4,7 +4,9 @@
 A subject is a curated topic an RFC can be about: "security", "routing",
 "congestion control". Both halves live here, the list of subjects that exist
 and the assignment of a subject to a document, because the vocabulary is
-Reef's own rather than something read out of the datatracker.
+Reef's own rather than something read out of the datatracker. So does a third,
+smaller thing: the other names a subject answers to, which exist because Reef
+publishes the names and so has to go on resolving the ones it has published.
 
 This is the one place Reef holds something about a document beyond its
 identifier, and it does not contradict the rule that it holds no document
@@ -19,6 +21,7 @@ a curation error rather than something the database can catch, exactly as a
 rating or a set entry naming a nonexistent RFC already is.
 """
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
@@ -76,8 +79,9 @@ class Subject(models.Model):
         max_length=SLUG_MAX_LENGTH,
         unique=True,
         help_text="Stable identifier used in URLs and by Red. Changing it "
-        "breaks links that name the old one; the name is the field to edit "
-        "when the wording is what changed.",
+        "leaves the old one behind as an alias, so links naming it still "
+        "resolve; the name is still the field to edit when only the wording "
+        "changed.",
     )
     name = models.CharField(
         max_length=NAME_MAX_LENGTH,
@@ -124,6 +128,55 @@ class Subject(models.Model):
     def __str__(self):
         return f"{self.name} (retired)" if self.is_retired else self.name
 
+    def clean(self):
+        """Refuse a slug that is already another subject's alias.
+
+        Nothing breaks if one slips past: the detail read looks for a subject before
+        it looks for an alias, so the alias would simply never be reached. But an
+        unreachable alias is a curation mistake nobody would see, and this is the
+        form staff type the slug into.
+        """
+        super().clean()
+        # subject_id rather than subject, so this also works before the subject has
+        # been saved, where a model instance in a related filter is refused.
+        clash = SubjectAlias.objects.filter(slug=self.slug).exclude(subject_id=self.pk)
+        if self.slug and clash.exists():
+            raise ValidationError(
+                {"slug": f"{self.slug} is already an alias of another subject."}
+            )
+
+    def save(self, *args, **kwargs):
+        """Save, and leave the old slug behind as an alias if the slug changed.
+
+        Automatic rather than something staff do afterwards, because the cost of
+        forgetting falls on readers following a link that has already been published
+        and not on whoever renamed it. Deleting the alias is one click for the case
+        the rename was fixing a typo nobody ever saw.
+        """
+        renamed_from = self._slug_before_this_save(kwargs.get("update_fields"))
+        super().save(*args, **kwargs)
+        if renamed_from is None:
+            return
+        # A subject renamed to one of its own aliases is swapping which name is
+        # canonical, so that alias is consumed rather than left to shadow the slug.
+        self.aliases.filter(slug=self.slug).delete()
+        SubjectAlias.objects.create(slug=renamed_from, subject=self)
+
+    def _slug_before_this_save(self, update_fields):
+        """The slug this row had, if this save is changing it, else None."""
+        if self.pk is None:
+            return None
+        if update_fields is not None and "slug" not in update_fields:
+            # retire() and unretire() name their fields, so the common writes that
+            # cannot be renames do not pay for a query to find that out.
+            return None
+        previous = (
+            Subject.all_objects.filter(pk=self.pk)
+            .values_list("slug", flat=True)
+            .first()
+        )
+        return previous if previous not in (None, self.slug) else None
+
     @property
     def is_retired(self):
         return self.retired_at is not None
@@ -138,6 +191,61 @@ class Subject(models.Model):
         self.retired_at = None
         self.merged_into = None
         self.save(update_fields=["retired_at", "merged_into", "updated_at"])
+
+
+class SubjectAlias(models.Model):
+    """Another name for a subject, and never a subject itself.
+
+    A name outlives the wording that produced it: a slug that was renamed, an
+    abbreviation readers type, a term a survey audience was written against. Retiring
+    a subject with merged_into set already redirects one name to another, but it says
+    something else while doing it. A retired subject was real -- it had an id a
+    subscription pointed at and documents under it, and its redirect records what
+    became of them. An alias never was, so writing one as a retirement would mean
+    creating a row with a subscribable id and a permanent history entry in order to
+    say that one word means another.
+
+    So an alias carries no identity at all: no id anybody points at, no assignments,
+    no place in the vocabulary, and nothing to subscribe to. It can afford to be this
+    thin because a subscription names a subject by primary key rather than by slug,
+    which is the same decision that already made renaming safe for subscribers.
+    """
+
+    slug = models.SlugField(
+        max_length=SLUG_MAX_LENGTH,
+        unique=True,
+        help_text="A name that resolves to this subject. Readers following a link "
+        "that uses it are redirected to the subject's own slug.",
+    )
+    subject = models.ForeignKey(
+        Subject, on_delete=models.CASCADE, related_name="aliases"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["slug"]
+        verbose_name_plural = "subject aliases"
+
+    def __str__(self):
+        return f"{self.slug} -> {self.subject.slug}"
+
+    def clean(self):
+        super().clean()
+        if self.slug and Subject.all_objects.filter(slug=self.slug).exists():
+            raise ValidationError(
+                {
+                    "slug": f"{self.slug} is a subject's own slug, so an alias of that "
+                    "name would never be reached."
+                }
+            )
+
+    def save(self, *args, **kwargs):
+        # Enforced here and not only in clean() because aliases are created by code as
+        # well as by staff -- a rename leaves one behind, a merge inherits them -- and
+        # an alias a subject's slug shadows is dead weight that no read would ever
+        # reach. Retired subjects count: their slug still resolves, to their redirect.
+        self.clean()
+        super().save(*args, **kwargs)
 
 
 class SubjectAssignment(models.Model):

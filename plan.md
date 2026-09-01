@@ -343,6 +343,21 @@ reef/
   a subscription match runs through and it has to be indexable from the document end,
   which is the end a change event arrives at. Unassigning is a hard delete; there is
   no state between assigned and not.
+- subjects.SubjectAlias: a slug and the subject it names. Another name for a subject,
+  and never a subject itself — no primary key anybody points at, no assignments, no
+  place in the vocabulary. It exists because a name outlives the wording that produced
+  it: a slug that was renamed, an abbreviation readers type, a term a survey audience
+  was written against. The mechanism already there for that, retiring a subject with
+  merged_into set, records something else. A retired subject was real: it had an id a
+  subscription pointed at and documents under it, and its redirect is a fact about what
+  became of them. An alias never was, so expressing one as a retirement means creating
+  a row with a subscribable id and a permanent history entry in order to say that one
+  word means another.
+
+  It stays this small because subscribing names a subject by id rather than by slug, so
+  nothing about identity has to follow a name around. Resolution is one lookup on the
+  detail read and one join in a survey audience, and a subject's own slug always wins
+  it, which makes an alias that shadows one inert rather than ambiguous.
 - subscriptions.Subscription (scaffold): user or email, kind (new_rfc, by_status,
   obsoleted, rfc, set, subject, and similar), params (JSON), verified flag. The
   rfc kind watches one RFC, identified by params {"rfc": "rfc9110"}; matching it
@@ -463,7 +478,17 @@ Subjects (built, no ticket yet):
   also carries the id, which is what subscribing names. Membership is here rather than
   on the list for the reason /me/ splits its set serializer: a picker needs every
   subject and no membership, so putting membership in the list would make the payload
-  grow with the catalogue rather than with the vocabulary.
+  grow with the catalogue rather than with the vocabulary. The response also carries
+  the subject's aliases, so a picker can match what a reader typed against the other
+  names for a subject without a second read. The vocabulary list does not carry them:
+  whether Red wants to search on them is its call, and adding the array there later is
+  additive.
+- GET /subjects/{alias}/ (anonymous): the same URL resolves an alias, and answers with
+  slug and alias_of alone. A body rather than a 301, because the precomputer publishes
+  this read as a file and a blob store cannot serve a redirect, so the endpoint has to
+  return the redirect itself or the published file and the live response would
+  disagree. That is the reason a retired subject's payload is a stub too, and the three
+  shapes are told apart by which key is present: alias_of, or retired, or documents.
 - No write path. Curation is staff work in the admin, both for the vocabulary and for
   assignments, so a POST is a 405 whoever is asking. If self-service assignment is
   ever wanted it is a new decision, not a missing endpoint.
@@ -851,6 +876,19 @@ Then, for precomputed reads:
     where a survey is shown, not who may take it. Separately, offerable_to excludes a
     survey the authenticated caller has answered. Commit: "Target survey invites and
     hide answered ones".
+34. Subject aliases: other names for a subject, resolving where the subject's own slug
+    resolves. subjects.SubjectAlias is a slug and a foreign key, arriving three ways —
+    typed in the admin beside the subject it names, left behind when a slug is renamed,
+    and inherited from the source of a merge. The rename hook is why most of this
+    exists: changing a slug broke every link naming the old one, and all the admin could
+    do was warn, which is a rule enforced by staff remembering. Merging moves the
+    source's aliases to the target, the target winning a collision as it already does
+    for assignments and subscriptions, and does not turn the source's own slug into one:
+    the retired row still resolves that name through merged_into, and an alias shadowed
+    by a subject's slug would never be reached. The detail read answers an alias with
+    slug and alias_of, the precomputer writes that stub as subjects/<alias>.json beside
+    the real ones, and a survey audience resolves subject slugs through aliases, so that
+    a rename stops silently emptying one. Commit: "Add subject aliases".
 ## Verification
 
 - Dev bring-up: devcontainer (or docker/run); migrate and collectstatic run; tmux
@@ -969,6 +1007,14 @@ Then, for precomputed reads:
   retired subject resolves at /subjects/<slug>/ to slug, retired and merged_into and
   nothing else, and its precomputed file is that same redirect, while the vocabulary
   file omits it.
+- Subject aliases: an alias resolves at /subjects/<alias>/ to slug and alias_of and
+  nothing else, and its precomputed file is that same stub, while the vocabulary omits
+  it and a subscription cannot name it, since subscribing names an id. Renaming a
+  subject's slug leaves an alias behind; renaming it to one of its own aliases consumes
+  that alias rather than duplicating the name; an alias cannot be created on a slug a
+  subject already holds. A merge gives the source's aliases to the target and drops the
+  ones the target already answers to. A survey audience written against an alias
+  resolves to the documents the subject carries.
 - Subseries membership: a document joining a subseries reaches somebody following the
   container, and so does a document leaving one, including through a set or subject that
   holds the container. A change that is not about membership does not reach them.
@@ -1064,7 +1110,20 @@ Then, for precomputed reads:
   one mail per reader, and the unsubscribe hold. What is left open is the wording of
   that notice, which is composed in subjects/merge.py rather than in a template, and
   whether a merge should ever be undoable: unretiring the source brings it back empty,
-  since its documents and followers have gone.
+  since its documents and followers have gone, and now its aliases as well. One gap
+  that is not a decision: merge_and_notify has no caller. It is reachable from a shell
+  and from its tests, and neither an admin action nor a management command offers it,
+  so the operation exists and nobody can perform it.
+- Subject aliases: built, as step 34. What is left is where else a name should resolve.
+  The detail read and survey audiences do; the vocabulary list carries no aliases array
+  and nothing searches on them, because whether Red wants a typeahead over other names
+  is part of the contract below that has not been agreed. Two smaller questions. An
+  alias whose subject was retired without being merged makes a caller take two hops to
+  reach a dead end, which is the right answer arrived at slowly, and could be collapsed
+  by having the alias read answer with the target's retirement instead of only pointing
+  at it. And an alias is deleted outright rather than retired, on the grounds that a
+  name nobody chose to publish is not worth a history; the cost is that deleting a
+  published one breaks the links it served with nothing recording that it existed.
 - Assigning subjects at scale: the vocabulary is small and staff can type it, but the
   back catalogue is roughly 9,800 RFCs and the admin assigns one document at a time.
   Nothing decides whether subjects apply only to documents published from now on, or
@@ -1098,7 +1157,8 @@ Then, for precomputed reads:
 - Subjects on the Red side: no contract is agreed yet. Red needs the vocabulary for a
   picker, a document's subjects for its RFC pages, and a link target for a subject,
   which is why the detail read is addressed by slug. Whether Red wants a document count
-  per subject in the list, and whether a subject should have a page of its own in Red
+  per subject in the list, whether it wants the aliases array there so a picker can
+  search on other names, and whether a subject should have a page of its own in Red
   or only a filter, are its calls. This is the same cross-repo agreement the open/ list
   (#225) and sets still need, and subjects need a ticket of their own alongside them.
 - Subscribing to someone else's set: the first cut restricts subscriptions to your

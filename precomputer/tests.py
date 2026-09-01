@@ -22,7 +22,7 @@ from precomputer.tasks import precompute_all, precompute_curated, precompute_eng
 from ratings.models import Rating
 from reef import rfcmeta
 from reef.locks import _key, advisory_lock
-from subjects.models import Subject, SubjectAssignment
+from subjects.models import Subject, SubjectAlias, SubjectAssignment
 from surveys.models import Survey
 
 User = get_user_model()
@@ -214,6 +214,31 @@ class DocumentMetadataTests(PrecomputeTestCase):
         self.precompute("ratings")
         self.assertEqual(self.read("ratings/rfc9110.json")["title"], "HTTP Semantics")
 
+    def test_an_alias_gets_the_redirect_stub_as_its_own_file(self):
+        """A name arrives from a link without the caller knowing which kind it is,
+        so it has to be answered from the same directory as a subject's own slug."""
+        subject = Subject.objects.create(name="Security", slug="security")
+        SubjectAlias.objects.create(slug="sec", subject=subject)
+        self.precompute("subjects")
+        self.assertEqual(
+            self.written(),
+            {"subjects.json", "subjects/security.json", "subjects/sec.json"},
+        )
+        self.assertEqual(
+            self.read("subjects/sec.json"), {"slug": "sec", "alias_of": "security"}
+        )
+
+    def test_a_shadowed_alias_does_not_overwrite_the_subjects_file(self):
+        """bulk_create goes around the validation that refuses this. The read serves
+        the subject for that name, so the file has to as well."""
+        subject = Subject.objects.create(name="Security", slug="security")
+        SubjectAlias.objects.bulk_create(
+            [SubjectAlias(slug="routing", subject=subject)]
+        )
+        Subject.objects.create(name="Routing", slug="routing")
+        self.precompute("subjects")
+        self.assertIn("documents", self.read("subjects/routing.json"))
+
     def test_subject_detail_gains_a_map_and_keeps_its_documents_array(self):
         """A sibling map rather than retyping `documents`: retyping an existing key
         is the change that breaks a caller."""
@@ -350,13 +375,30 @@ class PurgeTests(PrecomputeTestCase):
         self.precompute()
         self.assertNotIn("ratings/rfc9110.json", self.written())
 
-    def test_a_renamed_subject_leaves_no_stale_file(self):
+    def test_a_deleted_subject_leaves_no_stale_file(self):
+        subject = Subject.objects.create(name="Security", slug="security")
+        self.precompute("subjects")
+        subject.delete()
+        self.precompute("subjects")
+        self.assertEqual(self.written(), {"subjects.json"})
+
+    def test_a_renamed_subject_keeps_its_old_key_as_a_redirect(self):
+        """This used to be the purge's example. A rename now leaves an alias behind,
+        so the old key is one the run still produces, and what it holds is the stub
+        that sends a reader following an old link to the new name."""
         subject = Subject.objects.create(name="Security", slug="security")
         self.precompute("subjects")
         subject.slug = "sec"
         subject.save()
         self.precompute("subjects")
-        self.assertEqual(self.written(), {"subjects.json", "subjects/sec.json"})
+        self.assertEqual(
+            self.written(),
+            {"subjects.json", "subjects/sec.json", "subjects/security.json"},
+        )
+        self.assertEqual(
+            self.read("subjects/security.json"),
+            {"slug": "security", "alias_of": "sec"},
+        )
 
     def test_keys_no_task_owns_are_left_alone(self):
         stranger = self.out_dir / "other" / "nuxt-assets.json"

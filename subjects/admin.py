@@ -4,7 +4,7 @@ from django.db.models import Count
 
 from reef.admin_documents import DocumentTitleMixin
 
-from .models import Subject, SubjectAssignment
+from .models import Subject, SubjectAlias, SubjectAssignment
 
 
 class SubjectAssignmentInline(DocumentTitleMixin, admin.TabularInline):
@@ -15,6 +15,21 @@ class SubjectAssignmentInline(DocumentTitleMixin, admin.TabularInline):
     readonly_fields = ["document_title"]
 
 
+class SubjectAliasInline(admin.TabularInline):
+    """The other names for a subject, curated where the subject is.
+
+    Not an admin of its own: an alias is meaningless apart from what it points at, and
+    the question staff have is always "what else should reach this subject" rather
+    than "what aliases exist". The list below shows renames arriving here by
+    themselves, which is the other reason this is the place to see them.
+    """
+
+    model = SubjectAlias
+    extra = 0
+    fields = ["slug", "created_at"]
+    readonly_fields = ["created_at"]
+
+
 @admin.register(Subject)
 class SubjectAdmin(admin.ModelAdmin):
     """Where the vocabulary is curated, which is the only place it is.
@@ -23,23 +38,40 @@ class SubjectAdmin(admin.ModelAdmin):
     subjects and Red renders them, but both work from the list made here.
     """
 
-    list_display = ["name", "slug", "assignment_count", "retired_at", "merged_into"]
+    list_display = [
+        "name",
+        "slug",
+        "assignment_count",
+        "alias_list",
+        "retired_at",
+        "merged_into",
+    ]
     list_filter = [("retired_at", admin.EmptyFieldListFilter)]
     actions = ["retire_selected", "unretire_selected"]
     # Typing the name fills the slug, which is the order the two are decided
-    # in. It stops filling once the subject has been saved, which is right:
-    # changing a slug breaks the links naming the old one, so it should take
-    # deliberate typing rather than follow a reworded name by itself.
+    # in. It stops filling once the subject has been saved, which is right: a
+    # rename leaves the old slug behind as an alias, and growing one of those
+    # every time somebody reworded a name would be noise rather than history.
     prepopulated_fields = {"slug": ["name"]}
-    search_fields = ["name", "slug", "description", "assignments__doc"]
-    inlines = [SubjectAssignmentInline]
+    # aliases__slug included so that searching the name a reader typed finds the
+    # subject it resolves to, which is the question an alias exists to answer.
+    search_fields = [
+        "name",
+        "slug",
+        "description",
+        "assignments__doc",
+        "aliases__slug",
+    ]
+    inlines = [SubjectAliasInline, SubjectAssignmentInline]
 
     def get_queryset(self, request):
         # all_objects, because staff have to be able to find a retired subject in
         # order to bring it back or see where it went. Annotated rather than counted
         # per row: the column is on the listing, so counting in the display method
         # would be one query per subject.
-        return Subject.all_objects.annotate(_assignments=Count("assignments"))
+        return Subject.all_objects.annotate(
+            _assignments=Count("assignments", distinct=True)
+        ).prefetch_related("aliases")
 
     @admin.action(description="Retire selected subjects")
     def retire_selected(self, request, queryset):
@@ -64,6 +96,11 @@ class SubjectAdmin(admin.ModelAdmin):
     @admin.display(description="Documents", ordering="_assignments")
     def assignment_count(self, obj):
         return obj._assignments
+
+    @admin.display(description="Also known as")
+    def alias_list(self, obj):
+        # Prefetched above, so this is not a query per row.
+        return ", ".join(alias.slug for alias in obj.aliases.all())
 
 
 @admin.register(SubjectAssignment)

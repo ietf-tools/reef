@@ -19,7 +19,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from popularity.models import PopularEntry
-from subjects.models import Subject, SubjectAssignment
+from subjects.models import Subject, SubjectAlias, SubjectAssignment
 from surveys.models import Survey
 
 logger = logging.getLogger("reef")
@@ -47,7 +47,7 @@ def _schedule_curated(sender, **kwargs):
     transaction.on_commit(enqueue)
 
 
-for model in (PopularEntry, Subject, SubjectAssignment, Survey):
+for model in (PopularEntry, Subject, SubjectAlias, SubjectAssignment, Survey):
     receiver(post_save, sender=model, dispatch_uid=f"precompute_{model.__name__}_save")(
         _schedule_curated
     )

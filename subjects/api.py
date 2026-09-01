@@ -11,6 +11,7 @@ they would be subscribing to before they have signed in.
 """
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import (
     OpenApiParameter,
     PolymorphicProxySerializer,
@@ -22,9 +23,10 @@ from rest_framework.permissions import AllowAny
 
 from reef.docids import normalize_doc_id
 
-from .models import Subject
+from .models import Subject, SubjectAlias
 from .serializers import (
     RetiredSubjectSerializer,
+    SubjectAliasSerializer,
     SubjectDetailSerializer,
     SubjectSerializer,
 )
@@ -76,41 +78,70 @@ class SubjectList(ListAPIView):
 @extend_schema(
     summary="Read one subject and the documents carrying it",
     description=(
-        "Two shapes, told apart by `retired`. A live subject comes back in full. A "
-        "retired one comes back as `slug`, `retired` and `merged_into` only: it is "
-        "no longer offered and should not be rendered as current, and what is left "
-        "is enough to redirect a link that names it."
+        "Three shapes, told apart by which key is present. A live subject comes back "
+        "in full, with `documents` and its other names in `aliases`. A retired one "
+        "comes back as `slug`, `retired` and `merged_into` only: it is no longer "
+        "offered and should not be rendered as current, and what is left is enough to "
+        "redirect a link that names it. An alias comes back as `slug` and `alias_of`, "
+        "naming the subject to redirect to.\n\n"
+        "A subject's own slug always wins, so a name is never both."
     ),
     responses={
         200: PolymorphicProxySerializer(
             component_name="SubjectDetailOrRedirect",
-            serializers=[SubjectDetailSerializer, RetiredSubjectSerializer],
-            # No discriminator field: `retired` is what a caller branches on, and a
-            # boolean cannot be an OpenAPI discriminator, so this is a plain oneOf.
+            serializers=[
+                SubjectDetailSerializer,
+                RetiredSubjectSerializer,
+                SubjectAliasSerializer,
+            ],
+            # No discriminator field: a caller branches on which keys are present,
+            # and `retired` is a boolean, which cannot be an OpenAPI discriminator,
+            # so this is a plain oneOf.
             resource_type_field_name=None,
         )
     },
 )
 class SubjectDetail(RetrieveAPIView):
-    """One subject, with its document list; or, if it has been retired, where it went.
+    """One subject with its document list, or, if the slug is not a live subject's,
+    where the name goes instead.
 
-    Retired subjects resolve here and nowhere else. They are gone from the
-    vocabulary, so nothing offers them any more, but Red has links naming them and a
-    reader following one has to be able to find out what it became. What comes back
-    is only slug, retired and merged_into: enough to redirect, and deliberately not
-    enough to render as though the subject were still current.
+    This is the URL a reader arrives at from a link, so it has to answer every name
+    Reef has ever published rather than only the ones still in the vocabulary. A
+    retired subject resolves here and nowhere else: it is gone from the vocabulary, so
+    nothing offers it any more, but Red has links naming it and a reader following one
+    has to find out what it became. An alias resolves here too, for names that were
+    never subjects at all.
+
+    Both redirects come back as stubs -- enough to send the reader on, deliberately
+    not enough to render as though the name were current -- which is also what makes
+    them precomputable: the store this read is published into serves bodies, not 301s.
     """
 
-    queryset = Subject.all_objects.prefetch_related("assignments")
+    queryset = Subject.all_objects.prefetch_related("assignments", "aliases")
     permission_classes = [AllowAny]
     lookup_field = "slug"
+    # Set by get_object. None while the schema generator is introspecting the view
+    # without ever making a request.
+    _object = None
 
     def get_serializer_class(self):
-        if getattr(self, "_subject_is_retired", False):
+        if isinstance(self._object, SubjectAlias):
+            return SubjectAliasSerializer
+        if self._object is not None and self._object.is_retired:
             return RetiredSubjectSerializer
         return SubjectDetailSerializer
 
     def get_object(self):
-        subject = super().get_object()
-        self._subject_is_retired = subject.is_retired
-        return subject
+        slug = self.kwargs[self.lookup_field]
+        obj = self.filter_queryset(self.get_queryset()).filter(slug=slug).first()
+        if obj is None:
+            # Second, and only second. A subject's own slug wins the lookup, which is
+            # what makes an alias that shadows one merely unreachable instead of
+            # ambiguous, and is why nothing has to keep the two name spaces disjoint
+            # for correctness.
+            obj = get_object_or_404(
+                SubjectAlias.objects.select_related("subject"), slug=slug
+            )
+        self.check_object_permissions(self.request, obj)
+        self._object = obj
+        return obj

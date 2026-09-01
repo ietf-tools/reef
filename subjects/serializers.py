@@ -1,7 +1,7 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from rest_framework import serializers
 
-from .models import Subject
+from .models import Subject, SubjectAlias
 
 
 class SubjectSerializer(serializers.ModelSerializer):
@@ -29,17 +29,41 @@ class SubjectDetailSerializer(SubjectSerializer):
     """
 
     documents = serializers.SerializerMethodField()
+    # The other names this subject answers to, so that a picker can match what a
+    # reader typed without a second read. Names only: an alias has nothing else, and
+    # is not a thing a caller can subscribe to or address by id.
+    aliases = serializers.SlugRelatedField(many=True, slug_field="slug", read_only=True)
     # Always false here: a retired subject is served by RetiredSubjectSerializer
     # instead. Carried so that a caller can tell the two shapes apart by reading one
     # field rather than by noticing which keys are missing.
     retired = serializers.BooleanField(source="is_retired", read_only=True)
 
     class Meta(SubjectSerializer.Meta):
-        fields = [*SubjectSerializer.Meta.fields, "retired", "documents"]
+        fields = [*SubjectSerializer.Meta.fields, "retired", "aliases", "documents"]
         read_only_fields = fields
 
     def get_documents(self, obj) -> list[str]:
         return [assignment.doc for assignment in obj.assignments.all()]
+
+
+class SubjectAliasSerializer(serializers.ModelSerializer):
+    """An alias, as the only thing an alias is for: the name it resolves to.
+
+    Not the subject's own payload served under the alias's URL. That would answer
+    the read in one fetch, at the cost of publishing the same subject under two
+    addresses with nothing saying which one is canonical, and canonicalising a link
+    is the whole reason a caller asked. So the same stub shape a retired subject
+    gets, and callers tell the shapes apart by which key is present.
+    """
+
+    alias_of = serializers.SlugRelatedField(
+        source="subject", slug_field="slug", read_only=True
+    )
+
+    class Meta:
+        model = SubjectAlias
+        fields = ["slug", "alias_of"]
+        read_only_fields = fields
 
 
 class RetiredSubjectSerializer(serializers.ModelSerializer):

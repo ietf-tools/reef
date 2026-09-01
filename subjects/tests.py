@@ -191,6 +191,8 @@ class SubjectAdminTests(APITestCase):
                 "description": "",
                 "assignments-TOTAL_FORMS": "0",
                 "assignments-INITIAL_FORMS": "0",
+                "aliases-TOTAL_FORMS": "0",
+                "aliases-INITIAL_FORMS": "0",
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -207,12 +209,41 @@ class SubjectAdminTests(APITestCase):
                 "assignments-INITIAL_FORMS": "0",
                 "assignments-0-doc": "RFC 8446",
                 "assignments-0-subject": str(self.security.pk),
+                "aliases-TOTAL_FORMS": "0",
+                "aliases-INITIAL_FORMS": "0",
             },
         )
         self.assertEqual(response.status_code, 302)
         # Canonicalized on the way in, as everywhere else: the admin is a write
         # path like any other and the constraint compares stored bytes.
         self.assertIn("rfc8446", [a.doc for a in self.security.assignments.all()])
+
+    def test_an_alias_is_added_through_the_inline(self):
+        response = self.client.post(
+            f"/admin/subjects/subject/{self.security.pk}/change/",
+            {
+                "slug": "security",
+                "name": "Security",
+                "description": "",
+                "assignments-TOTAL_FORMS": "0",
+                "assignments-INITIAL_FORMS": "0",
+                "aliases-TOTAL_FORMS": "1",
+                "aliases-INITIAL_FORMS": "0",
+                "aliases-0-slug": "sec",
+                "aliases-0-subject": str(self.security.pk),
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            list(self.security.aliases.values_list("slug", flat=True)), ["sec"]
+        )
+
+    def test_searching_by_an_alias_finds_the_subject(self):
+        # The question an alias exists to answer: a reader typed this name, which
+        # subject is it.
+        self.security.aliases.create(slug="sec")
+        body = self.client.get("/admin/subjects/subject/?q=sec").content.decode()
+        self.assertIn("Security", body)
 
     def test_searching_by_document_finds_the_subject(self):
         # The reason assignments__doc is in search_fields: the question a

@@ -10,7 +10,10 @@ survey about particular RFCs, and a list of subject slugs for one about a topic.
 second resolves through the subject vocabulary at read time rather than at save, so a
 document assigned to the subject next week falls inside the audience without anybody
 reopening the survey -- the same way a set or subject subscription matches membership
-as it stands when the change lands.
+as it stands when the change lands. A slug resolves through the subject's aliases as
+well, so that renaming a subject does not silently empty an audience written against
+its old name: an unrecognised slug contributes nothing and looks exactly like a
+subject nothing is assigned to yet.
 
 Targeting is separate from visibility. It decides where a survey is shown, not who
 may take it; an authenticated-visibility survey targeted at one RFC is still refused
@@ -20,6 +23,7 @@ to an anonymous caller on that RFC's page.
 import logging
 
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 
 from reef.docids import normalize_doc_id
 from subjects.models import SubjectAssignment
@@ -95,9 +99,9 @@ def resolve_audience(audience):
 
     if slugs := audience.get("subjects"):
         documents |= set(
-            SubjectAssignment.objects.filter(subject__slug__in=slugs).values_list(
-                "doc", flat=True
-            )
+            SubjectAssignment.objects.filter(
+                Q(subject__slug__in=slugs) | Q(subject__aliases__slug__in=slugs)
+            ).values_list("doc", flat=True)
         )
 
     # Sorted because this is published in a precomputed file, which has to be the

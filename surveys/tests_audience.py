@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from rest_framework.test import APITestCase
 
-from subjects.models import Subject, SubjectAssignment
+from subjects.models import Subject, SubjectAlias, SubjectAssignment
 from surveys.audience import resolve_audience, validate_audience
 from surveys.models import Response, Survey
 
@@ -72,6 +72,22 @@ class ResolveAudienceTests(TestCase):
         SubjectAssignment.objects.create(subject=subject, doc="rfc8446")
         self.assertEqual(
             resolve_audience({"subjects": ["security"]}), ["rfc8446", "rfc9110"]
+        )
+
+    def test_an_audience_written_against_an_alias_resolves(self):
+        """A subject renamed after the survey was written would otherwise empty its
+        audience silently, since an unrecognised slug contributes nothing."""
+        subject = Subject.objects.create(name="Security", slug="security-and-privacy")
+        SubjectAlias.objects.create(slug="security", subject=subject)
+        SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
+        self.assertEqual(resolve_audience({"subjects": ["security"]}), ["rfc9110"])
+
+    def test_a_subject_reached_by_both_its_names_is_not_duplicated(self):
+        subject = Subject.objects.create(name="Security", slug="security")
+        SubjectAlias.objects.create(slug="sec", subject=subject)
+        SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
+        self.assertEqual(
+            resolve_audience({"subjects": ["security", "sec"]}), ["rfc9110"]
         )
 
     def test_documents_and_subjects_are_unioned_without_duplicates(self):

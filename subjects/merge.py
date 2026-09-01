@@ -6,7 +6,7 @@ changed; this covers one whose meaning was absorbed -- "security is now part of
 security and privacy" -- where the documents under it belong under the other, and the
 people following it were following what it meant rather than what it was called.
 
-Kept out of the model because it is not one write: it moves two kinds of row, decides
+Kept out of the model because it is not one write: it moves three kinds of row, decides
 what to do about people who already follow both, retires the source, and tells
 everybody affected. A model method that did the first four and left the fifth to
 whoever remembered is how somebody's subscription changes meaning without being told.
@@ -43,6 +43,7 @@ def merge_subjects(source, target):
         raise MergeError(f"{source} is already retired.")
 
     _move_assignments(source, target)
+    _move_aliases(source, target)
     affected = _move_subscriptions(source, target)
 
     source.retire(merged_into=target)
@@ -68,6 +69,22 @@ def _move_assignments(source, target):
     # The source keeps none: it is retired, and leaving them would have it go on
     # matching changes for documents that are now the target's business.
     source.assignments.all().delete()
+
+
+def _move_aliases(source, target):
+    """Give the target the other names the source answered to.
+
+    Left behind, they would resolve to a subject nothing offers any more, which is
+    one hop short of an answer. No deduplicating, unlike the assignments above: an
+    alias slug is unique across the table, so the two subjects cannot already share
+    a name and there is nothing for the target to win.
+
+    The source's own slug does not become an alias here. It is still a subject's
+    slug, so it still resolves at the detail read -- to the retired row, which now
+    carries merged_into and says where the name went. An alias of that name would sit
+    behind the subject that shadows it and never be reached.
+    """
+    source.aliases.update(subject=target)
 
 
 def _move_subscriptions(source, target):

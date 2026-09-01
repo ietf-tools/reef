@@ -7,9 +7,11 @@ for them, and the units of precomputing work live here.
 
 One task per public read endpoint. A task yields ``(key, body)`` pairs and
 declares, with ``owns``, the keys in the store that are its own, so that a full
-run can purge what it no longer produces: a subject that was renamed leaves a
-stale ``subjects/<old-slug>.json`` behind otherwise, and a stale payload in a
-blob store outlives the row it came from indefinitely.
+run can purge what it no longer produces: a subject that was deleted leaves a
+stale ``subjects/<slug>.json`` behind otherwise, and a stale payload in a blob
+store outlives the row it came from indefinitely. A subject that was renamed is
+not that case any more -- the old key holds the alias the rename left behind, and
+the run still produces it.
 
 Only anonymous responses are here, because a key in a blob store is served to
 whoever asks for it. That rules out four endpoints on purpose:
@@ -36,7 +38,7 @@ from ratings.api import RatingDetail
 from ratings.models import Rating
 from stats.api import DocumentStatsList
 from subjects.api import SubjectDetail, SubjectList
-from subjects.models import Subject
+from subjects.models import Subject, SubjectAlias
 from surveys.api import OpenSurveyList, SurveyDefinition
 from surveys.models import Survey
 
@@ -164,6 +166,19 @@ def subjects(docs=None, index=None):
             }
 
         yield f"subjects/{slug}.json", _augment(body, add)
+
+    # Aliases sit in the same directory because they answer the same read: a name
+    # arrives from a link without the caller knowing which kind it is. Shadowed ones
+    # are skipped rather than overwriting the subject's own file, which is what the
+    # detail read does with them too -- a subject's slug wins the lookup, so the alias
+    # would never be served anyway.
+    shadowed = Subject.all_objects.values("slug")
+    aliases = SubjectAlias.objects.exclude(slug__in=shadowed).order_by("slug")
+    for slug in aliases.values_list("slug", flat=True):
+        yield (
+            f"subjects/{slug}.json",
+            render_anonymous(detail, f"/api/reef/subjects/{slug}/", slug=slug),
+        )
 
 
 @task("surveys", owns=r"^surveys/open\.json$|^surveys/[^/]+/definition\.json$")
