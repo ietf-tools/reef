@@ -30,6 +30,25 @@ from reef.docids import DOC_ID_MAX_LENGTH, normalize_doc_id
 NAME_MAX_LENGTH = 100
 SLUG_MAX_LENGTH = 50
 
+# The vocabulary is a tree, four levels at the deepest:
+# messaging / email / email-authentication / dkim. The ceiling is agreed rather
+# than observed, and it is worth having as a number the model enforces: it bounds
+# the length of a path, and it means no read ever has to recurse without a limit.
+MAX_DEPTH = 4
+PATH_SEPARATOR = "/"
+# Four slugs and the separators between them, with room to spare.
+PATH_MAX_LENGTH = 255
+
+
+def ancestor_paths(path):
+    """Every path above this one, top first, excluding the path itself.
+
+    A string operation: the ancestors of a subject are the prefixes of its path, so
+    this is the half of the tree that needs no query at all.
+    """
+    slugs = path.split(PATH_SEPARATOR)
+    return [PATH_SEPARATOR.join(slugs[: index + 1]) for index in range(len(slugs) - 1)]
+
 
 class SubjectQuerySet(models.QuerySet):
     def live(self):
@@ -37,6 +56,28 @@ class SubjectQuerySet(models.QuerySet):
 
     def retired(self):
         return self.filter(retired_at__isnull=False)
+
+    def roots(self):
+        return self.filter(parent__isnull=True)
+
+    def at_or_under(self, subject):
+        """The subject and everything beneath it, in tree order.
+
+        One indexed query rather than a walk, which is what the derived path column
+        is for. The separator is appended to the prefix so that a sibling whose slug
+        merely begins with this one's cannot be swept in: security/cryptography/
+        does not match security/cryptography-x/.
+        """
+        prefix = subject.path + PATH_SEPARATOR
+        return self.filter(
+            models.Q(path=subject.path) | models.Q(path__startswith=prefix)
+        ).order_by("path")
+
+    def under(self, subject):
+        """Everything beneath the subject, excluding the subject itself."""
+        return self.filter(path__startswith=subject.path + PATH_SEPARATOR).order_by(
+            "path"
+        )
 
 
 class LiveSubjectManager(models.Manager.from_queryset(SubjectQuerySet)):
@@ -116,6 +157,39 @@ class Subject(models.Model):
         help_text="Set by a merge. The subject this one's documents and followers "
         "were moved to.",
     )
+    # The subject this one sits under, and the whole of the hierarchy's truth. Not
+    # to be confused with merged_into above, which is the other self-reference and
+    # says something entirely different: merged_into is a redirect recording where a
+    # retired subject's documents and followers went, while parent is containment.
+    #
+    # PROTECT rather than CASCADE, matching Subscription.subject: deleting a subject
+    # that others sit under would take a branch of the vocabulary with it, and the
+    # admin reports the refusal legibly. Retiring is the mechanism for taking a
+    # subject out of use; deleting is for one created by mistake.
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="children",
+        help_text="The subject this one sits under. Leave empty for a top-level "
+        "subject. A document assigned here also counts under every subject above.",
+    )
+    # Derived from parent and slug, maintained by save(), and never edited. It buys
+    # three things a bare parent pointer does not: a listing in tree order from
+    # order_by("path"), a subtree in one indexed query, and the ancestors of a
+    # subject read straight off the string with no query at all.
+    path = models.CharField(
+        max_length=PATH_MAX_LENGTH,
+        unique=True,
+        db_index=True,
+        editable=False,
+        help_text="Slugs from the top down, separated by a slash. Derived; edit the "
+        "slug or the parent instead.",
+    )
+    # Also derived. Stored rather than counted from path at every use because it is
+    # what the admin indents by and what selects the roots.
+    depth = models.PositiveSmallIntegerField(default=0, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -128,6 +202,82 @@ class Subject(models.Model):
     def __str__(self):
         return f"{self.name} (retired)" if self.is_retired else self.name
 
+    # -- the tree ---------------------------------------------------------------
+
+    @property
+    def ancestor_slugs(self):
+        """The slugs above this one, top first. Read off the path, no query."""
+        return self.path.split(PATH_SEPARATOR)[:-1] if self.path else []
+
+    @property
+    def ancestor_paths(self):
+        return ancestor_paths(self.path) if self.path else []
+
+    @property
+    def derived_path(self):
+        """What path should be, given the parent and the slug."""
+        if self.parent_id is None:
+            return self.slug
+        return f"{self.parent.path}{PATH_SEPARATOR}{self.slug}"
+
+    def validate_tree(self):
+        """Refuse a parent that cannot hold this subject.
+
+        Called from clean() for the admin form and from save() for everything else,
+        because reparenting happens in code as well -- a merge moves children, and
+        the importer builds whole branches -- and an invariant only the form enforces
+        is one the form is the only thing that cannot break.
+        """
+        if self.parent_id is None:
+            return
+        if self.parent_id == self.pk:
+            raise ValidationError({"parent": "A subject cannot be its own parent."})
+        # Walking up rather than down: the chain is at most MAX_DEPTH long when the
+        # tree is sound, and the bound is what stops a cycle that somehow already
+        # exists from spinning here forever.
+        seen, ancestor = {self.pk}, self.parent
+        for _ in range(MAX_DEPTH + 1):
+            if ancestor is None:
+                break
+            if ancestor.pk in seen:
+                raise ValidationError(
+                    {"parent": f"{ancestor} is already beneath this subject."}
+                )
+            seen.add(ancestor.pk)
+            ancestor = ancestor.parent
+        else:
+            raise ValidationError({"parent": "That parent forms a cycle."})
+
+        if self.parent.is_retired:
+            raise ValidationError(
+                {
+                    "parent": f"{self.parent} is retired, so a subject under it "
+                    "would be offered without being reachable in a picker."
+                }
+            )
+
+        # The ceiling is checked against the deepest descendant and not against this
+        # subject, because moving a branch is what overflows it: a leaf can go
+        # anywhere a parent has room, a three-deep branch cannot.
+        height = 0
+        if self.pk is not None and self.path:
+            deepest = (
+                Subject.all_objects.under(self)
+                .order_by("-depth")
+                .values_list("depth", flat=True)
+                .first()
+            )
+            if deepest is not None:
+                height = deepest - self.depth
+        if self.parent.depth + 1 + height >= MAX_DEPTH:
+            raise ValidationError(
+                {
+                    "parent": f"The vocabulary is {MAX_DEPTH} levels deep at most, "
+                    f"and this would put {self.slug} at level "
+                    f"{self.parent.depth + 2 + height}."
+                }
+            )
+
     def clean(self):
         """Refuse a slug that is already another subject's alias.
 
@@ -137,6 +287,7 @@ class Subject(models.Model):
         form staff type the slug into.
         """
         super().clean()
+        self.validate_tree()
         # subject_id rather than subject, so this also works before the subject has
         # been saved, where a model instance in a related filter is refused.
         clash = SubjectAlias.objects.filter(slug=self.slug).exclude(subject_id=self.pk)
@@ -146,15 +297,39 @@ class Subject(models.Model):
             )
 
     def save(self, *args, **kwargs):
-        """Save, and leave the old slug behind as an alias if the slug changed.
+        """Save, keeping path and depth derived, and leave the old slug behind as an
+        alias if the slug changed.
 
-        Automatic rather than something staff do afterwards, because the cost of
-        forgetting falls on readers following a link that has already been published
-        and not on whoever renamed it. Deleting the alias is one click for the case
-        the rename was fixing a typo nobody ever saw.
+        The alias is automatic rather than something staff do afterwards, because the
+        cost of forgetting falls on readers following a link that has already been
+        published and not on whoever renamed it. Deleting the alias is one click for
+        the case the rename was fixing a typo nobody ever saw.
+
+        The path is automatic for a harder reason: it is a denormalisation, so the
+        only way it stays true is for nothing to be able to write the fields it
+        derives from without it following. A rename or a move also rewrites every
+        path beneath this one.
         """
-        renamed_from = self._slug_before_this_save(kwargs.get("update_fields"))
+        update_fields = kwargs.get("update_fields")
+        # retire() and unretire() name their fields, so the writes that cannot move
+        # a subject do not pay for the parent lookup or the subtree query.
+        touches_path = update_fields is None or bool(
+            {"slug", "parent", "parent_id"} & set(update_fields)
+        )
+        renamed_from = self._slug_before_this_save(update_fields)
+        previous_path = None
+        if touches_path:
+            self.validate_tree()
+            previous_path = self._path_before_this_save()
+            self.path = self.derived_path
+            self.depth = self.path.count(PATH_SEPARATOR)
+            if update_fields is not None:
+                kwargs["update_fields"] = list(
+                    dict.fromkeys([*update_fields, "path", "depth"])
+                )
         super().save(*args, **kwargs)
+        if previous_path is not None and previous_path != self.path:
+            self._repath_subtree(previous_path)
         if renamed_from is None:
             return
         # A subject renamed to one of its own aliases is swapping which name is
@@ -177,17 +352,91 @@ class Subject(models.Model):
         )
         return previous if previous not in (None, self.slug) else None
 
+    def _path_before_this_save(self):
+        """The path this row had, or None if it is being created."""
+        if self.pk is None:
+            return None
+        return (
+            Subject.all_objects.filter(pk=self.pk)
+            .values_list("path", flat=True)
+            .first()
+        )
+
+    def _repath_subtree(self, previous_path):
+        """Rewrite the paths beneath this subject after it moved or was renamed.
+
+        A prefix substitution per descendant rather than a walk, so the shape of the
+        branch is irrelevant and the order rows are visited in does not matter.
+
+        bulk_update, so no per-row post_save fires. That is deliberate and not a
+        gap: the precomputer rebuilds the whole subjects task on any one signal, and
+        this subject's own save has already sent one.
+        """
+        old_prefix = previous_path + PATH_SEPARATOR
+        moved = list(Subject.all_objects.filter(path__startswith=old_prefix))
+        for descendant in moved:
+            tail = descendant.path[len(old_prefix) :]
+            descendant.path = self.path + PATH_SEPARATOR + tail
+            descendant.depth = descendant.path.count(PATH_SEPARATOR)
+        if moved:
+            Subject.all_objects.bulk_update(moved, ["path", "depth"])
+
     @property
     def is_retired(self):
         return self.retired_at is not None
 
-    def retire(self, merged_into=None):
+    @property
+    def live_children(self):
+        return self.children(manager="objects").all()
+
+    def retire(self, merged_into=None, subtree=False):
+        """Stop offering this subject.
+
+        Refused while live subjects sit under it, unless the whole branch is being
+        retired together. A live child of a retired parent is the worst of both: it
+        is still offered and still takes new subscribers, but a picker that draws
+        the vocabulary as a tree has nowhere to draw it, because the branch it hangs
+        from is gone. Retiring the branch and moving the children up are both
+        defensible; doing neither silently is not, so this asks.
+
+        Depth-first when it does cascade, so that a child is retired before the
+        parent it hangs from and the refusal above never fires against this method's
+        own work.
+        """
+        live = list(self.live_children)
+        if live and not subtree:
+            raise ValidationError(
+                f"{self} still has {len(live)} live subject(s) under it: "
+                + ", ".join(child.slug for child in live)
+                + ". Retire the branch, or move them out first."
+            )
+        for child in live:
+            child.retire(subtree=True)
         self.retired_at = timezone.now()
         self.merged_into = merged_into
         self.save(update_fields=["retired_at", "merged_into", "updated_at"])
 
     def unretire(self):
-        """Bring a subject back. Retired means retired until this is called."""
+        """Bring a subject back. Retired means retired until this is called.
+
+        Its ancestors come back with it, because a live subject under a retired
+        parent is the state validate_tree() refuses and retire() would not create.
+        Its children do not: they were retired one by one, and which of them should
+        return is a curation question rather than a consequence.
+
+        The ancestors are found by path rather than by walking self.parent, which
+        would read whatever that relation happens to have cached -- and after a
+        subtree retirement, what it has cached is the row as it was before. One
+        query either way, and this one cannot be stale.
+
+        The update bypasses save(), so no post_save fires for the ancestors. As in
+        _repath_subtree, that is not a gap: the precomputer rebuilds the whole
+        subjects task from any one signal and this subject's own save sends one.
+        """
+        if self.path:
+            Subject.all_objects.filter(
+                path__in=self.ancestor_paths, retired_at__isnull=False
+            ).update(retired_at=None, merged_into=None)
         self.retired_at = None
         self.merged_into = None
         self.save(update_fields=["retired_at", "merged_into", "updated_at"])

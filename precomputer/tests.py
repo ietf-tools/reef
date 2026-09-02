@@ -16,7 +16,7 @@ from django.test import TestCase, TransactionTestCase, override_settings
 
 from popularity.models import PopularEntry
 from precomputer.blobstore import LocalBlobStore, get_blob_store
-from precomputer.registry import TASKS
+from precomputer.registry import TASKS, _subject_index
 from precomputer.signals import CURATED_DEBOUNCE_SECONDS
 from precomputer.tasks import precompute_all, precompute_curated, precompute_engagement
 from ratings.models import Rating
@@ -159,7 +159,7 @@ class OutputTests(PrecomputeTestCase):
         SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
         self.precompute("subjects")
         self.assertEqual(self.written(), {"subjects.json", "subjects/security.json"})
-        self.assertEqual(len(self.read("subjects.json")), 1)
+        self.assertEqual(len(self.read("subjects.json")["subjects"]), 1)
 
     def test_only_open_surveys_get_a_definition(self):
         Survey.objects.create(
@@ -180,6 +180,96 @@ class OutputTests(PrecomputeTestCase):
             self.written(),
             {"surveys/open.json", "surveys/open-one/definition.json"},
         )
+
+
+class SubjectIndexTests(PrecomputeTestCase):
+    """subjects.json, the one payload that is not an endpoint's bytes.
+
+    Red fetches it per route and renders from it, so it carries the tree, the
+    assignments and the titles in one file. What it must not do is carry any of
+    them twice.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.messaging = Subject.objects.create(name="Messaging", slug="messaging")
+        self.email = Subject.objects.create(
+            name="Email", slug="email", parent=self.messaging
+        )
+        SubjectAssignment.objects.create(subject=self.email, doc="rfc9110")
+        SubjectAssignment.objects.create(subject=self.messaging, doc="rfc2119")
+
+    def published(self):
+        self.precompute("subjects")
+        return self.read("subjects.json")
+
+    def test_it_is_two_keyed_maps(self):
+        payload = self.published()
+        self.assertEqual(set(payload), {"documents", "subjects"})
+        # Keyed by slug, which is globally unique, so a caller looks a subject up
+        # by the name it holds rather than by reconstructing a path.
+        self.assertEqual(list(payload["subjects"]), ["messaging", "email"])
+
+    def test_subjects_are_keyed_by_slug_in_tree_order(self):
+        payload = self.published()
+        self.assertEqual(
+            [entry["path"] for entry in payload["subjects"].values()],
+            ["messaging", "messaging/email"],
+        )
+
+    def test_an_entry_carries_the_tree_and_both_counts(self):
+        entry = self.published()["subjects"]["messaging"]
+        self.assertIsNone(entry["parent"])
+        self.assertEqual(entry["children"], ["email"])
+        self.assertEqual(entry["documents"], ["rfc2119"])
+        self.assertEqual(entry["document_count"], 1)
+        # rfc9110 sits under email, so messaging covers both.
+        self.assertEqual(entry["document_count_deep"], 2)
+
+    def test_a_child_names_its_parent(self):
+        entry = self.published()["subjects"]["email"]
+        self.assertEqual(entry["parent"], "messaging")
+        self.assertEqual(entry["children"], [])
+
+    def test_metadata_is_carried_once_and_referenced_by_identifier(self):
+        payload = self.published()
+        self.assertEqual(
+            payload["documents"]["rfc9110"],
+            {"title": "HTTP Semantics", "subseries": ["std97"]},
+        )
+        # Not beside each subject that covers the document, which at this
+        # vocabulary's depth would repeat every title about three times over.
+        for entry in payload["subjects"].values():
+            self.assertNotIn("document_meta", entry)
+            self.assertEqual(entry["documents"], list(entry["documents"]))
+
+    def test_the_subtree_is_not_written_out(self):
+        # Derivable from path and children in the pass a caller already makes;
+        # writing it would store every identifier once per ancestor.
+        for entry in self.published()["subjects"].values():
+            self.assertNotIn("documents_in_subtree", entry)
+
+    def test_only_the_documents_the_file_mentions_are_described(self):
+        Subject.objects.create(name="Web", slug="web")
+        payload = self.published()
+        self.assertEqual(sorted(payload["documents"]), ["rfc2119", "rfc9110"])
+
+    def test_a_retired_subject_is_absent_but_its_documents_are_not_lost(self):
+        # The vocabulary is the offer, so a retired subject leaves it. Its
+        # assignments stay where they are, which is why the parent still covers
+        # them.
+        self.email.retire()
+        payload = self.published()
+        self.assertEqual(list(payload["subjects"]), ["messaging"])
+
+    def test_the_whole_vocabulary_costs_a_bounded_number_of_queries(self):
+        # The trap this shape had to avoid: a subtree query per subject. rollup()
+        # is two and the rows are one, and none of the three grows with the size
+        # of the vocabulary.
+        for number in range(20):
+            Subject.objects.create(name=f"S{number}", slug=f"s{number}")
+        with self.assertNumQueries(3):
+            _subject_index(self.index)
 
 
 class DocumentMetadataTests(PrecomputeTestCase):
@@ -679,7 +769,7 @@ class RetiredSubjectOutputTests(PrecomputeTestCase):
 
     def test_it_is_absent_from_the_vocabulary(self):
         self.precompute("subjects")
-        self.assertEqual([s["slug"] for s in self.read("subjects.json")], ["secpriv"])
+        self.assertEqual(list(self.read("subjects.json")["subjects"]), ["secpriv"])
 
     def test_its_file_is_the_redirect_and_nothing_else(self):
         self.precompute("subjects")

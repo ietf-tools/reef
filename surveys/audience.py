@@ -26,7 +26,7 @@ from django.core.exceptions import ValidationError
 from django.db.models import Q
 
 from reef.docids import normalize_doc_id
-from subjects.models import SubjectAssignment
+from subjects.models import Subject, SubjectAssignment
 
 logger = logging.getLogger("reef")
 
@@ -98,10 +98,20 @@ def resolve_audience(audience):
             logger.warning("Unparseable document in survey audience: %r", raw)
 
     if slugs := audience.get("subjects"):
+        # Every named subject, and everything beneath it: naming messaging targets
+        # the documents filed under email and mime, not the none filed directly on
+        # messaging itself. Resolved through the paths of the named subjects so that
+        # an alias of a parent reaches the parent's subtree too.
+        named = Subject.all_objects.filter(
+            Q(slug__in=slugs) | Q(aliases__slug__in=slugs)
+        )
+        covered = Subject.all_objects.none()
+        for subject in named:
+            covered = covered | Subject.all_objects.at_or_under(subject)
         documents |= set(
-            SubjectAssignment.objects.filter(
-                Q(subject__slug__in=slugs) | Q(subject__aliases__slug__in=slugs)
-            ).values_list("doc", flat=True)
+            SubjectAssignment.objects.filter(subject__in=covered).values_list(
+                "doc", flat=True
+            )
         )
 
     # Sorted because this is published in a precomputed file, which has to be the

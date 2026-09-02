@@ -87,6 +87,12 @@ class SubjectApiTests(APITestCase):
                 "slug": "security",
                 "name": "Security",
                 "description": "Anything security.",
+                # parent and path are what a caller builds the tree from; both
+                # counts are what it labels a node with without walking one.
+                "parent": None,
+                "path": "security",
+                "document_count": 1,
+                "document_count_deep": 1,
             },
         )
 
@@ -193,6 +199,8 @@ class SubjectAdminTests(APITestCase):
                 "assignments-INITIAL_FORMS": "0",
                 "aliases-TOTAL_FORMS": "0",
                 "aliases-INITIAL_FORMS": "0",
+                "children-TOTAL_FORMS": "0",
+                "children-INITIAL_FORMS": "0",
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -211,6 +219,8 @@ class SubjectAdminTests(APITestCase):
                 "assignments-0-subject": str(self.security.pk),
                 "aliases-TOTAL_FORMS": "0",
                 "aliases-INITIAL_FORMS": "0",
+                "children-TOTAL_FORMS": "0",
+                "children-INITIAL_FORMS": "0",
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -231,6 +241,8 @@ class SubjectAdminTests(APITestCase):
                 "aliases-INITIAL_FORMS": "0",
                 "aliases-0-slug": "sec",
                 "aliases-0-subject": str(self.security.pk),
+                "children-TOTAL_FORMS": "0",
+                "children-INITIAL_FORMS": "0",
             },
         )
         self.assertEqual(response.status_code, 302)

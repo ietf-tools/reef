@@ -2,12 +2,14 @@
 """Retiring and merging: taking a subject out of use without cutting anybody off."""
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from rest_framework.test import APITestCase
 
 from reef.testing import stub_rfc_index
 from subjects.merge import MergeError, merge_and_notify, merge_subjects
 from subjects.models import Subject, SubjectAssignment
+from subjects.tests_hierarchy import tree
 from subscriptions.models import PendingNotification, Subscription
 
 User = get_user_model()
@@ -190,3 +192,59 @@ class RetiredSubjectApiTests(APITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 400)
+
+
+class MergeWithChildrenTests(TestCase):
+    """Merging a branch, which has to take what hangs from it."""
+
+    def setUp(self):
+        self.made = tree(
+            "messaging",
+            "messaging/email",
+            "messaging/email/smtp",
+            "communications",
+        )
+
+    def test_children_are_reparented_onto_the_target(self):
+        merge_subjects(self.made["messaging"], self.made["communications"])
+        email = Subject.all_objects.get(slug="email")
+        self.assertEqual(email.parent, self.made["communications"])
+        self.assertEqual(email.path, "communications/email")
+
+    def test_the_whole_branch_is_repathed(self):
+        merge_subjects(self.made["messaging"], self.made["communications"])
+        smtp = Subject.all_objects.get(slug="smtp")
+        self.assertEqual(smtp.path, "communications/email/smtp")
+        self.assertEqual(smtp.depth, 2)
+
+    def test_the_children_stay_live_while_the_source_retires(self):
+        # The state retire() refuses to create by hand, so a merge must not create
+        # it either: an offered subject hanging from a retired one.
+        merge_subjects(self.made["messaging"], self.made["communications"])
+        self.assertTrue(Subject.all_objects.get(slug="messaging").is_retired)
+        self.assertFalse(Subject.all_objects.get(slug="email").is_retired)
+
+    def test_merging_into_a_descendant_is_refused(self):
+        with self.assertRaises(MergeError):
+            merge_subjects(self.made["messaging"], self.made["email"])
+
+    def test_merging_into_a_deeper_descendant_is_refused(self):
+        with self.assertRaises(MergeError):
+            merge_subjects(self.made["messaging"], self.made["smtp"])
+
+    def test_a_refused_merge_moves_nothing(self):
+        with self.assertRaises(MergeError):
+            merge_subjects(self.made["messaging"], self.made["email"])
+        email = Subject.all_objects.get(slug="email")
+        self.assertEqual(email.parent, self.made["messaging"])
+        self.assertFalse(Subject.all_objects.get(slug="messaging").is_retired)
+
+    def test_a_merge_that_would_breach_the_ceiling_aborts_whole(self):
+        # communications is already three deep, so moving a two-deep branch under
+        # it overflows. The transaction has to leave the source untouched rather
+        # than half-moved.
+        deep = tree("a", "a/b", "a/b/c", "src", "src/child", "src/child/grandchild")
+        with self.assertRaises(ValidationError):
+            merge_subjects(deep["src"], deep["c"])
+        self.assertEqual(Subject.all_objects.get(slug="child").parent, deep["src"])
+        self.assertFalse(Subject.all_objects.get(slug="src").is_retired)

@@ -27,7 +27,7 @@ class MergeError(Exception):
 
 @transaction.atomic
 def merge_subjects(source, target):
-    """Move source's assignments and followers to target, then retire source.
+    """Move source's children, assignments and followers to target, then retire it.
 
     Returns the subscription ids that now cover the target on behalf of somebody who
     was following the source, one per affected reader, so the caller can tell them.
@@ -41,7 +41,13 @@ def merge_subjects(source, target):
         )
     if source.is_retired:
         raise MergeError(f"{source} is already retired.")
+    if target.path in (source.path, *_paths_under(source)):
+        raise MergeError(
+            f"{target} sits under {source}, so merging one into the other would "
+            f"file {source} beneath itself."
+        )
 
+    _move_children(source, target)
     _move_assignments(source, target)
     _move_aliases(source, target)
     affected = _move_subscriptions(source, target)
@@ -54,6 +60,33 @@ def merge_subjects(source, target):
         len(affected),
     )
     return affected
+
+
+def _paths_under(subject):
+    from .models import Subject
+
+    return list(Subject.all_objects.under(subject).values_list("path", flat=True))
+
+
+def _move_children(source, target):
+    """Reparent the source's children onto the target.
+
+    Left where they are, they would hang from a retired subject: still offered,
+    still taking subscribers, and unreachable in a picker that draws the tree.
+    That is the state retire() refuses to create by hand, so a merge must not
+    create it either.
+
+    One at a time through save(), not a queryset update, because each child's path
+    changes and so does every path beneath it. Bypassing the model here is how the
+    denormalisation would go stale on the one operation that moves whole branches.
+
+    The move can breach the depth ceiling where the merge deepens the branch, and
+    validate_tree() raises for that inside the transaction, which aborts the merge.
+    Refusing beats half-moving.
+    """
+    for child in list(source.children.all()):
+        child.parent = target
+        child.save(update_fields=["parent"])
 
 
 def _move_assignments(source, target):
