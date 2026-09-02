@@ -20,18 +20,16 @@ holds at any depth, and the four-level ceiling is not what makes it work.
 
 from collections import defaultdict
 
-from .models import PATH_SEPARATOR, Subject
+from .models import Subject, ancestor_paths
 
-
-def ancestor_paths(path):
-    """Every path above this one, top first, excluding the path itself.
-
-    A string operation, deliberately: this is the half of the tree that needs no
-    query, and the callers that expand a document into the subjects covering it
-    run per change event.
-    """
-    slugs = path.split(PATH_SEPARATOR)
-    return [PATH_SEPARATOR.join(slugs[: index + 1]) for index in range(len(slugs) - 1)]
+# Re-exported so that a caller doing roll-up has one module to import from, even
+# though the definition lives beside the path column it reads.
+__all__ = [
+    "ancestor_paths",
+    "covering_subject_ids",
+    "documents_under",
+    "rollup",
+]
 
 
 def covering_subject_ids(docs):

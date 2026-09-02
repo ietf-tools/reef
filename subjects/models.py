@@ -40,6 +40,16 @@ PATH_SEPARATOR = "/"
 PATH_MAX_LENGTH = 255
 
 
+def ancestor_paths(path):
+    """Every path above this one, top first, excluding the path itself.
+
+    A string operation: the ancestors of a subject are the prefixes of its path, so
+    this is the half of the tree that needs no query at all.
+    """
+    slugs = path.split(PATH_SEPARATOR)
+    return [PATH_SEPARATOR.join(slugs[: index + 1]) for index in range(len(slugs) - 1)]
+
+
 class SubjectQuerySet(models.QuerySet):
     def live(self):
         return self.filter(retired_at__isnull=True)
@@ -198,6 +208,10 @@ class Subject(models.Model):
     def ancestor_slugs(self):
         """The slugs above this one, top first. Read off the path, no query."""
         return self.path.split(PATH_SEPARATOR)[:-1] if self.path else []
+
+    @property
+    def ancestor_paths(self):
+        return ancestor_paths(self.path) if self.path else []
 
     @property
     def derived_path(self):
@@ -371,13 +385,58 @@ class Subject(models.Model):
     def is_retired(self):
         return self.retired_at is not None
 
-    def retire(self, merged_into=None):
+    @property
+    def live_children(self):
+        return self.children(manager="objects").all()
+
+    def retire(self, merged_into=None, subtree=False):
+        """Stop offering this subject.
+
+        Refused while live subjects sit under it, unless the whole branch is being
+        retired together. A live child of a retired parent is the worst of both: it
+        is still offered and still takes new subscribers, but a picker that draws
+        the vocabulary as a tree has nowhere to draw it, because the branch it hangs
+        from is gone. Retiring the branch and moving the children up are both
+        defensible; doing neither silently is not, so this asks.
+
+        Depth-first when it does cascade, so that a child is retired before the
+        parent it hangs from and the refusal above never fires against this method's
+        own work.
+        """
+        live = list(self.live_children)
+        if live and not subtree:
+            raise ValidationError(
+                f"{self} still has {len(live)} live subject(s) under it: "
+                + ", ".join(child.slug for child in live)
+                + ". Retire the branch, or move them out first."
+            )
+        for child in live:
+            child.retire(subtree=True)
         self.retired_at = timezone.now()
         self.merged_into = merged_into
         self.save(update_fields=["retired_at", "merged_into", "updated_at"])
 
     def unretire(self):
-        """Bring a subject back. Retired means retired until this is called."""
+        """Bring a subject back. Retired means retired until this is called.
+
+        Its ancestors come back with it, because a live subject under a retired
+        parent is the state validate_tree() refuses and retire() would not create.
+        Its children do not: they were retired one by one, and which of them should
+        return is a curation question rather than a consequence.
+
+        The ancestors are found by path rather than by walking self.parent, which
+        would read whatever that relation happens to have cached -- and after a
+        subtree retirement, what it has cached is the row as it was before. One
+        query either way, and this one cannot be stale.
+
+        The update bypasses save(), so no post_save fires for the ancestors. As in
+        _repath_subtree, that is not a gap: the precomputer rebuilds the whole
+        subjects task from any one signal and this subject's own save sends one.
+        """
+        if self.path:
+            Subject.all_objects.filter(
+                path__in=self.ancestor_paths, retired_at__isnull=False
+            ).update(retired_at=None, merged_into=None)
         self.retired_at = None
         self.merged_into = None
         self.save(update_fields=["retired_at", "merged_into", "updated_at"])

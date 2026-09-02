@@ -198,3 +198,44 @@ class RebuildPathsTests(TestCase):
         out = StringIO()
         call_command("rebuild_paths", stdout=out)
         self.assertIn("Rebuilt 0 of 3", out.getvalue())
+
+
+class RetireWithChildrenTests(TestCase):
+    def setUp(self):
+        self.made = tree("messaging", "messaging/email", "messaging/email/smtp")
+
+    def test_retiring_a_parent_with_live_children_is_refused(self):
+        with self.assertRaises(ValidationError) as caught:
+            self.made["messaging"].retire()
+        self.assertIn("email", str(caught.exception))
+        self.made["messaging"].refresh_from_db()
+        self.assertFalse(self.made["messaging"].is_retired)
+
+    def test_retiring_a_branch_together_retires_the_whole_subtree(self):
+        self.made["messaging"].retire(subtree=True)
+        for slug in ("messaging", "email", "smtp"):
+            self.assertTrue(Subject.all_objects.get(slug=slug).is_retired, slug)
+
+    def test_retiring_a_parent_whose_children_are_already_retired_is_allowed(self):
+        self.made["email"].retire(subtree=True)
+        self.made["messaging"].retire()
+        self.made["messaging"].refresh_from_db()
+        self.assertTrue(self.made["messaging"].is_retired)
+
+    def test_retiring_a_leaf_is_unaffected(self):
+        self.made["smtp"].retire()
+        self.made["smtp"].refresh_from_db()
+        self.assertTrue(self.made["smtp"].is_retired)
+
+    def test_unretiring_brings_the_ancestors_back_with_it(self):
+        # Otherwise the restored subject is the state validate_tree() refuses:
+        # live, offered, and hanging from a retired parent.
+        self.made["messaging"].retire(subtree=True)
+        self.made["smtp"].unretire()
+        for slug in ("messaging", "email", "smtp"):
+            self.assertFalse(Subject.all_objects.get(slug=slug).is_retired, slug)
+
+    def test_unretiring_does_not_bring_the_children_back(self):
+        self.made["messaging"].retire(subtree=True)
+        self.made["messaging"].unretire()
+        self.assertTrue(Subject.all_objects.get(slug="email").is_retired)
