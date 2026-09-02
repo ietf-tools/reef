@@ -87,6 +87,12 @@ class SubjectApiTests(APITestCase):
                 "slug": "security",
                 "name": "Security",
                 "description": "Anything security.",
+                # parent and path are what a caller builds the tree from; both
+                # counts are what it labels a node with without walking one.
+                "parent": None,
+                "path": "security",
+                "document_count": 1,
+                "document_count_deep": 1,
             },
         )
 

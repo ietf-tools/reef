@@ -52,12 +52,39 @@ Naming a bucket without credentials is an error rather than a silent fallback.
 ```
 stats.json                          every document with any engagement
 popularity.json                     the curated most-popular list
-subjects.json                       the whole vocabulary
+subjects.json                       the vocabulary as a tree, with every
+                                    assignment and every title, in one file
 subjects/<slug>.json                one subject and the documents carrying it
 surveys/open.json                   surveys a visitor may be offered
 surveys/<slug>/definition.json      an open survey's definition and theme
 ratings/<doc>.json                  a rated document's public average and count
 ```
+
+### subjects.json
+
+The one payload here that is not an endpoint's bytes. Red fetches it per route and
+renders the page from it, so it has to carry the titles, and the list endpoint has
+none to give: Reef holds no document metadata and resolves it here, from Red's own
+index, at precompute time.
+
+Two maps, both keyed, so that a caller looks a subject or a document up directly
+rather than building an index of its own or scanning an array:
+
+```
+documents   { "rfc9110": { title, subseries }, ... }   every document, once
+subjects    { "dkim": { id, name, description,
+                        parent, path, children,
+                        documents,                     direct assignments, ids only
+                        document_count,
+                        document_count_deep }, ... }
+```
+
+Two properties are load-bearing and cheap to break. Metadata is carried once and
+referenced by identifier, rather than sitting beside each subject that covers the
+document, which at this vocabulary's depth would repeat every title about three
+times over. And a subject's subtree is not written out: it is derivable from `path`
+and `children` in the pass a caller is already making, and writing it would store
+every identifier once per ancestor.
 
 ## Document metadata
 

@@ -2,6 +2,7 @@
 from rest_framework import serializers
 
 from .models import Subject, SubjectAlias
+from .tree import documents_under
 
 
 class SubjectSerializer(serializers.ModelSerializer):
@@ -11,12 +12,49 @@ class SubjectSerializer(serializers.ModelSerializer):
     the subscription holds a foreign key so that renaming a subject cannot
     detach its subscribers, and the id is the half of a subject's identity
     that a rename does not touch.
+
+    parent and path are what let a caller build the tree from the flat list in one
+    pass, with no second read and nothing nested. Both counts are carried because
+    a picker wants a figure against every node without walking the subtree to get
+    one, and because they are two integers.
     """
+
+    # Read off the path rather than through the relation, which would be a query
+    # per row on a list of the whole vocabulary. The parent's slug is the segment
+    # before this subject's own.
+    parent = serializers.SerializerMethodField()
+    document_count = serializers.SerializerMethodField()
+    document_count_deep = serializers.SerializerMethodField()
 
     class Meta:
         model = Subject
-        fields = ["id", "slug", "name", "description"]
+        fields = [
+            "id",
+            "slug",
+            "name",
+            "description",
+            "parent",
+            "path",
+            "document_count",
+            "document_count_deep",
+        ]
         read_only_fields = fields
+
+    def get_parent(self, obj) -> str | None:
+        ancestors = obj.ancestor_slugs
+        return ancestors[-1] if ancestors else None
+
+    def get_document_count(self, obj) -> int:
+        counts = self.context.get("direct_counts")
+        if counts is not None:
+            return counts.get(obj.path, 0)
+        return obj.assignments.count()
+
+    def get_document_count_deep(self, obj) -> int:
+        counts = self.context.get("covered_counts")
+        if counts is not None:
+            return counts.get(obj.path, 0)
+        return len(documents_under(obj))
 
 
 class SubjectDetailSerializer(SubjectSerializer):
@@ -29,6 +67,10 @@ class SubjectDetailSerializer(SubjectSerializer):
     """
 
     documents = serializers.SerializerMethodField()
+    # The subjects immediately beneath this one, so that a caller holding one
+    # subject can walk down without scanning the vocabulary asking whose parent it
+    # is. Live only: a retired child is not offered, and this is the offer.
+    children = serializers.SerializerMethodField()
     # The other names this subject answers to, so that a picker can match what a
     # reader typed without a second read. Names only: an alias has nothing else, and
     # is not a thing a caller can subscribe to or address by id.
@@ -39,11 +81,27 @@ class SubjectDetailSerializer(SubjectSerializer):
     retired = serializers.BooleanField(source="is_retired", read_only=True)
 
     class Meta(SubjectSerializer.Meta):
-        fields = [*SubjectSerializer.Meta.fields, "retired", "aliases", "documents"]
+        fields = [
+            *SubjectSerializer.Meta.fields,
+            "retired",
+            "children",
+            "aliases",
+            "documents",
+        ]
         read_only_fields = fields
 
     def get_documents(self, obj) -> list[str]:
+        """The documents assigned to this subject, and not to those beneath it.
+
+        Unchanged in meaning, deliberately. Red consumes this array and the
+        precomputer keys document_meta off it, so widening it to the subtree would
+        be a contract change dressed up as a bug fix. The subtree is the index
+        file's business.
+        """
         return [assignment.doc for assignment in obj.assignments.all()]
+
+    def get_children(self, obj) -> list[str]:
+        return [child.slug for child in obj.live_children.order_by("path")]
 
 
 class SubjectAliasSerializer(serializers.ModelSerializer):

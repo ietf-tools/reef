@@ -30,16 +30,24 @@ from .serializers import (
     SubjectDetailSerializer,
     SubjectSerializer,
 )
+from .tree import rollup
 
 
 @extend_schema(
     summary="List the subject vocabulary",
     description=(
-        "Every subject that exists, in name order. Public and unpaginated: "
+        "Every subject that exists, in tree order. Public and unpaginated: "
         "the vocabulary is curated by staff rather than self-served, so it "
         "stays small enough to hand over whole.\n\n"
+        "The list is in tree order, and every entry carries `parent` and "
+        "`path`, so a caller builds the hierarchy from it in one pass without "
+        "a second read. `document_count` is the documents assigned to the "
+        "subject itself; `document_count_deep` includes everything beneath "
+        "it, deduplicated.\n\n"
         "`doc` narrows the list to the subjects carried by one document, "
-        "which is how a caller renders the subjects on an RFC page. The "
+        "which is how a caller renders the subjects on an RFC page. It "
+        "returns the subjects actually assigned rather than their ancestors "
+        "too; a caller wanting the breadcrumb reads it off `path`. The "
         "identifier is canonicalized, so `rfc9110` and `RFC 9110` address the "
         "same document, and the series has to be named."
     ),
@@ -61,8 +69,25 @@ class SubjectList(ListAPIView):
     permission_classes = [AllowAny]
     pagination_class = None
 
+    def get_serializer_context(self):
+        """Both counts for the whole vocabulary, in one roll-up rather than per row.
+
+        Without this the list is a query per subject for the direct count and a
+        subtree query per subject for the deep one; with it the two counts cost the
+        two queries rollup() always costs, whatever the size of the vocabulary.
+        """
+        context = super().get_serializer_context()
+        if getattr(self, "swagger_fake_view", False):
+            return context
+        direct, covered = rollup()
+        context["direct_counts"] = {path: len(docs) for path, docs in direct.items()}
+        context["covered_counts"] = {path: len(docs) for path, docs in covered.items()}
+        return context
+
     def get_queryset(self):
-        queryset = Subject.objects.all()
+        # Tree order, so that a caller rendering the list top to bottom gets
+        # children under their parents without sorting it again.
+        queryset = Subject.objects.order_by("path")
         doc = self.request.query_params.get("doc")
         if doc is None:
             return queryset
