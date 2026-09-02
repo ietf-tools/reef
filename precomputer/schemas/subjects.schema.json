@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.rfc-editor.org/reef/schemas/subjects.schema.json",
+  "title": "Reef subjects.json",
+  "description": "The subject vocabulary as a tree, with every assignment and every document title, as published by Reef's precomputer to subjects.json. This describes the precomputed file, which is not the shape of the /api/reef/subjects/ endpoint: the endpoint returns a list and carries no document metadata.",
+  "type": "object",
+  "required": ["documents", "subjects"],
+  "properties": {
+    "documents": {
+      "description": "Every document any subject is assigned to, once, keyed by canonical identifier. Referenced by identifier from the subject entries rather than repeated beside each subject that covers it.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/documentIdentifier" },
+      "additionalProperties": { "$ref": "#/$defs/documentMetadata" }
+    },
+    "subjects": {
+      "description": "The vocabulary, keyed by slug, in tree order.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/slug" },
+      "additionalProperties": { "$ref": "#/$defs/subject" }
+    }
+  },
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50,
+      "pattern": "^[-a-zA-Z0-9_]+$"
+    },
+    "documentIdentifier": {
+      "description": "A canonical Reef document identifier: the series followed by the number, with no separator.",
+      "type": "string",
+      "pattern": "^(rfc|bcp|std|fyi)[0-9]+$"
+    },
+    "documentMetadata": {
+      "description": "What Reef publishes about a document, resolved from Red's index. Null title means the identifier did not resolve, which is told apart from not having been looked up by the key being present at all.",
+      "type": "object",
+      "required": ["title", "subseries"],
+      "properties": {
+        "title": { "type": ["string", "null"] },
+        "subseries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/documentIdentifier" }
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "description",
+        "parent",
+        "path",
+        "children",
+        "documents",
+        "document_count",
+        "document_count_deep"
+      ],
+      "properties": {
+        "id": {
+          "description": "The primary key. What a subscription points at, so that renaming a subject does not detach its subscribers.",
+          "type": "integer"
+        },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string" },
+        "parent": {
+          "description": "The slug of the subject this one sits under, or null for a top-level subject.",
+          "oneOf": [{ "$ref": "#/$defs/slug" }, { "type": "null" }]
+        },
+        "path": {
+          "description": "Slugs from the top down, separated by a slash, ending in this subject's own. The ancestors of a subject are the prefixes of its path.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "children": {
+          "description": "The slugs of the live subjects immediately beneath this one.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/slug" }
+        },
+        "documents": {
+          "description": "The documents assigned to this subject itself, not to those beneath it. The subtree is derived from path and children.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/documentIdentifier" }
+        },
+        "document_count": {
+          "description": "The length of documents, carried so a picker need not count.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "document_count_deep": {
+          "description": "The documents this subject covers, itself and everything beneath it, deduplicated.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

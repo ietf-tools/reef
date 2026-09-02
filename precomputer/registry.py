@@ -44,6 +44,7 @@ from subjects.tree import rollup
 from surveys.api import OpenSurveyList, SurveyDefinition
 from surveys.models import Survey
 
+from . import schemas
 from .render import render_anonymous
 
 TASKS = {}
@@ -192,7 +193,12 @@ def popularity(docs=None, index=None):
 @task("subjects", owns=r"^subjects\.json$|^subjects/[^/]+\.json$")
 def subjects(docs=None, index=None):
     """The vocabulary as one index file, and each subject with its own documents."""
-    yield "subjects.json", _reserialize(_subject_index(index))
+    payload = _subject_index(index)
+    # Before put(), never after. A payload that does not match the shape Red
+    # validates against would take Red's page down; failing the run instead leaves
+    # the bucket a run behind, which is the cheaper of the two.
+    schemas.validate("subjects", payload)
+    yield "subjects.json", _reserialize(payload)
     detail = SubjectDetail.as_view()
     # all_objects, so a retired subject still gets a file. subjects.json above does
     # not list it -- it is not offered any more -- but Red has links naming it, and
