@@ -17,6 +17,8 @@ from rest_framework.views import APIView
 from docsets.models import DocumentSet, DocumentSetEntry
 from ratings.models import Rating
 from reef.docids import normalize_doc_id
+from subjects.models import Subject
+from subjects.tree import rollup
 from subscriptions.models import Subscription
 
 from .serializers import DocumentStatsSerializer
@@ -87,13 +89,24 @@ def _subscriber_counts():
     ).values_list("document_set__entries__doc", "user_id")
     # No takedown filter to match the set one above: a subject has no state
     # between existing and not, so there is nothing here to leave out.
+    #
+    # Deliberately not a join. A subject covers everything beneath it, so
+    # subject__assignments__doc would return a row per subscription per covered
+    # document -- one reader following a top-level subject producing a row for
+    # every RFC under it, with the database doing the multiplication and sending
+    # the result over the wire. One row per subscription instead, and the cross
+    # product against the roll-up already in memory is a dictionary lookup.
+    _, covered = rollup()
+    paths = dict(Subject.all_objects.values_list("pk", "path"))
     subject_pairs = Subscription.objects.filter(
-        kind=Subscription.Kind.SUBJECT,
-        subject__assignments__isnull=False,
-    ).values_list("subject__assignments__doc", "user_id")
+        kind=Subscription.Kind.SUBJECT
+    ).values_list("subject_id", "user_id")
 
-    for doc, user_id in [*rfc_pairs, *set_pairs, *subject_pairs]:
+    for doc, user_id in [*rfc_pairs, *set_pairs]:
         users_by_doc[doc].add(user_id)
+    for subject_id, user_id in subject_pairs:
+        for doc in covered.get(paths.get(subject_id), ()):
+            users_by_doc[doc].add(user_id)
     return {doc: len(users) for doc, users in users_by_doc.items()}
 
 

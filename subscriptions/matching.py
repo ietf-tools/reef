@@ -17,6 +17,7 @@ from django.db.models import Q
 
 from reef import rfcmeta
 from reef.docids import normalize_doc_id
+from subjects.tree import covering_subject_ids
 
 from .changes import _added, _removed
 from .models import Subscription
@@ -57,7 +58,10 @@ def subscriptions_for_document(doc):
 
     All three kinds expand alike: a set holding bcp14 and a subject assigned to bcp14
     both match a change to rfc2119, because in each case what the subscriber named
-    covers the document that changed.
+    covers the document that changed. A parent subject is one more such container,
+    expanded on the other axis: assigning a document to dkim files it under
+    email-authentication, email and messaging too, and a subscriber to any of them
+    named something that covers it.
 
     If Red cannot be reached the expansion is skipped, and a bcp14 subscriber misses
     a notification they should have had. That is a real gap rather than a tidy
@@ -72,6 +76,12 @@ def subscriptions_for_document(doc):
     # The changed document, plus every container it belongs to. A subscription naming
     # any of them is about this change.
     docs = [doc, *rfcmeta.containing_subseries(doc)]
+    # And the same expansion on the other axis. A subject covers the documents
+    # assigned to it and to everything beneath it, so a change to a document filed
+    # under dkim is news to somebody following messaging. Two queries whatever the
+    # depth, and it keeps the branch below a plain id test rather than the four-way
+    # self-join that walking children in the ORM would produce.
+    subjects = covering_subject_ids(docs)
     return (
         Subscription.objects.filter(
             Q(kind=Subscription.Kind.RFC, params__rfc__in=docs)
@@ -86,8 +96,9 @@ def subscriptions_for_document(doc):
             )
             # No equivalent takedown filter for subjects: a subject is staff's
             # own and has no state between existing and not, so there is no
-            # row here that a read has to pretend is absent.
-            | Q(kind=Subscription.Kind.SUBJECT, subject__assignments__doc__in=docs)
+            # row here that a read has to pretend is absent. Retired ones still
+            # match, which covering_subject_ids preserves deliberately.
+            | Q(kind=Subscription.Kind.SUBJECT, subject_id__in=subjects)
         )
         .distinct()
         .select_related("user", "document_set", "subject")
