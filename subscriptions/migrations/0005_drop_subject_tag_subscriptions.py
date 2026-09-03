@@ -26,13 +26,14 @@ def drop_subject_tag_subscriptions(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("subscriptions", "0004_remove_subscription_unique_subscription_per_user_and_more"),
+        (
+            "subscriptions",
+            "0004_remove_subscription_unique_subscription_per_user_and_more",
+        ),
     ]
 
     operations = [
         # Irreversible in substance rather than in form: reversing restores the
         # column shape, and there is no string left to put back in it.
-        migrations.RunPython(
-            drop_subject_tag_subscriptions, migrations.RunPython.noop
-        ),
+        migrations.RunPython(drop_subject_tag_subscriptions, migrations.RunPython.noop),
     ]

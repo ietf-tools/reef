@@ -62,7 +62,8 @@ ALTER TABLE docsets_documentsetentry
 ALTER TABLE subscriptions_subscription
     RENAME COLUMN uuid_document_set_id TO document_set_id;
 
-ALTER TABLE docsets_documentset ADD CONSTRAINT docsets_documentset_pkey PRIMARY KEY (id);
+ALTER TABLE docsets_documentset
+    ADD CONSTRAINT docsets_documentset_pkey PRIMARY KEY (id);
 ALTER TABLE docsets_documentsetentry
     ADD CONSTRAINT docsets_documentsete_document_set_id_f78ebbe0_fk_docsets_d
     FOREIGN KEY (document_set_id) REFERENCES docsets_documentset(id)
@@ -125,7 +126,8 @@ ALTER TABLE subscriptions_subscription
 
 ALTER TABLE docsets_documentset
     ALTER COLUMN id SET DEFAULT nextval('docsets_documentset_id_seq');
-ALTER TABLE docsets_documentset ADD CONSTRAINT docsets_documentset_pkey PRIMARY KEY (id);
+ALTER TABLE docsets_documentset
+    ADD CONSTRAINT docsets_documentset_pkey PRIMARY KEY (id);
 ALTER TABLE docsets_documentsetentry
     ADD CONSTRAINT docsets_documentsete_document_set_id_f78ebbe0_fk_docsets_d
     FOREIGN KEY (document_set_id) REFERENCES docsets_documentset(id)
@@ -152,7 +154,10 @@ class Migration(migrations.Migration):
         ("docsets", "0002_alter_documentset_visibility"),
         # The swap rewrites subscriptions' foreign key column, so that table has
         # to be finished before this runs.
-        ("subscriptions", "0004_remove_subscription_unique_subscription_per_user_and_more"),
+        (
+            "subscriptions",
+            "0004_remove_subscription_unique_subscription_per_user_and_more",
+        ),
     ]
 
     operations = [
