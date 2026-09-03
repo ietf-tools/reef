@@ -25,6 +25,7 @@ jobs:
           --health-retries 5
     env:
       REEF_DEPLOYMENT_MODE: development
+      REEF_BROKER_URL: memory://
       POSTGRES_HOST: localhost
       POSTGRES_DB: reef
       POSTGRES_USER: reef
