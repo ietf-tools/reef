@@ -1,30 +1,66 @@
-name: build-base-app
+name: Build Base App Docker Image
 
-# Builds and publishes the base image the app/backend images build FROM.
 on:
   push:
-    branches: [prototype, main]
+    branches:
+      - 'main'
     paths:
-      - docker/base.Dockerfile
-      - .github/workflows/build-base-app.yml
+      - 'docker/base.Dockerfile'
+      - 'requirements.txt'
+
   workflow_dispatch:
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/base.Dockerfile
-          push: true
-          tags: ghcr.io/ietf-tools/reef-app-base:latest
+    - uses: actions/checkout@v7
+      with:
+        token: ${{ secrets.GH_COMMON_TOKEN }}
+
+    - name: Set Version
+      run: |
+        printf -v CURDATE '%(%Y%m%dT%H%M)T' -1
+        echo "IMGVERSION=$CURDATE" >> $GITHUB_ENV
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v4
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Docker Build & Push
+      uses: docker/build-push-action@v7
+      env:
+        DOCKER_BUILD_SUMMARY: false
+      with:
+        context: .
+        file: docker/base.Dockerfile
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: |
+          ghcr.io/ietf-tools/reef-app-base:${{ env.IMGVERSION }}
+          ${{ github.ref == 'refs/heads/main' && 'ghcr.io/ietf-tools/reef-app-base:latest' || '' }}
+
+    - name: Update version references
+      run: |
+        sed -i "1s/.*/FROM ghcr.io\/ietf-tools\/reef-app-base:${{ env.IMGVERSION }}/" dev/build/backend.Dockerfile
+        echo "${{ env.IMGVERSION }}" > dev/build/TARGET_BASE
+
+    - name: Commit CHANGELOG.md
+      uses: stefanzweifel/git-auto-commit-action@v7
+      with:
+        branch: ${{ github.ref_name }}
+        commit_message: 'ci: update base image target version to ${{ env.IMGVERSION }}'
+        file_pattern: dev/build/backend.Dockerfile dev/build/TARGET_BASE
