@@ -1,4 +1,19 @@
+<div align="center">
+
+<img src="https://static.ietf.org/logos/icon-surveys.svg" alt="REEF" height="125" />
+
 # REEF
+
+[![Release](https://img.shields.io/github/release/ietf-tools/reef.svg?style=flat&maxAge=300)](https://github.com/ietf-tools/reef/releases)
+[![License](https://img.shields.io/github/license/ietf-tools/reef)](https://github.com/ietf-tools/reef/blob/main/LICENSE)
+[![Python Version](https://img.shields.io/badge/python-3.13-blue?logo=python&logoColor=white)](#prerequisites)
+[![Django Version](https://img.shields.io/badge/django-5.x-51be95?logo=django&logoColor=white)](#prerequisites)
+[![Node Version](https://img.shields.io/badge/node.js-26.x-green?logo=node.js&logoColor=white)](#prerequisites)
+[![PostgreSQL Version](https://img.shields.io/badge/postgres-18-blue?logo=postgresql&logoColor=white)](#prerequisites)
+
+##### RFC Editor Engagement Features
+
+</div>
 
 REEF (RFC Editor Engagement Features) is the IETF self-hosted survey and engagement service, part of the RFC
 Modernization Phase 2 program alongside Red (the public RFC website). It hosts
