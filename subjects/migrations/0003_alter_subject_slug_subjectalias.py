@@ -14,7 +14,10 @@ class Migration(migrations.Migration):
             model_name="subject",
             name="slug",
             field=models.SlugField(
-                help_text="Stable identifier used in URLs and by Red. Changing it leaves the old one behind as an alias, so links naming it still resolve; the name is still the field to edit when only the wording changed.",
+                help_text="Stable identifier used in URLs and by Red. Changing it "
+                "leaves the old one behind as an alias, so links naming it still "
+                "resolve; the name is still the field to edit when only the wording "
+                "changed.",
                 unique=True,
             ),
         ),
@@ -33,7 +36,9 @@ class Migration(migrations.Migration):
                 (
                     "slug",
                     models.SlugField(
-                        help_text="A name that resolves to this subject. Readers following a link that uses it are redirected to the subject's own slug.",
+                        help_text="A name that resolves to this subject. Readers "
+                        "following a link that uses it are redirected to the "
+                        "subject's own slug.",
                         unique=True,
                     ),
                 ),

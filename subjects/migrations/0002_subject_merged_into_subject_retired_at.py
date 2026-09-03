@@ -15,7 +15,8 @@ class Migration(migrations.Migration):
             name="merged_into",
             field=models.ForeignKey(
                 blank=True,
-                help_text="Set by a merge. The subject this one's documents and followers were moved to.",
+                help_text="Set by a merge. The subject this one's documents and "
+                "followers were moved to.",
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="merged_from",
@@ -27,7 +28,8 @@ class Migration(migrations.Migration):
             name="retired_at",
             field=models.DateTimeField(
                 blank=True,
-                help_text="When this subject stopped being offered. Clear it to bring the subject back; existing subscriptions keep working either way.",
+                help_text="When this subject stopped being offered. Clear it to bring "
+                "the subject back; existing subscriptions keep working either way.",
                 null=True,
             ),
         ),

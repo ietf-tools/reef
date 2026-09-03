@@ -33,7 +33,8 @@ class Migration(migrations.Migration):
                     models.CharField(
                         choices=[("private", "Private"), ("public", "Public")],
                         default="private",
-                        help_text="A set title and its membership say what someone is tracking, so publishing is the owner's choice.",
+                        help_text="A set title and its membership say what someone is "
+                        "tracking, so publishing is the owner's choice.",
                         max_length=16,
                     ),
                 ),

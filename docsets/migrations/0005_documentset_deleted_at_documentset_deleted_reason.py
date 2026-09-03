@@ -14,7 +14,9 @@ class Migration(migrations.Migration):
             name="deleted_at",
             field=models.DateTimeField(
                 blank=True,
-                help_text="Blank for a live set. Set it to take the set down: it then 404s everywhere, for its owner as much as for anyone else. Clear it to restore.",
+                help_text="Blank for a live set. Set it to take the set down: it then "
+                "404s everywhere, for its owner as much as for anyone else. Clear it "
+                "to restore.",
                 null=True,
             ),
         ),
@@ -23,7 +25,9 @@ class Migration(migrations.Migration):
             name="deleted_reason",
             field=models.TextField(
                 blank=True,
-                help_text="Why the set was taken down, for whoever reviews the decision later. Never served through the API, and optional: a takedown that needs doing now should not wait on the wording.",
+                help_text="Why the set was taken down, for whoever reviews the "
+                "decision later. Never served through the API, and optional: a "
+                "takedown that needs doing now should not wait on the wording.",
             ),
         ),
     ]

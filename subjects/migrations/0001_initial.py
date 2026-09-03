@@ -25,7 +25,9 @@ class Migration(migrations.Migration):
                 (
                     "slug",
                     models.SlugField(
-                        help_text="Stable identifier used in URLs and by Red. Changing it breaks links that name the old one; the name is the field to edit when the wording is what changed.",
+                        help_text="Stable identifier used in URLs and by Red. "
+                        "Changing it breaks links that name the old one; the name is "
+                        "the field to edit when the wording is what changed.",
                         unique=True,
                     ),
                 ),
@@ -41,7 +43,8 @@ class Migration(migrations.Migration):
                     "description",
                     models.TextField(
                         blank=True,
-                        help_text="What belongs under this subject, for whoever curates it next and for a caller drawing a picker.",
+                        help_text="What belongs under this subject, for whoever "
+                        "curates it next and for a caller drawing a picker.",
                     ),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),

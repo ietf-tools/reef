@@ -15,7 +15,9 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 choices=[("private", "Private"), ("public", "Public")],
                 default="public",
-                help_text="Sets are public: a title and its membership are readable by anyone with the link. Private is not offered through the API; it is kept for staff to unpublish a set from here.",
+                help_text="Sets are public: a title and its membership are readable "
+                "by anyone with the link. Private is not offered through the API; it "
+                "is kept for staff to unpublish a set from here.",
                 max_length=16,
             ),
         ),
