@@ -7,7 +7,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: reef-beat
+  name: beat
   labels:
     app.kubernetes.io/part-of: reef
     app.kubernetes.io/component: beat

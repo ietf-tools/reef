@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: reef-backend
+  name: backend
   labels:
     app.kubernetes.io/part-of: reef
     app.kubernetes.io/component: backend
