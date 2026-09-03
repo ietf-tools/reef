@@ -20,6 +20,10 @@ from django.core.management import call_command
 from django.test import SimpleTestCase
 
 CONTRACT = Path(__file__).resolve().parent.parent / "reef_api.yaml"
+# Not reef.urls. The precomputed files are rendered from views nothing routes, so
+# they are in no served urlconf and would be in no contract; reef.urls_contract is
+# reef.urls plus those, and exists for this.
+CONTRACT_URLCONF = "reef.urls_contract"
 
 
 class ApiContractTests(SimpleTestCase):
@@ -27,7 +31,7 @@ class ApiContractTests(SimpleTestCase):
 
     def test_the_committed_contract_matches_the_code(self):
         generated = StringIO()
-        call_command("spectacular", stdout=generated)
+        call_command("spectacular", urlconf=CONTRACT_URLCONF, stdout=generated)
 
         current = generated.getvalue().strip().splitlines()
         committed = CONTRACT.read_text().strip().splitlines()
@@ -45,7 +49,7 @@ class ApiContractTests(SimpleTestCase):
         self.fail(
             "reef_api.yaml is out of date. Regenerate it with\n"
             "    REEF_DEPLOYMENT_MODE=build ./manage.py spectacular "
-            "--file reef_api.yaml --validate\n"
+            "--urlconf reef.urls_contract --file reef_api.yaml --validate\n"
             "and commit the result, so that whatever generates types from it "
             "describes the API this code actually serves.\n\n" + "\n".join(changed[:60])
         )

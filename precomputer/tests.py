@@ -16,7 +16,8 @@ from django.test import TestCase, TransactionTestCase, override_settings
 
 from popularity.models import PopularEntry
 from precomputer.blobstore import LocalBlobStore, get_blob_store
-from precomputer.registry import TASKS, _subject_index
+from precomputer.registry import TASKS
+from subjects.precompute import build_index
 from precomputer.signals import CURATED_DEBOUNCE_SECONDS
 from precomputer.tasks import precompute_all, precompute_curated, precompute_engagement
 from ratings.models import Rating
@@ -71,6 +72,18 @@ class PrecomputeTestCase(TestCase):
         patcher = mock.patch("reef.rfcmeta.get_index", side_effect=lambda: self.index)
         self.get_index = patcher.start()
         self.addCleanup(patcher.stop)
+
+        # The two ways the index reaches a task. Tasks that add metadata after
+        # rendering take it as an argument, from get_index above. The subject
+        # views resolve it themselves through cached_mapping, which in a
+        # deployment is warm because the run loads the index before the first
+        # task; nothing here runs that path, so the same fake is put behind both.
+        cached = mock.patch(
+            "reef.rfcmeta.cached_mapping",
+            side_effect=lambda: None if self.index is None else self.index.mapping,
+        )
+        self.cached_mapping = cached.start()
+        self.addCleanup(cached.stop)
 
     def precompute(self, *args, **options):
         out, err = StringIO(), StringIO()
@@ -269,7 +282,7 @@ class SubjectIndexTests(PrecomputeTestCase):
         for number in range(20):
             Subject.objects.create(name=f"S{number}", slug=f"s{number}")
         with self.assertNumQueries(3):
-            _subject_index(self.index)
+            build_index()
 
 
 class DocumentMetadataTests(PrecomputeTestCase):
