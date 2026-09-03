@@ -4,15 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('docsets', '0003_alter_documentset_id'),
+        ("docsets", "0003_alter_documentset_id"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='documentset',
-            name='visibility',
-            field=models.CharField(choices=[('private', 'Private'), ('public', 'Public')], default='public', help_text='Sets are public: a title and its membership are readable by anyone with the link. Private is not offered through the API; it is kept for staff to unpublish a set from here.', max_length=16),
+            model_name="documentset",
+            name="visibility",
+            field=models.CharField(
+                choices=[("private", "Private"), ("public", "Public")],
+                default="public",
+                help_text="Sets are public: a title and its membership are readable by anyone with the link. Private is not offered through the API; it is kept for staff to unpublish a set from here.",
+                max_length=16,
+            ),
         ),
     ]

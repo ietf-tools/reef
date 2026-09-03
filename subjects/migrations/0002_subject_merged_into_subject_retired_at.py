@@ -5,20 +5,30 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('subjects', '0001_initial'),
+        ("subjects", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='subject',
-            name='merged_into',
-            field=models.ForeignKey(blank=True, help_text="Set by a merge. The subject this one's documents and followers were moved to.", null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='merged_from', to='subjects.subject'),
+            model_name="subject",
+            name="merged_into",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Set by a merge. The subject this one's documents and followers were moved to.",
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="merged_from",
+                to="subjects.subject",
+            ),
         ),
         migrations.AddField(
-            model_name='subject',
-            name='retired_at',
-            field=models.DateTimeField(blank=True, help_text='When this subject stopped being offered. Clear it to bring the subject back; existing subscriptions keep working either way.', null=True),
+            model_name="subject",
+            name="retired_at",
+            field=models.DateTimeField(
+                blank=True,
+                help_text="When this subject stopped being offered. Clear it to bring the subject back; existing subscriptions keep working either way.",
+                null=True,
+            ),
         ),
     ]

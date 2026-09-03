@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
@@ -15,41 +14,88 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='DocumentSet',
+            name="DocumentSet",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('title', models.CharField(max_length=200)),
-                ('slug', models.SlugField(editable=False, max_length=200)),
-                ('description', models.TextField(blank=True)),
-                ('visibility', models.CharField(choices=[('private', 'Private'), ('public', 'Public')], default='private', help_text="A set title and its membership say what someone is tracking, so publishing is the owner's choice.", max_length=16)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('owner', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='document_sets', to=settings.AUTH_USER_MODEL)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("title", models.CharField(max_length=200)),
+                ("slug", models.SlugField(editable=False, max_length=200)),
+                ("description", models.TextField(blank=True)),
+                (
+                    "visibility",
+                    models.CharField(
+                        choices=[("private", "Private"), ("public", "Public")],
+                        default="private",
+                        help_text="A set title and its membership say what someone is tracking, so publishing is the owner's choice.",
+                        max_length=16,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "owner",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="document_sets",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
-                'ordering': ['-updated_at'],
+                "ordering": ["-updated_at"],
             },
         ),
         migrations.CreateModel(
-            name='DocumentSetEntry',
+            name="DocumentSetEntry",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('doc', models.CharField(db_index=True, max_length=32)),
-                ('rank', models.PositiveIntegerField(default=0, help_text='Lower sorts first')),
-                ('added_at', models.DateTimeField(auto_now_add=True)),
-                ('document_set', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='entries', to='docsets.documentset')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("doc", models.CharField(db_index=True, max_length=32)),
+                (
+                    "rank",
+                    models.PositiveIntegerField(
+                        default=0, help_text="Lower sorts first"
+                    ),
+                ),
+                ("added_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "document_set",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="entries",
+                        to="docsets.documentset",
+                    ),
+                ),
             ],
             options={
-                'verbose_name_plural': 'document set entries',
-                'ordering': ['rank', 'id'],
+                "verbose_name_plural": "document set entries",
+                "ordering": ["rank", "id"],
             },
         ),
         migrations.AddConstraint(
-            model_name='documentset',
-            constraint=models.UniqueConstraint(fields=('owner', 'slug'), name='unique_document_set_slug_per_owner'),
+            model_name="documentset",
+            constraint=models.UniqueConstraint(
+                fields=("owner", "slug"), name="unique_document_set_slug_per_owner"
+            ),
         ),
         migrations.AddConstraint(
-            model_name='documentsetentry',
-            constraint=models.UniqueConstraint(fields=('document_set', 'doc'), name='unique_document_per_set'),
+            model_name="documentsetentry",
+            constraint=models.UniqueConstraint(
+                fields=("document_set", "doc"), name="unique_document_per_set"
+            ),
         ),
     ]

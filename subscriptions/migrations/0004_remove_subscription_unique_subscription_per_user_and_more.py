@@ -6,30 +6,49 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('docsets', '0001_initial'),
-        ('subscriptions', '0003_subscription_unique_subscription_per_user'),
+        ("docsets", "0001_initial"),
+        ("subscriptions", "0003_subscription_unique_subscription_per_user"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.RemoveConstraint(
-            model_name='subscription',
-            name='unique_subscription_per_user',
+            model_name="subscription",
+            name="unique_subscription_per_user",
         ),
         migrations.AddField(
-            model_name='subscription',
-            name='document_set',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='subscriptions', to='docsets.documentset'),
+            model_name="subscription",
+            name="document_set",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="subscriptions",
+                to="docsets.documentset",
+            ),
         ),
         migrations.AlterField(
-            model_name='subscription',
-            name='kind',
-            field=models.CharField(choices=[('new_rfc', 'Any new RFC'), ('by_status', 'New RFC by status'), ('obsoleted', 'RFC obsoleted or made historic'), ('subject_tag', 'RFC with a subject tag'), ('rfc', 'Changes to one specific RFC'), ('set', 'Changes to anything in a document set')], max_length=32),
+            model_name="subscription",
+            name="kind",
+            field=models.CharField(
+                choices=[
+                    ("new_rfc", "Any new RFC"),
+                    ("by_status", "New RFC by status"),
+                    ("obsoleted", "RFC obsoleted or made historic"),
+                    ("subject_tag", "RFC with a subject tag"),
+                    ("rfc", "Changes to one specific RFC"),
+                    ("set", "Changes to anything in a document set"),
+                ],
+                max_length=32,
+            ),
         ),
         migrations.AddConstraint(
-            model_name='subscription',
-            constraint=models.UniqueConstraint(fields=('user', 'kind', 'params', 'document_set'), name='unique_subscription_per_user', nulls_distinct=False),
+            model_name="subscription",
+            constraint=models.UniqueConstraint(
+                fields=("user", "kind", "params", "document_set"),
+                name="unique_subscription_per_user",
+                nulls_distinct=False,
+            ),
         ),
     ]

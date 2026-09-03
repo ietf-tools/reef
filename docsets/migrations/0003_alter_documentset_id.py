@@ -152,7 +152,10 @@ class Migration(migrations.Migration):
         ("docsets", "0002_alter_documentset_visibility"),
         # The swap rewrites subscriptions' foreign key column, so that table has
         # to be finished before this runs.
-        ("subscriptions", "0004_remove_subscription_unique_subscription_per_user_and_more"),
+        (
+            "subscriptions",
+            "0004_remove_subscription_unique_subscription_per_user_and_more",
+        ),
     ]
 
     operations = [

@@ -5,28 +5,51 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('subjects', '0002_subject_merged_into_subject_retired_at'),
+        ("subjects", "0002_subject_merged_into_subject_retired_at"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='subject',
-            name='slug',
-            field=models.SlugField(help_text='Stable identifier used in URLs and by Red. Changing it leaves the old one behind as an alias, so links naming it still resolve; the name is still the field to edit when only the wording changed.', unique=True),
+            model_name="subject",
+            name="slug",
+            field=models.SlugField(
+                help_text="Stable identifier used in URLs and by Red. Changing it leaves the old one behind as an alias, so links naming it still resolve; the name is still the field to edit when only the wording changed.",
+                unique=True,
+            ),
         ),
         migrations.CreateModel(
-            name='SubjectAlias',
+            name="SubjectAlias",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('slug', models.SlugField(help_text="A name that resolves to this subject. Readers following a link that uses it are redirected to the subject's own slug.", unique=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('subject', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='aliases', to='subjects.subject')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "slug",
+                    models.SlugField(
+                        help_text="A name that resolves to this subject. Readers following a link that uses it are redirected to the subject's own slug.",
+                        unique=True,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "subject",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="aliases",
+                        to="subjects.subject",
+                    ),
+                ),
             ],
             options={
-                'verbose_name_plural': 'subject aliases',
-                'ordering': ['slug'],
+                "verbose_name_plural": "subject aliases",
+                "ordering": ["slug"],
             },
         ),
     ]

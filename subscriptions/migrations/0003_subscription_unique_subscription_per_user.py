@@ -39,16 +39,17 @@ def normalize_and_dedupe(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('subscriptions', '0002_alter_subscription_kind'),
+        ("subscriptions", "0002_alter_subscription_kind"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.RunPython(normalize_and_dedupe, migrations.RunPython.noop),
         migrations.AddConstraint(
-            model_name='subscription',
-            constraint=models.UniqueConstraint(fields=('user', 'kind', 'params'), name='unique_subscription_per_user'),
+            model_name="subscription",
+            constraint=models.UniqueConstraint(
+                fields=("user", "kind", "params"), name="unique_subscription_per_user"
+            ),
         ),
     ]

@@ -4,20 +4,26 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('docsets', '0004_alter_documentset_visibility'),
+        ("docsets", "0004_alter_documentset_visibility"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='documentset',
-            name='deleted_at',
-            field=models.DateTimeField(blank=True, help_text='Blank for a live set. Set it to take the set down: it then 404s everywhere, for its owner as much as for anyone else. Clear it to restore.', null=True),
+            model_name="documentset",
+            name="deleted_at",
+            field=models.DateTimeField(
+                blank=True,
+                help_text="Blank for a live set. Set it to take the set down: it then 404s everywhere, for its owner as much as for anyone else. Clear it to restore.",
+                null=True,
+            ),
         ),
         migrations.AddField(
-            model_name='documentset',
-            name='deleted_reason',
-            field=models.TextField(blank=True, help_text='Why the set was taken down, for whoever reviews the decision later. Never served through the API, and optional: a takedown that needs doing now should not wait on the wording.'),
+            model_name="documentset",
+            name="deleted_reason",
+            field=models.TextField(
+                blank=True,
+                help_text="Why the set was taken down, for whoever reviews the decision later. Never served through the API, and optional: a takedown that needs doing now should not wait on the wording.",
+            ),
         ),
     ]
