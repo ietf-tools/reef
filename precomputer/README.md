@@ -23,6 +23,13 @@ codebase, so `render.py` runs the view itself: what lands in the store is the
 byte string the API would have returned, through the same serializer, renderer
 and permission checks. There is no second definition to drift.
 
+That holds for every key here, including the two subject files, whose views are
+in `subjects/precompute.py`. Those are deliberately not routed -- a published
+file needs no URL, and an unpaginated read of the whole vocabulary would be a
+cost with no caller -- so they reach `reef_api.yaml` through `reef.urls_contract`
+instead, which is `reef.urls` plus them and which nothing serves. The contract is
+the only description of these payloads there is; Red derives its Zod from it.
+
 ## Usage
 
 ```
@@ -62,10 +69,9 @@ ratings/<doc>.json                  a rated document's public average and count
 
 ### subjects.json
 
-The one payload here that is not an endpoint's bytes. Red fetches it per route and
-renders the page from it, so it has to carry the titles, and the list endpoint has
-none to give: Reef holds no document metadata and resolves it here, from Red's own
-index, at precompute time.
+Red fetches it per route and renders the page from it, so it carries the titles,
+which the served list endpoint has none of to give: Reef holds no document
+metadata and resolves it from Red's own index when the view runs.
 
 Two maps, both keyed, so that a caller looks a subject or a document up directly
 rather than building an index of its own or scanning an array:
@@ -85,6 +91,22 @@ document, which at this vocabulary's depth would repeat every title about three
 times over. And a subject's subtree is not written out: it is derivable from `path`
 and `children` in the pass a caller is already making, and writing it would store
 every identifier once per ancestor.
+
+### subjects/&lt;slug&gt;.json
+
+The served `/api/reef/subjects/{slug}/` response plus two sibling maps:
+`document_meta`, the title of each document assigned to the subject, and
+`subject_meta`, the curated names of its ancestors and children. One file answers
+a subject page in Red in a single fetch, breadcrumb included, without reading the
+index for one word.
+
+Maps rather than changes to the arrays they describe. Retyping `documents` into a
+list of objects, or `children` into one, is the change that breaks a caller, and
+it is what Reef asks Red not to do to it.
+
+A retired subject and an alias are published here too, as the redirect stubs the
+served read returns, because a blob store cannot answer with a 301. Neither
+carries `documents`, so neither gains the maps.
 
 ## Document metadata
 

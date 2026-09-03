@@ -17,13 +17,13 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from popularity.models import PopularEntry
 from precomputer.blobstore import LocalBlobStore, get_blob_store
 from precomputer.registry import TASKS
-from subjects.precompute import build_index
 from precomputer.signals import CURATED_DEBOUNCE_SECONDS
 from precomputer.tasks import precompute_all, precompute_curated, precompute_engagement
 from ratings.models import Rating
 from reef import rfcmeta
 from reef.locks import _key, advisory_lock
 from subjects.models import Subject, SubjectAlias, SubjectAssignment
+from subjects.precompute import build_index
 from surveys.models import Survey
 
 User = get_user_model()
