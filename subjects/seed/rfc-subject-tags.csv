@@ -1,0 +1,503 @@
+tag,subject tag title,kind,level,parent,path,description,direct documents,total documents
+applications,Applications,topic,1,,/applications,Application protocols in general,39,831
+acap,ACAP,technology,2,applications,/applications/acap,Application Configuration Access Protocol,6,6
+accessibility,Accessibility,topic,2,applications,/applications/accessibility,Accessibility of Internet communications,6,6
+alto,ALTO,technology,2,applications,/applications/alto,Application-layer traffic optimization,18,18
+apex,APEX,technology,2,applications,/applications/apex,Application Exchange (APEX) messaging,4,4
+beep,BEEP,technology,2,applications,/applications/beep,Blocks Extensible Exchange Protocol,14,14
+calendaring,Calendaring,topic,2,applications,/applications/calendaring,Calendaring and scheduling,5,38
+caldav,CalDAV,technology,3,calendaring,/applications/calendaring/caldav,CalDAV calendar access,11,11
+icalendar,iCalendar,technology,3,calendaring,/applications/calendaring/icalendar,The iCalendar format,24,24
+time-zones,Time Zones,technology,3,calendaring,/applications/calendaring/time-zones,Time zone data distribution and timestamps,7,7
+directory-services,Directory Services,topic,2,applications,/applications/directory-services,Directory access and synchronization,19,175
+ldap,LDAP,technology,3,directory-services,/applications/directory-services/ldap,Lightweight Directory Access Protocol,119,119
+x-500,X.500,technology,3,directory-services,/applications/directory-services/x-500,The X.500 directory,83,83
+e-commerce,E-commerce,topic,2,applications,/applications/e-commerce,Electronic commerce and payment protocols,6,6
+ebpf,eBPF,technology,2,applications,/applications/ebpf,eBPF instruction set and conventions,1,1
+finger,Finger,technology,2,applications,/applications/finger,The Finger user information protocol,6,6
+ftp,FTP,technology,2,applications,/applications/ftp,The File Transfer Protocol,86,86
+geolocation,Geolocation,topic,2,applications,/applications/geolocation,"Location information: formats, privacy and conveyance",45,45
+gopher,Gopher,technology,2,applications,/applications/gopher,The Gopher document retrieval protocol,4,4
+ipp,IPP,technology,2,applications,/applications/ipp,The Internet Printing Protocol,25,25
+irc,IRC,technology,2,applications,/applications/irc,Internet Relay Chat,7,7
+lpd,LPD,technology,2,applications,/applications/lpd,The Line Printer Daemon protocol,2,2
+netbios,NetBIOS,technology,2,applications,/applications/netbios,NetBIOS services over TCP/IP,8,8
+p2p,Peer-to-Peer,technology,2,applications,/applications/p2p,Peer-to-peer overlay networks and applications,45,45
+rlogin,rlogin,technology,2,applications,/applications/rlogin,The BSD rlogin remote login protocol,2,2
+small-services,Small Services,technology,2,applications,/applications/small-services,"The TCP/UDP small services: Echo, Discard, Chargen, QOTD, Daytime, Active Users",7,7
+sockets-api,Sockets API,technology,2,applications,/applications/sockets-api,Sockets API extensions,9,9
+storage,Storage,topic,2,applications,/applications/storage,Storage access and block/file protocols over IP,6,146
+fibre-channel,Fibre Channel,technology,3,storage,/applications/storage/fibre-channel,Fibre Channel over IP transports,29,29
+iscsi,iSCSI,technology,3,storage,/applications/storage/iscsi,Internet SCSI,42,42
+nfs,NFS,technology,3,storage,/applications/storage/nfs,The Network File System,56,56
+onc-rpc,ONC RPC,technology,3,storage,/applications/storage/onc-rpc,ONC remote procedure call and XDR,36,36
+rdma,RDMA,technology,3,storage,/applications/storage/rdma,Remote direct memory access protocols,21,21
+telnet,Telnet,technology,2,applications,/applications/telnet,The Telnet protocol and its options,125,125
+tftp,TFTP,technology,2,applications,/applications/tftp,The Trivial File Transfer Protocol,16,16
+tip,TIP,technology,2,applications,/applications/tip,Transaction Internet Protocol,2,2
+vcard,vCard,technology,2,applications,/applications/vcard,vCard contact data,12,21
+carddav,CardDAV,technology,3,vcard,/applications/vcard/carddav,CardDAV address book access,9,9
+x-window-system,X Window System,technology,2,applications,/applications/x-window-system,The X Window System protocol,2,2
+arpanet,ARPANET,topic,1,,/arpanet,"The ARPANET: its host and network protocols, operations and working notes",486,571
+ncp,NCP,technology,2,arpanet,/arpanet/ncp,ARPANET Network Control Protocol (historic host-host protocol),31,31
+network-graphics,Network Graphics,technology,2,arpanet,/arpanet/network-graphics,Early network graphics protocols and formats,37,37
+rje,Remote Job Entry,technology,2,arpanet,/arpanet/rje,Remote job entry on the early network,17,17
+data-formats,Data Formats,topic,1,,/data-formats,"Data formats, encodings and representations in general",25,496
+abnf,ABNF,technology,2,data-formats,/data-formats/abnf,Augmented BNF and formal syntax notations,9,9
+asn1,ASN.1,technology,2,data-formats,/data-formats/asn1,ASN.1 modules and encoding rules,29,29
+cbor,CBOR,technology,2,data-formats,/data-formats/cbor,Concise Binary Object Representation,38,43
+cddl,CDDL,technology,3,cbor,/data-formats/cbor/cddl,Concise Data Definition Language,5,5
+compression,Compression,topic,2,data-formats,/data-formats/compression,Lossless data compression formats,35,54
+brotli,Brotli,technology,3,compression,/data-formats/compression/brotli,Brotli compression,4,4
+deflate,DEFLATE,technology,3,compression,/data-formats/compression/deflate,DEFLATE and zlib,8,8
+gzip,gzip,technology,3,compression,/data-formats/compression/gzip,The gzip file format,2,2
+ipcomp,IPComp,technology,3,compression,/data-formats/compression/ipcomp,IP payload compression,5,5
+zstd,Zstandard,technology,3,compression,/data-formats/compression/zstd,Zstandard compression,5,5
+content-negotiation,Content Negotiation,technology,2,data-formats,/data-formats/content-negotiation,Media feature and content negotiation,17,17
+data-encodings,Data Encodings,technology,2,data-formats,/data-formats/data-encodings,Base16/32/45/64 and related textual data encodings,4,4
+internationalization,Internationalization,topic,2,data-formats,/data-formats/internationalization,Internationalization of text in protocols,37,136
+character-sets,Character Sets,technology,3,internationalization,/data-formats/internationalization/character-sets,Character set registration and use,53,53
+language-tags,Language Tags,technology,3,internationalization,/data-formats/internationalization/language-tags,Language tags and matching,12,12
+precis,PRECIS,technology,3,internationalization,/data-formats/internationalization/precis,PRECIS internationalized string handling,9,9
+unicode,Unicode,technology,3,internationalization,/data-formats/internationalization/unicode,Unicode usage in Internet protocols,31,31
+utf-8,UTF-8,technology,3,internationalization,/data-formats/internationalization/utf-8,The UTF-8 encoding,17,17
+json,JSON,technology,2,data-formats,/data-formats/json,JSON and JSON-based formats,78,83
+geojson,GeoJSON,technology,3,json,/data-formats/json/geojson,GeoJSON geographic data,2,2
+jsonpath,JSONPath,technology,3,json,/data-formats/json/jsonpath,JSONPath query expressions,3,3
+markdown,Markdown,technology,2,data-formats,/data-formats/markdown,Markdown text formats,2,2
+sgml,SGML,technology,2,data-formats,/data-formats/sgml,SGML-based document interchange,5,5
+xml,XML,technology,2,data-formats,/data-formats/xml,XML usage in protocols and XML-based formats,111,111
+humor,Humor,topic,1,,/humor,"Humorous RFCs: the April 1st series and other whimsical documents (poems, parodies)",74,74
+internet-architecture,Internet Architecture,topic,1,,/internet-architecture,Architectural principles of the Internet,128,128
+internet-governance,Internet Governance,topic,1,,/internet-governance,"How the Internet and its standards are governed, administered, developed and published",79,816
+iana,IANA,topic,2,internet-governance,/internet-governance/iana,"IANA registries, considerations guidance and stewardship",187,187
+ietf-process,IETF Process,topic,2,internet-governance,/internet-governance/ietf-process,"IETF standards process, procedures and administration",323,335
+nomcom,NomCom,topic,3,ietf-process,/internet-governance/ietf-process/nomcom,IETF nominating committee procedures,12,12
+ipr,IPR,topic,2,internet-governance,/internet-governance/ipr,"Intellectual property rights, copyright and trust legal provisions",25,25
+rfc-series,RFC Series,topic,2,internet-governance,/internet-governance/rfc-series,"The RFC series: format, style, editor and publication",74,84
+rfcxml,RFCXML,technology,3,rfc-series,/internet-governance/rfc-series/rfcxml,"RFCXML, the XML vocabulary for RFCs and Internet-Drafts (processed by xml2rfc)",10,10
+terminology,Terminology,topic,2,internet-governance,/internet-governance/terminology,"Glossaries, definitions and requirements language",64,64
+user-documentation,User Documentation,topic,2,internet-governance,/internet-governance/user-documentation,Introductory guides and FYI documents for Internet users,44,44
+workshop-reports,Workshop Reports,topic,2,internet-governance,/internet-governance/workshop-reports,"Reports from IAB, IRTF and community workshops",50,50
+internet-history,Internet History,topic,1,,/internet-history,Histories and retrospectives of the Internet and its protocols,6,6
+internet-layer,Internet Layer,topic,1,,/internet-layer,"The IP layer in general: datagram delivery, the protocol suite, network-layer matters",6,1458
+addressing,Addressing,topic,2,internet-layer,/internet-layer/addressing,"IP address architecture, allocation and use",106,200
+anycast,Anycast,topic,3,addressing,/internet-layer/addressing/anycast,Anycast addressing and operation,21,21
+cidr,CIDR,technology,3,addressing,/internet-layer/addressing/cidr,Classless inter-domain routing and aggregation,17,17
+multihoming,Multihoming,topic,3,addressing,/internet-layer/addressing/multihoming,Multihoming architectures,35,41
+shim6,Shim6,technology,4,multihoming,/internet-layer/addressing/multihoming/shim6,The Shim6 host multihoming shim,6,6
+renumbering,Renumbering,topic,3,addressing,/internet-layer/addressing/renumbering,Site renumbering procedures,15,15
+appletalk,AppleTalk,technology,2,internet-layer,/internet-layer/appletalk,AppleTalk protocols and tunnelling,6,6
+captive-portal,Captive portals,technology,2,internet-layer,/internet-layer/captive-portal,Captive portal detection and interaction,3,3
+decnet,DECnet,technology,2,internet-layer,/internet-layer/decnet,DECnet protocol suite over IP infrastructure,5,5
+dhcp,DHCP,technology,2,internet-layer,/internet-layer/dhcp,Dynamic Host Configuration Protocol,94,168
+dhcpv6,DHCPv6,technology,3,dhcp,/internet-layer/dhcp/dhcpv6,DHCP for IPv6,74,74
+drip,DRIP,technology,2,internet-layer,/internet-layer/drip,Drone Remote Identification Protocol,5,5
+hip,HIP,technology,2,internet-layer,/internet-layer/hip,Host Identity Protocol,31,31
+homenet,Homenet,technology,2,internet-layer,/internet-layer/homenet,Home network architecture and protocols,11,11
+icmp,ICMP,technology,2,internet-layer,/internet-layer/icmp,Internet Control Message Protocol (v4 and v6),36,36
+icn,Information-Centric Networking,technology,2,internet-layer,/internet-layer/icn,Information-centric and named-data networking,27,27
+ilnp,ILNP,technology,2,internet-layer,/internet-layer/ilnp,The Identifier-Locator Network Protocol,9,9
+ip-mobility,IP Mobility,topic,2,internet-layer,/internet-layer/ip-mobility,IP-layer host and network mobility,60,186
+mobile-ipv4,Mobile IPv4,technology,3,ip-mobility,/internet-layer/ip-mobility/mobile-ipv4,Mobile IPv4,22,22
+mobile-ipv6,Mobile IPv6,technology,3,ip-mobility,/internet-layer/ip-mobility/mobile-ipv6,Mobile IPv6,91,91
+nemo,NEMO,technology,3,ip-mobility,/internet-layer/ip-mobility/nemo,Network mobility (NEMO),16,16
+pmipv6,Proxy Mobile IPv6,technology,3,ip-mobility,/internet-layer/ip-mobility/pmipv6,Proxy Mobile IPv6 and network-based mobility,43,43
+ipng,IPng,technology,2,internet-layer,/internet-layer/ipng,"Historic IP next-generation candidate protocols (TUBA, PIP, SIPP, TP/IX)",17,17
+ipv4,IPv4,technology,2,internet-layer,/internet-layer/ipv4,Internet Protocol version 4 and its address lifecycle,254,254
+ipv6,IPv6,technology,2,internet-layer,/internet-layer/ipv6,"Internet Protocol version 6: specification, addressing, deployment",553,736
+ipv6-transition,IPv6 Transition,topic,3,ipv6,/internet-layer/ipv6/ipv6-transition,IPv6/IPv4 coexistence and transition mechanisms,56,117
+464xlat,464XLAT,technology,4,ipv6-transition,/internet-layer/ipv6/ipv6-transition/464xlat,464XLAT combined translation,7,7
+6rd,6rd,technology,4,ipv6-transition,/internet-layer/ipv6/ipv6-transition/6rd,IPv6 rapid deployment (6rd),6,6
+6to4,6to4,technology,4,ipv6-transition,/internet-layer/ipv6/ipv6-transition/6to4,The 6to4 automatic tunnelling mechanism,8,8
+ds-lite,DS-Lite,technology,4,ipv6-transition,/internet-layer/ipv6/ipv6-transition/ds-lite,Dual-Stack Lite,17,17
+happy-eyeballs,Happy Eyeballs,technology,4,ipv6-transition,/internet-layer/ipv6/ipv6-transition/happy-eyeballs,Happy Eyeballs connection racing,4,4
+map,MAP (Mapping of Address and Port),technology,4,ipv6-transition,/internet-layer/ipv6/ipv6-transition/map,Mapping of address and port (MAP-E and MAP-T),12,12
+nat64,NAT64,technology,4,ipv6-transition,/internet-layer/ipv6/ipv6-transition/nat64,Stateful NAT64 translation,22,22
+teredo,Teredo,technology,4,ipv6-transition,/internet-layer/ipv6/ipv6-transition/teredo,Teredo: IPv6 through NATs via UDP,3,3
+neighbor-discovery,Neighbor Discovery,technology,3,ipv6,/internet-layer/ipv6/neighbor-discovery,IPv6 neighbor discovery,31,53
+send,SEND,technology,4,neighbor-discovery,/internet-layer/ipv6/neighbor-discovery/send,Secure Neighbor Discovery,22,22
+slaac,SLAAC,technology,3,ipv6,/internet-layer/ipv6/slaac,IPv6 stateless address autoconfiguration,17,17
+ipx,IPX,technology,2,internet-layer,/internet-layer/ipx,Novell IPX interworking,12,12
+nat,NAT,technology,2,internet-layer,/internet-layer/nat,"Network address translation: behaviour, requirements, deployment",73,97
+cgn,Carrier-Grade NAT,technology,3,nat,/internet-layer/nat/cgn,Carrier-grade NAT,13,13
+pcp,PCP,technology,3,nat,/internet-layer/nat/pcp,Port Control Protocol,13,13
+osi,OSI,technology,2,internet-layer,/internet-layer/osi,OSI network-layer protocols and coexistence with IP,46,57
+clnp,CLNP,technology,3,osi,/internet-layer/osi/clnp,The Connectionless Network Protocol,11,11
+pmtud,Path MTU Discovery,technology,2,internet-layer,/internet-layer/pmtud,Path MTU discovery,10,10
+savi,SAVI,technology,2,internet-layer,/internet-layer/savi,Source address validation,9,9
+tunneling,Tunneling,topic,2,internet-layer,/internet-layer/tunneling,IP-in-IP encapsulation and generic tunnelling,93,111
+gre,GRE,technology,3,tunneling,/internet-layer/tunneling/gre,Generic Routing Encapsulation,16,16
+ip-in-ip,IP-in-IP,technology,3,tunneling,/internet-layer/tunneling/ip-in-ip,IP-in-IP encapsulation,2,2
+vehicular-networking,Vehicular Networking,technology,2,internet-layer,/internet-layer/vehicular-networking,IP in vehicular (V2X) environments,2,2
+iot,IoT,topic,1,,/iot,"Internet of Things: architectures, terminology, guidance for constrained devices",25,164
+6lowpan,6LoWPAN,technology,2,iot,/iot/6lowpan,IPv6 over low-power personal-area and constrained link layers,40,40
+6tisch,6TiSCH,technology,2,iot,/iot/6tisch,IPv6 over TSCH IEEE 802.15.4e networks,8,8
+ace,ACE,technology,2,iot,/iot/ace,Authentication and authorization for constrained environments,15,18
+edhoc,EDHOC,technology,3,ace,/iot/ace/edhoc,Ephemeral Diffie-Hellman over COSE key exchange,3,3
+coap,CoAP,technology,2,iot,/iot/coap,The Constrained Application Protocol,42,50
+oscore,OSCORE,technology,3,coap,/iot/coap/oscore,Object security for constrained RESTful environments,8,8
+lpwan,LPWAN,technology,2,iot,/iot/lpwan,Low-power wide-area networks,1,8
+schc,SCHC,technology,3,lpwan,/iot/lpwan/schc,Static context header compression,7,7
+mud,MUD,technology,2,iot,/iot/mud,Manufacturer Usage Descriptions,4,4
+rpl,RPL,technology,2,iot,/iot/rpl,The RPL routing protocol for low-power and lossy networks,33,33
+sdf,SDF,technology,2,iot,/iot/sdf,Semantic Definition Format for IoT data models,1,1
+senml,SenML,technology,2,iot,/iot/senml,Sensor Measurement Lists data format,5,5
+suit,SUIT,technology,2,iot,/iot/suit,Software update for IoT devices,3,3
+link-layer,Link Layer,topic,1,,/link-layer,"Link and data-link layers in general, not specific to one medium",10,633
+amateur-radio,Amateur Radio,technology,2,link-layer,/link-layer/amateur-radio,Amateur packet radio (AX.25) and IP,1,1
+arp,ARP,technology,2,link-layer,/link-layer/arp,The Address Resolution Protocol,40,40
+atm,ATM,technology,2,link-layer,/link-layer/atm,Asynchronous Transfer Mode and IP over ATM,89,100
+nhrp,NHRP,technology,3,atm,/link-layer/atm/nhrp,Next Hop Resolution Protocol for NBMA networks,11,11
+capwap,CAPWAP,technology,2,link-layer,/link-layer/capwap,Control and provisioning of wireless access points,15,15
+docsis,DOCSIS,technology,2,link-layer,/link-layer/docsis,DOCSIS cable access networks,16,16
+dsl,DSL,technology,2,link-layer,/link-layer/dsl,Digital subscriber line access networks,23,23
+dvb,DVB,technology,2,link-layer,/link-layer/dvb,IP over MPEG-2/DVB broadcast links,12,12
+ethernet,Ethernet,technology,2,link-layer,/link-layer/ethernet,"IP over Ethernet, Ethernet interworking and OAM",149,149
+fddi,FDDI,technology,2,link-layer,/link-layer/fddi,IP over FDDI,10,10
+firewire,FireWire,technology,2,link-layer,/link-layer/firewire,IP over IEEE 1394 (FireWire),3,3
+frame-relay,Frame Relay,technology,2,link-layer,/link-layer/frame-relay,Frame relay and IP interworking,26,26
+infiniband,InfiniBand,technology,2,link-layer,/link-layer/infiniband,IP over InfiniBand,6,6
+isdn,ISDN,technology,2,link-layer,/link-layer/isdn,ISDN access and IP,14,14
+l2tp,L2TP,technology,2,link-layer,/link-layer/l2tp,Layer Two Tunneling Protocol,28,28
+paws,PAWS,technology,2,link-layer,/link-layer/paws,Protocol to access TV white-space databases,2,2
+ppp,PPP,technology,2,link-layer,/link-layer/ppp,The Point-to-Point Protocol and its control protocols,112,119
+pppoe,PPPoE,technology,3,ppp,/link-layer/ppp/pppoe,PPP over Ethernet,7,7
+satellite,Satellite links,technology,2,link-layer,/link-layer/satellite,Networking over satellite links,13,13
+slip,SLIP,technology,2,link-layer,/link-layer/slip,Serial Line IP,6,6
+smds,SMDS,technology,2,link-layer,/link-layer/smds,Switched Multimegabit Data Service,4,4
+sna,SNA,technology,2,link-layer,/link-layer/sna,IBM SNA interworking,20,29
+tn3270,TN3270,technology,3,sna,/link-layer/sna/tn3270,TN3270 terminal emulation,9,9
+sonet,SONET/SDH,technology,2,link-layer,/link-layer/sonet,IP and multi-access protocols over SONET/SDH,33,33
+token-ring,Token Ring,technology,2,link-layer,/link-layer/token-ring,IP over token ring,7,7
+wifi,Wi-Fi,technology,2,link-layer,/link-layer/wifi,IP over IEEE 802.11 wireless LANs,29,29
+wimax,WiMAX,technology,2,link-layer,/link-layer/wimax,IP over IEEE 802.16 (WiMAX) networks,9,9
+x25,X.25,technology,2,link-layer,/link-layer/x25,X.25 and IP over public data networks,19,19
+messaging,Messaging,topic,1,,/messaging,Messaging in general: store-and-forward and interpersonal message systems,8,919
+edi,EDI,technology,2,messaging,/messaging/edi,Electronic Data Interchange over Internet transports,22,22
+email,Email,technology,2,messaging,/messaging/email,"Electronic mail: architecture, transport, access and formats",73,485
+eai,Email Address Internationalization,technology,3,email,/messaging/email/eai,Email address internationalization,21,21
+email-authentication,Email Authentication,topic,3,email,/messaging/email/email-authentication,Email domain authentication and anti-spoofing,8,63
+arc,ARC,technology,4,email-authentication,/messaging/email/email-authentication/arc,Authenticated Received Chain,1,1
+dkim,DKIM,technology,4,email-authentication,/messaging/email/email-authentication/dkim,DomainKeys Identified Mail,30,30
+dmarc,DMARC,technology,4,email-authentication,/messaging/email/email-authentication/dmarc,"Domain-based Message Authentication, Reporting and Conformance",9,9
+spf,SPF,technology,4,email-authentication,/messaging/email/email-authentication/spf,Sender Policy Framework,34,34
+imap,IMAP,technology,3,email,/messaging/email/imap,Internet Message Access Protocol,113,113
+jmap,JMAP,technology,3,email,/messaging/email/jmap,JSON Meta Application Protocol for mail and related data,13,13
+mailing-lists,Mailing Lists,technology,3,email,/messaging/email/mailing-lists,"Mailing list protocols, headers and management",21,21
+message-format,Internet Message Format,technology,3,email,/messaging/email/message-format,"Internet message format: headers, addressing, disposition",42,42
+pop3,POP3,technology,3,email,/messaging/email/pop3,Post Office Protocol,27,27
+sieve,Sieve,technology,3,email,/messaging/email/sieve,Sieve email filtering language,61,61
+smtp,SMTP,technology,3,email,/messaging/email/smtp,Simple Mail Transfer Protocol and mail relaying/submission,130,130
+spam,Spam,topic,3,email,/messaging/email/spam,"Unsolicited bulk email: filtering, reporting, reputation",27,27
+vpim,VPIM,technology,3,email,/messaging/email/vpim,Voice Profile for Internet Mail: voice messaging,14,14
+fax,Fax,technology,2,messaging,/messaging/fax,Facsimile over Internet mail and IP,50,50
+instant-messaging,Instant Messaging,technology,2,messaging,/messaging/instant-messaging,Instant messaging and presence,51,93
+msrp,MSRP,technology,3,instant-messaging,/messaging/instant-messaging/msrp,Message Session Relay Protocol,14,14
+xmpp,XMPP,technology,3,instant-messaging,/messaging/instant-messaging/xmpp,Extensible Messaging and Presence Protocol,32,32
+mime,MIME,technology,2,messaging,/messaging/mime,Multipurpose Internet Mail Extensions: body structure and encodings,184,283
+media-types,Media Types,technology,3,mime,/messaging/mime/media-types,Media (MIME) type registrations and registry rules,99,99
+netnews,Netnews,technology,2,messaging,/messaging/netnews,Netnews article format and distribution,11,21
+nntp,NNTP,technology,3,netnews,/messaging/netnews/nntp,Network News Transfer Protocol,10,10
+paging,Paging,technology,2,messaging,/messaging/paging,Radio and network paging protocols,8,8
+uucp,UUCP,technology,2,messaging,/messaging/uucp,UUCP mail interchange,2,2
+x400,X.400,technology,2,messaging,/messaging/x400,X.400 message handling systems and interworking,42,42
+naming,Naming,topic,1,,/naming,"Naming and name resolution in general, not specific to one system",27,647
+dns,DNS,technology,2,naming,/naming/dns,"The Domain Name System: protocol, resource records, resolver and server behaviour, operations",298,441
+dane,DANE,technology,3,dns,/naming/dns/dane,DNS-Based Authentication of Named Entities: TLSA and certificate association via DNSSEC,11,11
+dns-privacy,DNS Privacy,topic,3,dns,/naming/dns/dns-privacy,Encrypted and privacy-preserving DNS transport,11,20
+doh,DNS over HTTPS,technology,4,dns-privacy,/naming/dns/dns-privacy/doh,DNS over HTTPS,7,7
+dot,DNS over TLS,technology,4,dns-privacy,/naming/dns/dns-privacy/dot,DNS over TLS,2,2
+oblivious-dns,Oblivious DNS,technology,4,dns-privacy,/naming/dns/dns-privacy/oblivious-dns,Oblivious DNS over HTTPS,1,1
+dns-sd,DNS-SD,technology,3,dns,/naming/dns/dns-sd,DNS-based Service Discovery,9,9
+dns-update,DNS Update,technology,3,dns,/naming/dns/dns-update,Dynamic DNS updates,3,3
+dns64,DNS64,technology,3,dns,/naming/dns/dns64,DNS64 address synthesis for IPv6/IPv4 translation,9,9
+dnssec,DNSSEC,technology,3,dns,/naming/dns/dnssec,"DNS Security Extensions: signing, validation, trust anchors, NSEC/NSEC3",86,86
+edns,EDNS,technology,3,dns,/naming/dns/edns,Extension Mechanisms for DNS (EDNS(0)) and EDNS options,8,8
+mdns,mDNS,technology,3,dns,/naming/dns/mdns,Multicast DNS,11,11
+special-use-domain-names,Special-Use Domain Names,technology,3,dns,/naming/dns/special-use-domain-names,Special-use and reserved domain names,5,5
+domain-registration,Domain Registration,topic,2,naming,/naming/domain-registration,Domain registry and registrar operations and protocols,6,116
+epp,EPP,technology,3,domain-registration,/naming/domain-registration/epp,Extensible Provisioning Protocol for registry objects,56,56
+rdap,RDAP,technology,3,domain-registration,/naming/domain-registration/rdap,Registration Data Access Protocol,36,36
+whois,WHOIS,technology,3,domain-registration,/naming/domain-registration/whois,WHOIS and legacy registration data directory services,53,53
+enum,ENUM,technology,2,naming,/naming/enum,ENUM: E.164 telephone number mapping in the DNS,33,33
+handle-system,Handle System,technology,2,naming,/naming/handle-system,The Handle System persistent identifier infrastructure,3,3
+hostnames,Hostnames,technology,2,naming,/naming/hostnames,Host naming conventions and host tables,25,25
+idn,IDN,technology,2,naming,/naming/idn,"Internationalized Domain Names: IDNA, punycode, label validity",24,24
+service-discovery,Service Discovery,topic,2,naming,/naming/service-discovery,Discovering services and resources on a network,9,9
+slp,SLP,technology,2,naming,/naming/slp,Service Location Protocol,17,17
+uuid,UUID,technology,2,naming,/naming/uuid,Universally Unique Identifiers,9,9
+zeroconf,Zeroconf,technology,2,naming,/naming/zeroconf,Zero-configuration networking,1,1
+network-management,Network Management,topic,1,,/network-management,"Network operations and management: manageability, operational considerations, Network management architectures and operational practice",76,1180
+autonomic-networking,Autonomic Networking,topic,2,network-management,/network-management/autonomic-networking,Autonomic and self-managing network infrastructure,15,15
+benchmarking,Benchmarking,topic,2,network-management,/network-management/benchmarking,Benchmarking methodology for network devices and functions,49,49
+energy-management,Energy Management,topic,2,network-management,/network-management/energy-management,Energy monitoring and management of networked devices,7,7
+i2rs,I2RS,technology,2,network-management,/network-management/i2rs,Interface to the routing system,12,12
+ipfix,IPFIX,technology,2,network-management,/network-management/ipfix,IP flow information export and packet sampling,57,57
+netconf,NETCONF,technology,2,network-management,/network-management/netconf,The NETCONF configuration protocol,47,70
+restconf,RESTCONF,technology,3,netconf,/network-management/netconf/restconf,RESTCONF: NETCONF semantics over HTTP,23,23
+oam,OAM,topic,2,network-management,/network-management/oam,"Operations, administration and maintenance mechanisms",73,73
+operational-security,Operational Security,topic,2,network-management,/network-management/operational-security,Operational security practices for network infrastructure,23,23
+ovsdb,OVSDB,technology,2,network-management,/network-management/ovsdb,The Open vSwitch Database management protocol,1,1
+packet-capture,Packet Capture,technology,2,network-management,/network-management/packet-capture,Packet capture and trace file formats,3,3
+performance-measurement,Performance Measurement,topic,2,network-management,/network-management/performance-measurement,Active and passive network performance metrics and methods,114,140
+lmap,LMAP,technology,3,performance-measurement,/network-management/performance-measurement/lmap,Large-scale measurement platforms,4,4
+owamp,OWAMP,technology,3,performance-measurement,/network-management/performance-measurement/owamp,One-Way Active Measurement Protocol,7,7
+stamp,STAMP,technology,3,performance-measurement,/network-management/performance-measurement/stamp,Simple Two-way Active Measurement Protocol,7,7
+twamp,TWAMP,technology,3,performance-measurement,/network-management/performance-measurement/twamp,Two-Way Active Measurement Protocol,16,16
+policy-management,Policy Management,topic,2,network-management,/network-management/policy-management,Policy-based network management information models,9,9
+snmp,SNMP,technology,2,network-management,/network-management/snmp,Simple Network Management Protocol framework and security,72,527
+agentx,AgentX,technology,3,snmp,/network-management/snmp/agentx,AgentX subagent protocol,3,3
+mib,MIB,technology,3,snmp,/network-management/snmp/mib,Management Information Base modules and SMI,453,453
+rmon,RMON,technology,3,snmp,/network-management/snmp/rmon,Remote network monitoring,25,25
+sustainability,Sustainability,topic,2,network-management,/network-management/sustainability,Energy efficiency and environmental impact of Internet infrastructure,2,2
+syslog,Syslog,technology,2,network-management,/network-management/syslog,The syslog logging protocol,14,14
+time-synchronization,Time Synchronization,topic,2,network-management,/network-management/time-synchronization,Clock synchronization over networks,16,56
+ntp,NTP,technology,3,time-synchronization,/network-management/time-synchronization/ntp,Network Time Protocol,40,40
+ptp,PTP,technology,3,time-synchronization,/network-management/time-synchronization/ptp,Precision Time Protocol over IP networks,8,8
+y2k,Y2K,topic,2,network-management,/network-management/y2k,Year 2000 readiness,1,1
+yang,YANG,technology,2,network-management,/network-management/yang,YANG data modelling language and models,152,152
+real-time-communications,Real-Time Communications,topic,1,,/real-time-communications,"Real-time voice, video and media communication in general",6,911
+codecs,Codecs,technology,2,real-time-communications,/real-time-communications/codecs,Audio and video codec definitions and containers,32,46
+ffv1,FFV1,technology,3,codecs,/real-time-communications/codecs/ffv1,FFV1 lossless video coding,4,4
+matroska,Matroska,technology,3,codecs,/real-time-communications/codecs/matroska,Matroska media container,4,4
+opus,Opus,technology,3,codecs,/real-time-communications/codecs/opus,The Opus audio codec,7,7
+vp8,VP8,technology,3,codecs,/real-time-communications/codecs/vp8,The VP8 video codec,3,3
+conferencing,Conferencing,topic,2,real-time-communications,/real-time-communications/conferencing,Multiparty conferencing frameworks and control,34,51
+bfcp,BFCP,technology,3,conferencing,/real-time-communications/conferencing/bfcp,Binary Floor Control Protocol,8,8
+telepresence,Telepresence,technology,3,conferencing,/real-time-communications/conferencing/telepresence,Telepresence (CLUE) multi-stream conferencing,9,9
+emergency-services,Emergency Services,topic,2,real-time-communications,/real-time-communications/emergency-services,Emergency calling and preparedness communications,35,35
+media-gateway,Media Gateways,technology,2,real-time-communications,/real-time-communications/media-gateway,Decomposed media gateway control,4,26
+megaco,Megaco/H.248,technology,3,media-gateway,/real-time-communications/media-gateway/megaco,Megaco/H.248 gateway control,9,9
+mgcp,MGCP,technology,3,media-gateway,/real-time-communications/media-gateway/mgcp,Media Gateway Control Protocol,13,13
+mrcp,MRCP,technology,2,real-time-communications,/real-time-communications/mrcp,Media Resource Control Protocol: speech services,3,3
+nat-traversal,NAT Traversal,topic,2,real-time-communications,/real-time-communications/nat-traversal,Interactive traversal of NATs for real-time media,13,49
+ice,ICE,technology,3,nat-traversal,/real-time-communications/nat-traversal/ice,Interactive Connectivity Establishment,10,10
+stun,STUN,technology,3,nat-traversal,/real-time-communications/nat-traversal/stun,Session Traversal Utilities for NAT,22,22
+turn,TURN,technology,3,nat-traversal,/real-time-communications/nat-traversal/turn,Traversal Using Relays around NAT,19,19
+pstn-interop,PSTN Interworking,topic,2,real-time-communications,/real-time-communications/pstn-interop,PSTN/Internet interworking and telephony routing,28,28
+rtp,RTP,technology,2,real-time-communications,/real-time-communications/rtp,Real-time Transport Protocol,89,285
+rtcp,RTCP,technology,3,rtp,/real-time-communications/rtp/rtcp,"RTP Control Protocol: feedback, reports, extended reports",59,59
+rtp-payload-format,RTP Payload Formats,technology,3,rtp,/real-time-communications/rtp/rtp-payload-format,RTP payload formats for specific codecs and media,96,96
+srtp,SRTP,technology,3,rtp,/real-time-communications/rtp/srtp,Secure RTP,42,42
+sdp,SDP,technology,2,real-time-communications,/real-time-communications/sdp,Session Description Protocol and offer/answer,99,99
+sigtran,SIGTRAN,technology,2,real-time-communications,/real-time-communications/sigtran,SS7 signalling transport over IP,19,19
+sip,SIP,technology,2,real-time-communications,/real-time-communications/sip,"Session Initiation Protocol: call signalling, extensions, deployment",343,377
+p2psip,P2PSIP,technology,3,sip,/real-time-communications/sip/p2psip,Peer-to-peer SIP and RELOAD,9,9
+siprec,SIPREC,technology,3,sip,/real-time-communications/sip/siprec,SIP-based session recording,5,5
+stir,STIR,technology,3,sip,/real-time-communications/sip/stir,Secure Telephone Identity Revisited: caller-ID authentication,20,20
+streaming,Streaming,topic,2,real-time-communications,/real-time-communications/streaming,Media streaming delivery and operations,4,14
+ppsp,PPSP,technology,3,streaming,/real-time-communications/streaming/ppsp,Peer-to-peer streaming protocols,3,3
+rtsp,RTSP,technology,3,streaming,/real-time-communications/streaming/rtsp,Real Time Streaming Protocol,7,7
+webrtc,WebRTC,technology,2,real-time-communications,/real-time-communications/webrtc,WebRTC: browser real-time media architecture and transports,33,35
+sframe,SFrame,technology,3,webrtc,/real-time-communications/webrtc/sframe,SFrame end-to-end media encryption,1,1
+whip,WHIP,technology,3,webrtc,/real-time-communications/webrtc/whip,WebRTC-HTTP ingestion (WHIP),1,1
+routing,Routing,topic,1,,/routing,"Routing in general: routers, routing systems and cross-protocol routing matters",153,1937
+babel,Babel,technology,2,routing,/routing/babel,The Babel routing protocol,14,14
+bfd,BFD,technology,2,routing,/routing/bfd,Bidirectional Forwarding Detection,44,44
+bgp,BGP,technology,2,routing,/routing/bgp,"Border Gateway Protocol: protocol, policy, operations",238,270
+bgp-communities,BGP Communities,technology,3,bgp,/routing/bgp/bgp-communities,"BGP communities: standard, extended and large",12,12
+bgp-flowspec,BGP Flow Specification,technology,3,bgp,/routing/bgp/bgp-flowspec,BGP flow specification for traffic filtering,7,7
+bmp,BMP,technology,3,bgp,/routing/bgp/bmp,BGP Monitoring Protocol,6,6
+route-reflection,Route Reflection,technology,3,bgp,/routing/bgp/route-reflection,BGP route reflection and confederations,4,4
+route-server,Route Servers,technology,3,bgp,/routing/bgp/route-server,Internet exchange route servers,3,3
+data-center-networking,Data Center Networking,technology,2,routing,/routing/data-center-networking,Routing and address resolution at data-centre scale,1,1
+detnet,DetNet,technology,2,routing,/routing/detnet,Deterministic networking: bounded latency and loss,26,26
+egp,EGP,technology,2,routing,/routing/egp,The Exterior Gateway Protocol (historic inter-domain routing),9,9
+eigrp,EIGRP,technology,2,routing,/routing/eigrp,Enhanced Interior Gateway Routing Protocol,1,1
+forces,ForCES,technology,2,routing,/routing/forces,Forwarding and control element separation,18,18
+gsmp,GSMP,technology,2,routing,/routing/gsmp,General Switch Management Protocol,8,8
+hsrp,HSRP,technology,2,routing,/routing/hsrp,The Hot Standby Router Protocol,2,2
+idpr,IDPR,technology,2,routing,/routing/idpr,Inter-domain policy routing,3,3
+ip-fast-reroute,IP Fast Reroute,technology,2,routing,/routing/ip-fast-reroute,"IP and LDP fast reroute, loop-free alternates",28,28
+is-is,IS-IS,technology,2,routing,/routing/is-is,The IS-IS link-state routing protocol,103,103
+lisp,LISP,technology,2,routing,/routing/lisp,Locator/ID Separation Protocol,33,33
+lsvr,LSVR,technology,2,routing,/routing/lsvr,Link State Vector Routing (BGP-SPF),2,2
+manet,MANET,technology,2,routing,/routing/manet,Mobile ad hoc network routing,47,55
+aodv,AODV,technology,3,manet,/routing/manet/aodv,Ad hoc On-Demand Distance Vector routing,2,2
+dsr,DSR,technology,3,manet,/routing/manet/dsr,Dynamic Source Routing,3,3
+olsr,OLSR,technology,3,manet,/routing/manet/olsr,Optimized Link State Routing,3,3
+mpls,MPLS,technology,2,routing,/routing/mpls,"Multiprotocol Label Switching: architecture, encapsulation, operations",226,569
+gmpls,GMPLS,technology,3,mpls,/routing/mpls/gmpls,Generalized MPLS and optical/transport network control,172,172
+ldp,LDP,technology,3,mpls,/routing/mpls/ldp,Label Distribution Protocol,64,64
+mpls-tp,MPLS-TP,technology,3,mpls,/routing/mpls/mpls-tp,MPLS Transport Profile,50,50
+pseudowire,Pseudowires,technology,3,mpls,/routing/mpls/pseudowire,Pseudowire emulation edge-to-edge,83,83
+multicast,Multicast,topic,2,routing,/routing/multicast,"IP multicast routing, group membership and deployment",146,319
+amt,AMT,technology,3,multicast,/routing/multicast/amt,Automatic Multicast Tunneling,4,4
+bier,BIER,technology,3,multicast,/routing/multicast/bier,Bit Index Explicit Replication,11,11
+igmp,IGMP,technology,3,multicast,/routing/multicast/igmp,Internet Group Management Protocol,24,24
+mld,MLD,technology,3,multicast,/routing/multicast/mld,Multicast Listener Discovery,26,26
+mospf,MOSPF,technology,3,multicast,/routing/multicast/mospf,Multicast extensions to OSPF,1,1
+msdp,MSDP,technology,3,multicast,/routing/multicast/msdp,Multicast Source Discovery Protocol,9,9
+multicast-security,Multicast Security,topic,3,multicast,/routing/multicast/multicast-security,Group key management and multicast security,18,18
+pim,PIM,technology,3,multicast,/routing/multicast/pim,Protocol Independent Multicast,71,71
+reliable-multicast,Reliable Multicast,topic,3,multicast,/routing/multicast/reliable-multicast,Reliable multicast transport,22,32
+flute,FLUTE,technology,4,reliable-multicast,/routing/multicast/reliable-multicast/flute,FLUTE file delivery over unidirectional transport,6,6
+norm,NORM,technology,4,reliable-multicast,/routing/multicast/reliable-multicast/norm,NACK-oriented reliable multicast,7,7
+ssm,Source-Specific Multicast,technology,3,multicast,/routing/multicast/ssm,Source-specific multicast,25,25
+nimrod,Nimrod,technology,2,routing,/routing/nimrod,The Nimrod routing architecture,4,4
+ospf,OSPF,technology,2,routing,/routing/ospf,Open Shortest Path First,116,143
+ospfv3,OSPFv3,technology,3,ospf,/routing/ospf/ospfv3,OSPF for IPv6 (OSPFv3),27,27
+overlay-networks,Overlay Networks,technology,2,routing,/routing/overlay-networks,Data-plane network virtualization overlays,6,14
+geneve,Geneve,technology,3,overlay-networks,/routing/overlay-networks/geneve,Generic Network Virtualization Encapsulation,5,5
+vxlan,VXLAN,technology,3,overlay-networks,/routing/overlay-networks/vxlan,Virtual eXtensible LAN encapsulation,5,5
+rift,RIFT,technology,2,routing,/routing/rift,RIFT: Routing in Fat Trees,4,4
+rip,RIP,technology,2,routing,/routing/rip,"Routing Information Protocol (RIP, RIPv2, RIPng)",19,19
+routing-architecture,Routing Architecture,topic,2,routing,/routing/routing-architecture,"Routing architecture, scalability and design principles",24,46
+ecmp,ECMP,technology,3,routing-architecture,/routing/routing-architecture/ecmp,Equal-cost multipath and load-balanced forwarding,22,22
+routing-security,Routing Security,topic,2,routing,/routing/routing-security,Securing routing protocols and infrastructure,7,74
+bgpsec,BGPsec,technology,3,routing-security,/routing/routing-security/bgpsec,BGPsec path validation,12,12
+rpki,RPKI,technology,3,routing-security,/routing/routing-security/rpki,Resource Public Key Infrastructure and route origin validation,65,65
+rpsl,RPSL,technology,2,routing,/routing/rpsl,Routing Policy Specification Language and Internet routing registries,12,12
+segment-routing,Segment Routing,technology,2,routing,/routing/segment-routing,Segment routing architecture,43,68
+sr-mpls,SR-MPLS,technology,3,segment-routing,/routing/segment-routing/sr-mpls,Segment routing with the MPLS data plane,8,8
+srv6,SRv6,technology,3,segment-routing,/routing/segment-routing/srv6,Segment routing over IPv6,21,21
+sfc,Service Function Chaining,technology,2,routing,/routing/sfc,Service function chaining and the network service header,19,19
+traffic-engineering,Traffic Engineering,topic,2,routing,/routing/traffic-engineering,Traffic engineering of packet and transport networks,91,233
+pce,PCE,technology,3,traffic-engineering,/routing/traffic-engineering/pce,Path Computation Element architecture and PCEP,90,90
+rsvp-te,RSVP-TE,technology,3,traffic-engineering,/routing/traffic-engineering/rsvp-te,RSVP-TE signalling for traffic-engineered LSPs,55,55
+trill,TRILL,technology,2,routing,/routing/trill,TRILL: transparent interconnection of lots of links,49,49
+tvr,Time-Variant Routing,technology,2,routing,/routing/tvr,Time-variant routing over scheduled connectivity,1,1
+vpn,VPN,technology,2,routing,/routing/vpn,Provider-provisioned virtual private networks,34,163
+evpn,EVPN,technology,3,vpn,/routing/vpn/evpn,Ethernet VPN,32,32
+l1vpn,L1VPN,technology,3,vpn,/routing/vpn/l1vpn,Layer 1 VPNs,6,6
+l2vpn,L2VPN,technology,3,vpn,/routing/vpn/l2vpn,Layer 2 VPN services,32,32
+l3vpn,L3VPN,technology,3,vpn,/routing/vpn/l3vpn,BGP/MPLS layer 3 VPNs,50,50
+mvpn,Multicast VPN,technology,3,vpn,/routing/vpn/mvpn,Multicast in BGP/MPLS VPNs,26,26
+vpls,VPLS,technology,3,vpn,/routing/vpn/vpls,Virtual Private LAN Service,18,18
+vrrp,VRRP,technology,2,routing,/routing/vrrp,Virtual Router Redundancy Protocol,8,8
+security,Security,topic,1,,/security,"Security in general: threat models, guidance and handbooks not specific to one mechanism",118,1914
+aaa,AAA,technology,2,security,/security/aaa,"Authentication, authorization and accounting frameworks",28,159
+diameter,Diameter,technology,3,aaa,/security/aaa/diameter,The Diameter protocol,47,47
+radius,RADIUS,technology,3,aaa,/security/aaa/radius,The RADIUS protocol,83,83
+tacacs,TACACS+,technology,3,aaa,/security/aaa/tacacs,TACACS and TACACS+,6,6
+authentication,Authentication,topic,2,security,/security/authentication,"Authentication of users, hosts and messages across protocols",148,148
+cms,CMS,technology,2,security,/security/cms,Cryptographic Message Syntax,98,174
+s-mime,S/MIME,technology,3,cms,/security/cms/s-mime,S/MIME secure email,76,76
+cose,COSE,technology,2,security,/security/cose,CBOR Object Signing and Encryption,24,24
+cryptography,Cryptography,technology,2,security,/security/cryptography,"Cryptographic algorithms, parameters and usage",167,522
+aes,AES,technology,3,cryptography,/security/cryptography/aes,The AES block cipher and its modes,38,38
+chacha20,ChaCha20,technology,3,cryptography,/security/cryptography/chacha20,ChaCha20 and Poly1305,6,6
+des,DES,technology,3,cryptography,/security/cryptography/des,DES and Triple-DES (historic ciphers),19,19
+elliptic-curve,Elliptic-Curve Cryptography,technology,3,cryptography,/security/cryptography/elliptic-curve,Elliptic curve cryptography,50,71
+curve25519,Curve25519,technology,4,elliptic-curve,/security/cryptography/elliptic-curve/curve25519,Curve25519 and Curve448,10,10
+eddsa,EdDSA,technology,4,elliptic-curve,/security/cryptography/elliptic-curve/eddsa,Edwards-curve digital signatures,14,14
+hmac,HMAC,technology,3,cryptography,/security/cryptography/hmac,Keyed-hash message authentication,34,34
+key-management,Key Management,topic,3,cryptography,/security/cryptography/key-management,"Key establishment, provisioning and storage",91,91
+md5,MD5,technology,3,cryptography,/security/cryptography/md5,The MD5 and MD2/MD4 message digests,33,33
+otp,One-Time Passwords,technology,3,cryptography,/security/cryptography/otp,One-time password systems,13,13
+pake,PAKE,technology,3,cryptography,/security/cryptography/pake,Password-authenticated key exchange,20,20
+password-hashing,Password Hashing,technology,3,cryptography,/security/cryptography/password-hashing,Password hashing and memory-hard functions,1,1
+post-quantum,Post-Quantum Cryptography,technology,3,cryptography,/security/cryptography/post-quantum,Post-quantum cryptography and migration,30,30
+randomness,Randomness,technology,3,cryptography,/security/cryptography/randomness,Randomness requirements and generation,7,7
+rsa,RSA,technology,3,cryptography,/security/cryptography/rsa,RSA encryption and signatures,29,29
+sha,SHA,technology,3,cryptography,/security/cryptography/sha,The SHA family of hash functions,40,40
+ddos,DDoS,topic,2,security,/security/ddos,DDoS attack mitigation and signalling,39,39
+eap,EAP,technology,2,security,/security/eap,Extensible Authentication Protocol and methods,71,71
+federated-authentication,Federated Authentication,technology,2,security,/security/federated-authentication,Cross-domain federated authentication frameworks,11,11
+firewall,Firewalls,technology,2,security,/security/firewall,Firewalls and middlebox security traversal,55,59
+socks,SOCKS,technology,3,firewall,/security/firewall/socks,The SOCKS proxy protocol,4,4
+gssapi,GSS-API,technology,2,security,/security/gssapi,Generic Security Service API and mechanisms,66,66
+ident,Ident,technology,2,security,/security/ident,The Identification (ident) protocol,8,8
+incident-response,Incident Response,topic,2,security,/security/incident-response,Security incident exchange and coordination,5,23
+iodef,IODEF,technology,3,incident-response,/security/incident-response/iodef,Incident Object Description Exchange Format,18,18
+intrusion-detection,Intrusion Detection,topic,2,security,/security/intrusion-detection,Intrusion detection message exchange,6,6
+ipsec,IPsec,technology,2,security,/security/ipsec,"IP security architecture: ESP, AH, policy",51,187
+esp,ESP,technology,3,ipsec,/security/ipsec/esp,Encapsulating Security Payload,43,43
+ike,IKE,technology,3,ipsec,/security/ipsec/ike,Internet Key Exchange,103,103
+jose,JOSE,technology,2,security,/security/jose,"JSON Object Signing and Encryption (JWS, JWE, JWK)",17,17
+kerberos,Kerberos,technology,2,security,/security/kerberos,The Kerberos authentication system,60,60
+ltans,LTANS,technology,2,security,/security/ltans,Long-term archiving and notarization of signed data,5,5
+mls,MLS,technology,2,security,/security/mls,Messaging Layer Security for end-to-end group messaging,3,3
+nea,NEA,technology,2,security,/security/nea,Network endpoint assessment and posture,10,10
+oauth,OAuth,technology,2,security,/security/oauth,OAuth authorization framework,34,57
+gnap,GNAP,technology,3,oauth,/security/oauth/gnap,Grant Negotiation and Authorization Protocol,2,2
+jwt,JWT,technology,3,oauth,/security/oauth/jwt,JSON Web Tokens,21,21
+openpgp,OpenPGP,technology,2,security,/security/openpgp,OpenPGP message format and usage,15,15
+pana,PANA,technology,2,security,/security/pana,Protocol for carrying authentication for network access,11,11
+pem,PEM,technology,2,security,/security/pem,Privacy Enhanced Mail (historic secure email),12,12
+pki,PKI,technology,2,security,/security/pki,Public key infrastructure for the Internet,76,254
+acme,ACME,technology,3,pki,/security/pki/acme,Automatic Certificate Management Environment,14,14
+certificate-transparency,Certificate Transparency,technology,3,pki,/security/pki/certificate-transparency,Certificate transparency logs,3,3
+cmp,CMP,technology,3,pki,/security/pki/cmp,Certificate Management Protocol,13,13
+est,EST,technology,3,pki,/security/pki/est,Enrollment over Secure Transport,6,6
+ocsp,OCSP,technology,3,pki,/security/pki/ocsp,Online Certificate Status Protocol,13,13
+spki,SPKI,technology,3,pki,/security/pki/spki,Simple Public Key Infrastructure (historic),2,2
+x509,X.509,technology,3,pki,/security/pki/x509,X.509 certificates and profiles,144,144
+privacy,Privacy,topic,2,security,/security/privacy,Privacy threat models and protocol privacy considerations,114,114
+privacy-pass,Privacy Pass,technology,2,security,/security/privacy-pass,Privacy Pass anonymous tokens,3,3
+remote-attestation,Remote Attestation,technology,2,security,/security/remote-attestation,Remote attestation of device state,9,9
+sasl,SASL,technology,2,security,/security/sasl,Simple Authentication and Security Layer,26,26
+scim,SCIM,technology,2,security,/security/scim,System for Cross-domain Identity Management,6,6
+scitt,SCITT,technology,2,security,/security/scitt,Supply chain integrity and transparency,1,1
+secevent,Security Event Tokens,technology,2,security,/security/secevent,Security event tokens and event delivery,7,7
+security-labels,Security Labels,technology,2,security,/security/security-labels,"Security labels for networked data (CIPSO, CALIPSO and frameworks)",5,5
+ssh,SSH,technology,2,security,/security/ssh,The Secure Shell protocol,43,43
+teep,TEEP,technology,2,security,/security/teep,Trusted execution environment provisioning,1,1
+tls,TLS,technology,2,security,/security/tls,"Transport Layer Security: protocol, extensions, deployment guidance",171,227
+dtls,DTLS,technology,3,tls,/security/tls/dtls,Datagram TLS,56,56
+trust-management,Trust Management,technology,2,security,/security/trust-management,Trust management systems (KeyNote and successors),4,4
+xml-signatures,XML Signatures,technology,2,security,/security/xml-signatures,XML digital signatures and encryption,10,10
+transport,Transport,topic,1,,/transport,Transport protocols and transport-layer services in general,137,976
+checksum,Internet Checksum,technology,2,transport,/transport/checksum,The Internet checksum and packet integrity checks,19,19
+congestion-control,Congestion Control,topic,2,transport,/transport/congestion-control,Congestion control and avoidance across transports,81,130
+aqm,Active Queue Management,technology,3,congestion-control,/transport/congestion-control/aqm,Active queue management,10,14
+codel,CoDel,technology,4,aqm,/transport/congestion-control/aqm/codel,The CoDel queue management algorithm,2,2
+pie,PIE,technology,4,aqm,/transport/congestion-control/aqm/pie,The PIE queue management algorithm,2,2
+conex,ConEx,technology,3,congestion-control,/transport/congestion-control/conex,Congestion exposure,5,5
+ecn,ECN,technology,3,congestion-control,/transport/congestion-control/ecn,Explicit Congestion Notification,23,23
+ledbat,LEDBAT,technology,3,congestion-control,/transport/congestion-control/ledbat,Low extra delay background transport,2,2
+pcn,PCN,technology,3,congestion-control,/transport/congestion-control/pcn,Pre-congestion notification,9,9
+dccp,DCCP,technology,2,transport,/transport/dccp,Datagram Congestion Control Protocol,18,18
+dtn,Delay-Tolerant Networking,technology,2,transport,/transport/dtn,Delay/disruption-tolerant networking and the Bundle Protocol,21,21
+fec,Forward Error Correction,technology,2,transport,/transport/fec,"Forward error correction, ARQ and network coding for loss recovery schemes for packet transport",44,44
+header-compression,Header Compression,topic,2,transport,/transport/header-compression,Compressing protocol headers on constrained links,23,57
+rohc,ROHC,technology,3,header-compression,/transport/header-compression/rohc,Robust Header Compression,34,34
+irtp,IRTP,technology,2,transport,/transport/irtp,The Internet Reliable Transaction Protocol,1,1
+netblt,NETBLT,technology,2,transport,/transport/netblt,NETBLT bulk data transfer protocol,4,4
+qos,QoS,topic,2,transport,/transport/qos,Quality of service architectures and signalling,51,267
+cops,COPS,technology,3,qos,/transport/qos/cops,Common Open Policy Service and policy provisioning,20,20
+diffserv,Diffserv,technology,3,qos,/transport/qos/diffserv,Differentiated services,60,60
+intserv,Intserv,technology,3,qos,/transport/qos/intserv,Integrated services,32,32
+nsis,NSIS,technology,3,qos,/transport/qos/nsis,Next Steps in Signaling,18,18
+rsvp,RSVP,technology,3,qos,/transport/qos/rsvp,Resource Reservation Protocol,114,114
+quic,QUIC,technology,2,transport,/transport/quic,The QUIC transport protocol,22,22
+ratp,RATP,technology,2,transport,/transport/ratp,The Reliable Asynchronous Transfer Protocol,1,1
+rdp,RDP,technology,2,transport,/transport/rdp,The Reliable Data Protocol (historic transport),2,2
+rserpool,RSerPool,technology,2,transport,/transport/rserpool,Reliable server pooling,8,8
+sctp,SCTP,technology,2,transport,/transport/sctp,Stream Control Transmission Protocol,41,41
+st2,ST-II,technology,2,transport,/transport/st2,The ST-II internet stream protocol,2,2
+taps,TAPS,technology,2,transport,/transport/taps,Transport services architecture and APIs,8,8
+tcp,TCP,technology,2,transport,/transport/tcp,"Transmission Control Protocol: protocol, extensions, implementation",230,243
+mptcp,Multipath TCP,technology,3,tcp,/transport/tcp/mptcp,Multipath TCP,11,11
+tcpcrypt,tcpcrypt,technology,3,tcp,/transport/tcp/tcpcrypt,Opportunistic TCP-level encryption (tcpcrypt),2,2
+tmux,TMux,technology,2,transport,/transport/tmux,The Transport Multiplexing Protocol,1,1
+transport-mapping,Transport Mappings,topic,2,transport,/transport/transport-mapping,Carrying one protocol over another transport: X-over-TLS/TCP/UDP/QUIC bindings and transport models,55,55
+udp,UDP,technology,2,transport,/transport/udp,User Datagram Protocol and its usage guidelines,70,76
+udp-lite,UDP-Lite,technology,3,udp,/transport/udp/udp-lite,The Lightweight User Datagram Protocol,6,6
+web,Web,topic,1,,/web,The web in general: architecture and cross-protocol web matters,30,566
+atom,Atom,technology,2,web,/web/atom,Atom syndication format and publishing protocol,7,7
+cdn,CDN,technology,2,web,/web/cdn,Content delivery networks and CDN interconnection,19,19
+html,HTML,technology,2,web,/web/html,HTML and hypertext document formats,18,18
+http,HTTP,technology,2,web,/web/http,"The Hypertext Transfer Protocol: semantics, syntax, extensions",146,230
+cookies,Cookies,technology,3,http,/web/http/cookies,HTTP state management: cookies,13,13
+http-apis,HTTP APIs,technology,3,http,/web/http/http-apis,"Conventions for building APIs on HTTP (problem details, rate limits, etc.)",6,6
+http-authentication,HTTP Authentication,technology,3,http,/web/http/http-authentication,"HTTP authentication schemes (Basic, Digest, and others)",7,7
+http-caching,HTTP Caching,technology,3,http,/web/http/http-caching,HTTP and web caching,1,1
+http2,HTTP/2,technology,3,http,/web/http/http2,HTTP/2,7,7
+http3,HTTP/3,technology,3,http,/web/http/http3,HTTP/3,5,5
+masque,MASQUE,technology,3,http,/web/http/masque,MASQUE: proxying IP/UDP over HTTP,5,5
+oblivious-http,Oblivious HTTP,technology,3,http,/web/http/oblivious-http,Oblivious HTTP relay-based request privacy,3,3
+web-linking,Web Linking,technology,3,http,/web/http/web-linking,Typed web links and link relations,19,19
+webdav,WebDAV,technology,3,http,/web/http/webdav,WebDAV distributed authoring and versioning,22,22
+opes,OPES,technology,2,web,/web/opes,Open Pluggable Edge Services: intermediary content adaptation,12,12
+robots-txt,robots.txt,technology,2,web,/web/robots-txt,The Robots Exclusion Protocol (robots.txt),2,2
+uri,URI,technology,2,web,/web/uri,"Uniform Resource Identifiers: syntax, schemes, resolution, templates",138,250
+iri,IRI,technology,3,uri,/web/uri/iri,Internationalized Resource Identifiers,17,17
+urn,URN,technology,3,uri,/web/uri/urn,Uniform Resource Names and URN namespaces,95,95
+web-push,Web Push,technology,2,web,/web/web-push,Web push notification delivery,3,3
+web-security,Web Security,topic,2,web,/web/web-security,Web platform security mechanisms,3,12
+hsts,HSTS,technology,3,web-security,/web/web-security/hsts,HTTP Strict Transport Security,3,3
+s-http,S-HTTP,technology,3,web-security,/web/web-security/s-http,"Secure HTTP (S-HTTP, historic)",3,3
+token-binding,Token Binding,technology,3,web-security,/web/web-security/token-binding,TLS token binding,3,3
+websocket,WebSocket,technology,2,web,/web/websocket,The WebSocket protocol,12,12

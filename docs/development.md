@@ -127,12 +127,17 @@ curl -s https://account.ietf.org/application/o/<slug>/.well-known/openid-configu
 drf-spectacular is the source of truth. Regenerate and validate the schema:
 
 ```
-REEF_DEPLOYMENT_MODE=build ./manage.py spectacular --file reef_api.yaml --validate
+REEF_DEPLOYMENT_MODE=build ./manage.py spectacular \
+    --urlconf reef.urls_contract --file reef_api.yaml --validate
+```
+
+`reef.urls_contract`, not the served `reef.urls`: the precomputed subject payloads
+are rendered from views nothing routes, so they are in no served urlconf and would
+be in no contract. That file is `reef.urls` plus those views and nothing serves it.
 
 A test checks the committed file still matches the code, because nothing else does:
 `spectacular --validate` says the schema is well formed, not that reef_api.yaml is
 current, and the file is what Red and the Nuxt client generate their types from.
-```
 
 `reef_api.yaml` is committed. The Nuxt client generates TypeScript types from it
 with openapi-typescript (the `gen:api` script, run on `npm install`); Red

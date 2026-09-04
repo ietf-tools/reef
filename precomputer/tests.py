@@ -13,16 +13,18 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.management import CommandError, call_command
 from django.db import connections, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 from popularity.models import PopularEntry
 from precomputer.blobstore import LocalBlobStore, get_blob_store
-from precomputer.registry import TASKS, _subject_index
+from precomputer.registry import TASKS
 from precomputer.signals import CURATED_DEBOUNCE_SECONDS
 from precomputer.tasks import precompute_all, precompute_curated, precompute_engagement
 from ratings.models import Rating
 from reef import rfcmeta
 from reef.locks import _key, advisory_lock
 from subjects.models import Subject, SubjectAlias, SubjectAssignment
+from subjects.precompute import build_index
 from surveys.models import Survey
 
 User = get_user_model()
@@ -71,6 +73,18 @@ class PrecomputeTestCase(TestCase):
         patcher = mock.patch("reef.rfcmeta.get_index", side_effect=lambda: self.index)
         self.get_index = patcher.start()
         self.addCleanup(patcher.stop)
+
+        # The two ways the index reaches a task. Tasks that add metadata after
+        # rendering take it as an argument, from get_index above. The subject
+        # views resolve it themselves through cached_mapping, which in a
+        # deployment is warm because the run loads the index before the first
+        # task; nothing here runs that path, so the same fake is put behind both.
+        cached = mock.patch(
+            "reef.rfcmeta.cached_mapping",
+            side_effect=lambda: None if self.index is None else self.index.mapping,
+        )
+        self.cached_mapping = cached.start()
+        self.addCleanup(cached.stop)
 
     def precompute(self, *args, **options):
         out, err = StringIO(), StringIO()
@@ -269,7 +283,7 @@ class SubjectIndexTests(PrecomputeTestCase):
         for number in range(20):
             Subject.objects.create(name=f"S{number}", slug=f"s{number}")
         with self.assertNumQueries(3):
-            _subject_index(self.index)
+            build_index()
 
 
 class DocumentMetadataTests(PrecomputeTestCase):
@@ -372,6 +386,82 @@ class DocumentMetadataTests(PrecomputeTestCase):
             Rating.objects.create(rfc=f"rfc{number}", user=self.user, value=3)
         self.precompute()
         self.assertEqual(self.get_index.call_count, 1)
+
+
+class SubjectNameTests(PrecomputeTestCase):
+    """A subject's file carries the curated names of the subjects it mentions.
+
+    `children` and `path` are slugs, so without this a page drawing a breadcrumb
+    or a child list shows `email` where a reader should see "Email", and the only
+    way to turn one into the other is to fetch the whole vocabulary -- which is
+    the second fetch one file per route exists to avoid.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.messaging = Subject.objects.create(name="Messaging", slug="messaging")
+        self.email = Subject.objects.create(
+            name="Email", slug="email", parent=self.messaging
+        )
+        self.dkim = Subject.objects.create(name="DKIM", slug="dkim", parent=self.email)
+
+    def published(self, slug):
+        self.precompute("subjects")
+        return self.read(f"subjects/{slug}.json")
+
+    def test_it_names_the_ancestors_and_the_children(self):
+        payload = self.published("email")
+        self.assertEqual(
+            payload["subject_meta"],
+            {"messaging": {"name": "Messaging"}, "dkim": {"name": "DKIM"}},
+        )
+
+    def test_it_does_not_name_the_subject_itself(self):
+        # The subject carries its own `name` already, and repeating it would be a
+        # second place for a rename to have to reach.
+        self.assertNotIn("email", self.published("email")["subject_meta"])
+
+    def test_it_reaches_every_ancestor_not_just_the_parent(self):
+        payload = self.published("dkim")
+        self.assertEqual(
+            sorted(payload["subject_meta"]),
+            ["email", "messaging"],
+        )
+
+    def test_a_retired_child_is_not_offered(self):
+        # subject_meta describes what the file points at, and `children` is live
+        # subjects only, so a retired one must not appear in either.
+        self.dkim.retire()
+        payload = self.published("email")
+        self.assertEqual(payload["children"], [])
+        self.assertEqual(payload["subject_meta"], {"messaging": {"name": "Messaging"}})
+
+    def test_a_root_with_no_children_carries_an_empty_map(self):
+        Subject.objects.create(name="Routing", slug="routing")
+        self.assertEqual(self.published("routing")["subject_meta"], {})
+
+    def test_a_redirect_stub_carries_neither_map(self):
+        # A retired subject's payload is a redirect and nothing else, so there is
+        # nothing for either map to describe.
+        self.dkim.retire(merged_into=self.email)
+        payload = self.published("dkim")
+        self.assertNotIn("subject_meta", payload)
+        self.assertNotIn("document_meta", payload)
+
+    def test_naming_the_ancestors_costs_the_same_however_deep(self):
+        """Ancestors are the prefixes of `path` fetched in one `path__in`, not a
+        walk up the tree, so a subject four levels down costs what a root does."""
+        from subjects.precompute import PrecomputedSubjectDetailSerializer
+
+        def queries_for(subject):
+            with CaptureQueriesContext(connections["default"]) as captured:
+                _ = PrecomputedSubjectDetailSerializer(subject).data
+            return len(captured)
+
+        # Two ancestors against one, not a root against a leaf: a root skips the
+        # lookup altogether, so comparing with one would pass on the guard rather
+        # than on the query being singular.
+        self.assertEqual(queries_for(self.dkim), queries_for(self.email))
 
 
 class StaleIndexTests(PrecomputeTestCase):

@@ -32,19 +32,16 @@ reader would have got.
 
 import json
 import re
-from collections import defaultdict
 
 from popularity.api import PopularityList
 from ratings.api import RatingDetail
 from ratings.models import Rating
 from stats.api import DocumentStatsList
-from subjects.api import SubjectDetail
 from subjects.models import Subject, SubjectAlias
-from subjects.tree import rollup
+from subjects.precompute import PrecomputedSubjectDetail, SubjectIndex
 from surveys.api import OpenSurveyList, SurveyDefinition
 from surveys.models import Survey
 
-from . import schemas
 from .render import render_anonymous
 
 TASKS = {}
@@ -77,58 +74,6 @@ def _augment(body, add):
 # change detection, and projecting here rather than passing it through keeps a field
 # added there from silently appearing in what Reef publishes.
 PUBLISHED_FIELDS = ("title", "subseries")
-
-
-def _subject_index(index):
-    """The whole vocabulary in one payload: the tree, the assignments, the titles.
-
-    Not the list endpoint's bytes, and the only task here that is not. Red fetches
-    this per route and renders the page from it, so it has to carry the titles, and
-    Reef has no titles to serve from the endpoint: it holds no document metadata and
-    resolves it here, from Red's own index, at precompute time.
-
-    Two maps rather than two lists, both keyed, so that a caller looks a subject or
-    a document up directly instead of building an index of its own or scanning. And
-    the metadata sits in one map referenced by identifier rather than beside each
-    subject that carries the document, which would repeat every title once per
-    covering subject -- about three times over at this vocabulary's depth.
-
-    What is not here is the subtree of each subject. It is derivable from `path` and
-    `children` in the pass a caller is already making, and writing it out would
-    store every identifier once per ancestor.
-    """
-    direct, covered = rollup()
-    rows = list(Subject.objects.order_by("path"))
-    children = defaultdict(list)
-    for subject in rows:
-        ancestors = subject.ancestor_slugs
-        if ancestors:
-            children[ancestors[-1]].append(subject.slug)
-
-    subjects_by_slug = {}
-    for subject in rows:
-        subjects_by_slug[subject.slug] = {
-            "id": subject.pk,
-            "name": subject.name,
-            "description": subject.description,
-            "parent": subject.ancestor_slugs[-1] if subject.ancestor_slugs else None,
-            "path": subject.path,
-            "children": children.get(subject.slug, []),
-            "documents": direct.get(subject.path, []),
-            "document_count": len(direct.get(subject.path, [])),
-            "document_count_deep": len(covered.get(subject.path, [])),
-        }
-
-    # Every identifier the file mentions, and only those: the union of the direct
-    # assignments is exactly what the subject entries reference, because the subtree
-    # lists are not written out.
-    mentioned = sorted(
-        {doc for subject in subjects_by_slug.values() for doc in subject["documents"]}
-    )
-    return {
-        "documents": {doc: _meta(index, doc) for doc in mentioned},
-        "subjects": subjects_by_slug,
-    }
 
 
 def _meta(index, doc_id):
@@ -192,37 +137,33 @@ def popularity(docs=None, index=None):
 
 @task("subjects", owns=r"^subjects\.json$|^subjects/[^/]+\.json$")
 def subjects(docs=None, index=None):
-    """The vocabulary as one index file, and each subject with its own documents."""
-    payload = _subject_index(index)
-    # Before put(), never after. A payload that does not match the shape Red
-    # validates against would take Red's page down; failing the run instead leaves
-    # the bucket a run behind, which is the cheaper of the two.
-    schemas.validate("subjects", payload)
-    yield "subjects.json", _reserialize(payload)
-    detail = SubjectDetail.as_view()
+    """The vocabulary as one index file, and each subject with its own documents.
+
+    Both are a view's bytes with nothing added, like every other key here. The
+    views are `subjects.precompute`, which are not routed anywhere: the metadata
+    Reef resolves rather than stores is declared on their serializers, so the
+    contract describes these files and there is no hand-written schema left to
+    validate them against.
+
+    `index` is unused. The views read `rfcmeta.cached_mapping()`, which the run
+    has already warmed by loading the index before the first task.
+    """
+    yield (
+        "subjects.json",
+        render_anonymous(SubjectIndex.as_view(), "/api/reef/precomputed/subjects/"),
+    )
+    detail = PrecomputedSubjectDetail.as_view()
     # all_objects, so a retired subject still gets a file. subjects.json above does
     # not list it -- it is not offered any more -- but Red has links naming it, and
     # the file is what redirects them. What the view returns for one is only slug,
-    # retired and merged_into.
+    # retired and merged_into, so neither map is added to it.
     for slug in Subject.all_objects.values_list("slug", flat=True).order_by("slug"):
-        body = render_anonymous(detail, f"/api/reef/subjects/{slug}/", slug=slug)
-
-        def add(payload):
-            # A sibling map rather than turning `documents` into a list of objects:
-            # retyping an existing key is the change that breaks a caller, and a map
-            # also grows a field later without retyping anything. A retired subject
-            # has no documents key at all, so this adds nothing to its redirect stub.
-            if "documents" not in payload:
-                # A retired subject's payload is a redirect and nothing else, so
-                # there is nothing to describe. Keyed on the array's presence rather
-                # than on its length, so a live subject with no documents still
-                # carries an empty map beside its empty array.
-                return
-            payload["document_meta"] = {
-                doc: _meta(index, doc) for doc in payload["documents"]
-            }
-
-        yield f"subjects/{slug}.json", _augment(body, add)
+        yield (
+            f"subjects/{slug}.json",
+            render_anonymous(
+                detail, f"/api/reef/precomputed/subjects/{slug}/", slug=slug
+            ),
+        )
 
     # Aliases sit in the same directory because they answer the same read: a name
     # arrives from a link without the caller knowing which kind it is. Shadowed ones
@@ -234,7 +175,9 @@ def subjects(docs=None, index=None):
     for slug in aliases.values_list("slug", flat=True):
         yield (
             f"subjects/{slug}.json",
-            render_anonymous(detail, f"/api/reef/subjects/{slug}/", slug=slug),
+            render_anonymous(
+                detail, f"/api/reef/precomputed/subjects/{slug}/", slug=slug
+            ),
         )
 
 

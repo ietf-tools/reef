@@ -139,11 +139,30 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 - Precomputer: a management command, run by celery beat rather than a process of its
   own. It renders the public reads by
   calling the DRF views in process, so a precomputed file cannot describe a different
-  shape from the live response, and then adds resolved document metadata to whatever
-  names a document. A file is meant to serve one of Red's routes in one fetch, so it
-  carries what the route renders rather than identifiers the caller must resolve
-  elsewhere. Additions are new keys only, so every file stays the live response plus
-  zero or more of them. Run on a schedule; nothing serves traffic from it inside Reef.
+  shape from the live response. A file is meant to serve one of Red's routes in one
+  fetch, so it carries what the route renders rather than identifiers the caller must
+  resolve elsewhere. Run on a schedule; nothing serves traffic from it inside Reef.
+
+  The document metadata a file needs and Reef does not store gets there two ways. The
+  subject files declare it on serializers of their own, in subjects/precompute.py, so
+  the file is a view's bytes like every other key and reef_api.yaml describes it. The
+  rest -- stats, popularity, ratings -- still have it added after rendering by
+  registry._augment, which only ever adds keys, so those files stay the live response
+  plus zero or more of them. They can take the same treatment when Red's precomputer,
+  which is their consumer, exists to want it.
+
+  The subject views are deliberately not routed. A published file needs no URL, since
+  the precomputer invokes the view callable directly, and serving an unpaginated read
+  of the whole vocabulary would be a cost with no caller. drf-spectacular generates
+  from a urlconf, though, so reef/urls_contract.py is reef/urls.py plus those views and
+  is what the schema command and tests_api_contract use. Their paths mirror the reads
+  they cache, under a precomputed/ segment, with a description naming the store key.
+
+  There is no hand-written schema for any of this. There was one, for the subject
+  index, because that payload was built by hand outside any serializer; the serializer
+  is the shape now, and a serializer cannot emit a field it does not declare, which is
+  the only drift it was catching. Red derives Zod from reef_api.yaml, which it is
+  already sent by hand, with typed-openapi --runtime zod.
 - Document metadata: reef/rfcmeta.py, an anonymous HTTP read of Red's public files,
   validated against a JSON Schema generated from Red's Zod definition and synced into
   reef/schemas/. No credential, no generated client, and no row written anywhere in
@@ -174,6 +193,8 @@ reef/
     settings/{__init__,base,development,staging,production,build}.py
     settings/logging/{development,production}.py
     celery.py  urls.py  wsgi.py  openapi.py
+    urls_contract.py       urls.py plus the unrouted precompute views; the schema
+                             command generates from this and nothing serves it
     docids.py              shared document-identifier parsing and canonical form
     locks.py               postgres advisory lock, so two runs of a job cannot overlap
     rfcmeta.py             titles and subseries contents, read from Red's public files
@@ -195,6 +216,8 @@ reef/
   popularity/              scaffold: curated-list model/config, read API, test stub
   docsets/                 DocumentSet and DocumentSetEntry, owner-scoped API, public read
   subjects/                Subject vocabulary and SubjectAssignment, public read API, admin curation
+    tree.py                roll-up over the tree, in one place because four callers need it
+    precompute.py          the two published subject payloads: serializers and unrouted views
   subscriptions/           scaffold: Subscription model, API, email task, datatracker-feed ingest interface
   stats/                   per-document engagement numbers for Red; no models of its own
   precomputer/             renders the public reads to a blob store; one management command
@@ -326,8 +349,17 @@ reef/
   ratings and popularity adopt them with a data migration that backfills existing
   rows. Doing this before sets exist is the cheap moment; afterwards it is a
   four-table backfill.
-- subjects.Subject: slug, name, description. The curated vocabulary, maintained by
-  staff in the admin and served read-only, in the way popularity.PopularEntry is.
+- subjects.Subject: slug, name, description, parent, path, depth, retired_at,
+  merged_into. The curated vocabulary, maintained by staff in the admin and served
+  read-only, in the way popularity.PopularEntry is.
+
+  It is a tree, four levels at the deepest, and the shape is a stored path rather
+  than recursive SQL: `path` is the slugs from the top down joined by a slash, so
+  ancestors are the prefixes of a string and a subtree is one indexed
+  `path__startswith`. Depth is capped, so no read ever recurses. A subject covers
+  the documents assigned to it and to everything beneath it, which is what makes a
+  branch with no assignments of its own worth having, and every caller asking that
+  question goes through subjects/tree.py rather than writing the join again.
   A subject has two identities and needs both: the primary key is what a subscription
   points at, so that renaming a subject cannot detach its subscribers, and the slug is
   what a caller addresses it by and what Red puts in a URL its readers see.
@@ -463,8 +495,11 @@ Document sets (built, no ticket yet):
 
 Subjects (built, no ticket yet):
 
-- GET /subjects/ (anonymous, unpaginated): the whole vocabulary, in name order, as
-  id, slug, name and description. Unpaginated for the reason the popularity list is:
+- GET /subjects/ (anonymous, unpaginated): the whole vocabulary, in tree order, as
+  id, slug, name, description, parent, path and both document counts -- the direct
+  one and the deep one that includes the subtree, deduplicated. Every entry carries
+  parent and path, so a caller builds the hierarchy from the flat list in one pass
+  without a second read and with nothing nested. Unpaginated for the reason the popularity list is:
   it is curated rather than self-served, so it stays small enough to hand over whole.
   Public because a subject is public: it is rendered beside the document it describes,
   and a reader has to be able to see what they would be subscribing to before they
@@ -1207,6 +1242,24 @@ Then, for precomputed reads:
   and often. If that arrives, this still wants caching or a materialized counter
   rather than a live aggregate, and the precomputer is not a substitute, because its
   files are only as fresh as its last run. Decide when Red's usage is known.
+- What is left on Red's side for the subject pages, agreed but not built. Red
+  generates a Zod schema from its synced copy of reef_api.yaml with
+  `typed-openapi --runtime zod`, beside the types it already generates with
+  openapi-typescript, and a util function per file fetches from R2 and parses with
+  it -- a hardcoded URL, no Nitro configuration and no caching layer. A Nuxt server
+  render never calls Reef and never falls back to it; a browser may, as reef.ts
+  already does, and Red's precomputer may call it or read R2, its choice. Local
+  development uses fixtures, which become a copy of a precompute run's output
+  rather than hand-written data, and every fixture is parsed through the derived
+  schema in a test. That test is also what checks the one thing the generator
+  cannot: SubjectDetailOrRedirect is a oneOf with no discriminator, rendered as a
+  union asserting exactly one member matches, and the three shapes are disjoint
+  only because RetiredSubject requires merged_into and SubjectAlias requires
+  alias_of. Two things to settle when it is built: whether Red commits the whole
+  of a run's output as fixtures, which is the full vocabulary and one file per
+  subject rather than today's capped 227KB, and where the contract and the
+  generated file live, since reef_api.yaml sits in website/ alone and the
+  precomputer wants it too.
 - Writing the additive-only guarantee down on Red's side. Most of this is now done.
   The mini index has its own Zod schema in Red rather than being a Pick of RfcCommon,
   that schema is exported to JSON Schema and committed, a comment on it says Reef reads
