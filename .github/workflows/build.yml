@@ -60,7 +60,7 @@ jobs:
       uses: ietf-tools/semver-action@v1
       with:
         token: ${{ github.token }}
-        branch: release
+        branch: main
         skipInvalidTags: true
         noVersionBumpBehavior: 'current'
         noNewCommitBehavior: 'current'
