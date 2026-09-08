@@ -50,9 +50,9 @@ def _jwks_client(jwks_endpoint):
     """One JWKS client per endpoint, reused across requests.
 
     PyJWKClient caches the fetched JWK set on the instance for its default
-    `lifespan`, so building one per request (as this module used to) refetched
-    the JWKS from Authentik on every authenticated call. The set of endpoints is
-    bounded by configuration, so this cache cannot grow unboundedly.
+    `lifespan`; a client per request would refetch the JWKS from Authentik on
+    every authenticated call. The set of endpoints is bounded by configuration,
+    so this cache cannot grow unboundedly.
     """
     return jwt.PyJWKClient(jwks_endpoint)
 
@@ -140,7 +140,7 @@ class BearerTokenAuthentication(authentication.BaseAuthentication):
     def authenticate(self, request):
         token = self.get_token(request)
         if token is None:
-            return None  # no bearer token: defer to other authenticators / anon
+            return None
         try:
             payload = self.decode(token)
         except jwt.PyJWTError as exc:

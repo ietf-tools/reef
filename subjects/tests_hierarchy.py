@@ -56,7 +56,6 @@ class DerivedPathTests(TestCase):
         made["smtp"].refresh_from_db()
         self.assertEqual(made["dkim"].path, "mail/email/email-authentication/dkim")
         self.assertEqual(made["smtp"].path, "mail/email/smtp")
-        # The rename still leaves the old slug behind as an alias, as it always did.
         self.assertEqual(
             list(made["messaging"].aliases.values_list("slug", flat=True)),
             ["messaging"],
@@ -107,8 +106,6 @@ class SubtreeQueryTests(TestCase):
         self.assertEqual([s.slug for s in found], ["sha"])
 
     def test_a_sibling_with_a_longer_slug_is_not_swept_in(self):
-        # The reason the separator is appended to the prefix: without it,
-        # security/cryptography would match security/cryptography-x.
         found = Subject.objects.at_or_under(self.made["cryptography"])
         self.assertNotIn("cryptography-x", [s.slug for s in found])
 
@@ -153,8 +150,6 @@ class RefusalTests(TestCase):
             Subject.objects.create(slug="toodeep", name="Too Deep", parent=deepest)
 
     def test_the_ceiling_is_checked_against_the_deepest_descendant(self):
-        # A leaf could move here; a branch three deep cannot, and the check has to
-        # measure the branch rather than the node being moved.
         made = tree("a", "a/b", "a/b/c", "branch", "branch/x", "branch/x/y")
         made["branch"].parent = made["c"]
         with self.assertRaises(ValidationError):

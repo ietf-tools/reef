@@ -52,7 +52,6 @@ class ImportTests(ImportTestCase):
         )
 
     def test_ancestors_are_created_even_when_nothing_is_filed_on_them(self):
-        # The reason a branch exists at all: messaging holds nothing itself.
         path = sheet(row("RFC6376", "dkim", "messaging / email / dkim"))
         self.run_import(path, "--write")
         messaging = Subject.all_objects.get(slug="messaging")
@@ -105,11 +104,6 @@ class ImportTests(ImportTestCase):
 
 class RefusalTests(ImportTestCase):
     def test_a_slug_under_two_paths_is_a_hard_failure(self):
-        """The invariant the whole arrangement rests on.
-
-        Slugs are globally unique, so one of the two would win silently and the
-        documents filed under the other would land in the wrong branch.
-        """
         path = sheet(
             row("RFC1", "send", "internet-layer / send"),
             row("RFC779", "send", "applications / telnet / send"),

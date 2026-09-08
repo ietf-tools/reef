@@ -3,11 +3,6 @@ The noun phrase naming what one subscription covers: "changes to RFC 9110",
 "every new RFC". No lead and no full stop, so a caller can put it in a sentence or
 in a list.
 
-Split out of _subscription_line.txt when digests became per subscriber rather than
-per subscription: a reader with three matching subscriptions gets one mail listing
-three of these, while a confirmation is about one subscription and still wants the
-sentence.
-
 Context: subscription, and watched_doc for the rfc kind.
 
 This file deliberately ends without a trailing newline: callers put a full stop

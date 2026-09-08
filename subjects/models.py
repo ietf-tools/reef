@@ -10,10 +10,10 @@ publishes the names and so has to go on resolving the ones it has published.
 
 This is the one place Reef holds something about a document beyond its
 identifier, and it does not contradict the rule that it holds no document
-metadata (see plan.md). That rule was argued from staleness: a title or a
-status copied here would drift from the datatracker's. A subject has no
-upstream to drift from. Reef is where it is decided, so Reef is where it is
-kept, and no other system has an opinion for this one to disagree with.
+metadata. That rule is argued from staleness: a title or a status copied here
+would drift from the datatracker's. A subject has no upstream to drift from. Reef
+is where it is decided, so Reef is where it is kept, and no other system has an
+opinion for this one to disagree with.
 
 What Reef still does not hold is a document's title, status, or existence. A
 subject can be assigned to an identifier that names nothing; the assignment is
@@ -135,8 +135,8 @@ class Subject(models.Model):
         "next and for a caller drawing a picker.",
     )
     # Retired, not deleted. A vocabulary changes, and a subject somebody follows
-    # cannot simply go: deleting one used to cascade its subscriptions away, which
-    # silently stopped mail that a reader had asked for. Retiring takes it out of the
+    # cannot simply go: deleting one would cascade its subscriptions away and
+    # silently stop mail a reader had asked for. Retiring takes it out of the
     # picker and refuses new subscribers while leaving the existing ones matching, so
     # the population decays rather than being cut off. Clearing this restores it.
     retired_at = models.DateTimeField(
@@ -157,10 +157,8 @@ class Subject(models.Model):
         help_text="Set by a merge. The subject this one's documents and followers "
         "were moved to.",
     )
-    # The subject this one sits under, and the whole of the hierarchy's truth. Not
-    # to be confused with merged_into above, which is the other self-reference and
-    # says something entirely different: merged_into is a redirect recording where a
-    # retired subject's documents and followers went, while parent is containment.
+    # Containment, and the whole of the hierarchy's truth. The other self-reference,
+    # merged_into above, is a redirect.
     #
     # PROTECT rather than CASCADE, matching Subscription.subject: deleting a subject
     # that others sit under would take a branch of the vocabulary with it, and the
@@ -201,8 +199,6 @@ class Subject(models.Model):
 
     def __str__(self):
         return f"{self.name} (retired)" if self.is_retired else self.name
-
-    # -- the tree ---------------------------------------------------------------
 
     @property
     def ancestor_slugs(self):
@@ -342,8 +338,6 @@ class Subject(models.Model):
         if self.pk is None:
             return None
         if update_fields is not None and "slug" not in update_fields:
-            # retire() and unretire() name their fields, so the common writes that
-            # cannot be renames do not pay for a query to find that out.
             return None
         previous = (
             Subject.all_objects.filter(pk=self.pk)
@@ -429,9 +423,8 @@ class Subject(models.Model):
         subtree retirement, what it has cached is the row as it was before. One
         query either way, and this one cannot be stale.
 
-        The update bypasses save(), so no post_save fires for the ancestors. As in
-        _repath_subtree, that is not a gap: the precomputer rebuilds the whole
-        subjects task from any one signal and this subject's own save sends one.
+        The update bypasses save(); as in _repath_subtree, the one signal this
+        subject's own save sends is enough for the precomputer.
         """
         if self.path:
             Subject.all_objects.filter(

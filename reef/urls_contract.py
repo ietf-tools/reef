@@ -8,8 +8,8 @@ unpaginated read of the whole vocabulary would be a cost with no caller.
 
 drf-spectacular generates from a urlconf, though, so a payload that is in no
 urlconf is in no contract -- and the contract is the only description of these
-files there is, now that the hand-written JSON Schema beside the precomputer is
-gone. Hence a second urlconf, used by the schema command and by nothing else:
+files there is. Hence a second urlconf, used by the schema command and by nothing
+else:
 
     REEF_DEPLOYMENT_MODE=build ./manage.py spectacular \\
         --urlconf reef.urls_contract --file reef_api.yaml --validate

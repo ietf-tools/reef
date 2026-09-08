@@ -14,13 +14,13 @@ its sheet names that does not exist yet, with a mechanically title-cased slug fo
 a name, and skips the paths that do; so seeding first means the curated names and
 descriptions are the ones that survive.
 
-Three columns in the sheet have no home here and are read only to be checked
-against what they imply. `kind`, which sorts a subject into a topic or a
-technology, is a distinction Reef's model does not draw; `direct documents` and
-`total documents` are counts of assignments this sheet does not carry, which Reef
-derives from the assignments it does hold. They stay in the file because the file
-is the curated artifact rather than an import format, and dropping a column on
-the way in is easier to undo than dropping it on the way to the repository.
+Three columns in the sheet have no home here and are ignored. `kind`, which
+sorts a subject into a topic or a technology, is a distinction Reef's model does
+not draw; `direct documents` and `total documents` are counts of assignments this
+sheet does not carry, which Reef derives from the assignments it does hold. They
+stay in the file because the file is the curated artifact rather than an import
+format, and dropping a column on the way in is easier to undo than dropping it on
+the way to the repository.
 
 Dry run unless --write is given, as import_subjects is: this rewrites the name
 and description of every subject in the vocabulary, which is a curation act and

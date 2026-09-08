@@ -1,4 +1,3 @@
-// https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: "2025-07-01",
   // No server rendering: `npm run generate` emits a static bundle that talks to
@@ -23,8 +22,8 @@ export default defineNuxtConfig({
   css: ["~/assets/css/tailwind.css"],
   runtimeConfig: {
     public: {
-      // The API shares this origin behind NGINX, so a relative base works and
-      // requests carry the session cookie.
+      // Empty means relative: the dev NGINX proxies the API onto this origin.
+      // Set NUXT_PUBLIC_API_BASE where it answers elsewhere.
       apiBase: "", // NUXT_PUBLIC_API_BASE
       // Authentik OIDC application issuer (discovery is fetched from here).
       oidcAuthority: "https://account.ietf.org/application/o/reef/", // NUXT_PUBLIC_OIDC_AUTHORITY

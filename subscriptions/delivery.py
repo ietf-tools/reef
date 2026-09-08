@@ -1,9 +1,8 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Turning one notification into one sent message.
 
-Split out of tasks.py because sending is not scheduling: these are called by the tasks
-next door, and by nothing else. What lives here is the part that decides there is
-somebody to write to, renders the message and hands it to the mail backend.
+These are called by the tasks next door, and by nothing else. What lives here decides
+there is somebody to write to, renders the message and hands it to the mail backend.
 
 Nothing here retries. A failure is raised as SendEmailError and the calling task's
 retry policy decides what to do about it, because how long to keep trying is a
@@ -39,14 +38,11 @@ def _subscriber_to_mail(subscription_id, what):
             pk=subscription_id
         )
     except Subscription.DoesNotExist:
-        # Unsubscribing is a hard delete, so a subscription disappearing
-        # between the enqueue and the send is ordinary, not an error.
+        # Unsubscribing is a hard delete, so this is ordinary rather than an error.
         logger.info("%s: subscription=%s no longer exists", what, subscription_id)
         return None
     if subscription.document_set is not None and subscription.document_set.is_deleted:
-        # The set was taken down between the enqueue and the send. Nothing to
-        # send about: a real delete would have cascaded to this subscription,
-        # and the message would name the set staff have just removed.
+        # Taken down between the enqueue and the send, so nothing to send about.
         logger.info(
             "%s: subscription=%s set=%s has been deleted",
             what,
@@ -86,17 +82,14 @@ def send_subscription_digest(
 ) -> None:
     """Send one notification to one subscriber covering everything that matched them.
 
-    Per subscriber rather than per subscription, which is what closes the
-    notification-volume question: a reader following RFC 9110 directly and also
-    holding it in a document set was getting two mails about one change, and no care
-    inside this task could have prevented it, because a task that sees one
-    subscription cannot know about the other. The caller groups by reader and
-    deduplicates by document before enqueuing, and passes every subscription that
-    matched so the message can say why it arrived.
+    Per subscriber rather than per subscription: a reader following RFC 9110 directly
+    and also holding it in a document set would otherwise get two mails about one
+    change, and a task that sees one subscription cannot know about the other. The
+    caller groups by reader and deduplicates by document before enqueuing, and passes
+    every subscription that matched so the message can say why it arrived.
 
-    A list of events rather than one for the same reason it always was: a
-    subscription to a set of forty documents must not become forty emails when a
-    batch is published.
+    A list of events rather than one so that a subscription to a set of forty
+    documents does not become forty emails when a batch is published.
     """
     what = "send_subscription_digest"
     if not events:

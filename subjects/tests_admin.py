@@ -1,8 +1,8 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Curating a tree in the admin.
 
-Through the real views rather than by poking the ModelAdmin, because most of what
-changed here is what staff see: the order of the listing, what a parent picker is
+Through the real views rather than by poking the ModelAdmin, because what
+matters here is what staff see: the order of the listing, what a parent picker is
 labelled with, and which filters a vocabulary of several hundred can afford.
 """
 
@@ -90,8 +90,6 @@ class ChangelistTests(SubjectAdminTestCase):
 
 class ParentPickerTests(SubjectAdminTestCase):
     def test_the_parent_is_labelled_by_path_not_by_name(self):
-        # A bare name is ambiguous exactly where it matters: "smtp" says nothing
-        # about which branch it hangs from.
         field = SubjectAdminForm().fields["parent"]
         self.assertEqual(
             field.label_from_instance(self.made["smtp"]), "messaging/email/smtp"
@@ -155,9 +153,6 @@ class RetireActionTests(SubjectAdminTestCase):
 
 class AssignmentAdminTests(SubjectAdminTestCase):
     def test_the_assignment_listing_shows_the_whole_path(self):
-        # The column that catches a mis-filing: a curator who sees
-        # messaging/email/pop3 beside a Diffie-Hellman RFC notices, one who sees
-        # pop3 does not.
         response = self.client.get(
             reverse("admin:subjects_subjectassignment_changelist")
         )

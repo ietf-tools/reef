@@ -180,7 +180,7 @@ class DetectTests(TestCase):
 
 
 class DetectTaskTests(TestCase):
-    """The daily task. It advances the snapshot but does not notify anybody yet."""
+    """The daily task with nobody subscribed: it advances the snapshot and logs."""
 
     def setUp(self):
         stub_rfc_index(self, {"rfc9110": meta()})
@@ -227,8 +227,7 @@ class DetectTaskTests(TestCase):
 
 
 class RenderChangeTests(TestCase):
-    """The sentence a digest shows, which Reef composes because the feed the
-    templates were written against does not exist."""
+    """The sentence a digest shows for one document."""
 
     def index(self, mapping=None):
         return rfcmeta.DocumentIndex(
@@ -347,8 +346,7 @@ class RenderChangeTests(TestCase):
 
 
 class EventShapeTests(TestCase):
-    """The shape delivery already takes, unchanged by where the events now come
-    from."""
+    """The event shape delivery takes."""
 
     def test_an_event_carries_what_the_template_reads(self):
         change = diff({}, reduce_index({"rfc9110": meta()}))[0]

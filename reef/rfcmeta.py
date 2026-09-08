@@ -6,14 +6,10 @@ copied into a column here would drift from the one Red publishes. Reading a titl
 a different act from storing one: nothing below writes to the database, and every
 value is replaced wholesale on the next read.
 
-Three files, all anonymous, all on Red's public origin:
-
-    /api/v1/rfc-mini-index.json          the whole series
-
-Only the index. Red also publishes rfc-common per document and info-subseries per
-container, and readers for both were written and then deleted unused: the index
-carries the title and the subseries membership Reef actually needs, and one shared
-copy of it beats a request per document. They are worth remembering if something ever
+One file, anonymous, on Red's public origin: /api/v1/rfc-mini-index.json, the whole
+series. Red also publishes rfc-common per document and info-subseries per container;
+the index carries the title and the subseries membership Reef needs, and one shared
+copy of it beats a request per document. Those are where to look if something ever
 needs a field the index does not carry, such as an abstract.
 
 The index is validated against reef/schemas/rfc-mini-index.schema.json, generated
@@ -125,7 +121,7 @@ def _meta_from_entry(entry):
 
 
 def _reduce(entries):
-    """Every entry down to the two fields Reef publishes, keyed by identifier.
+    """Every entry reduced to what Reef uses, keyed by identifier.
 
     Reducing before caching rather than after is what keeps the cached form small:
     Red's index is 6.8 MB, and this is 209 KiB compressed.
@@ -368,8 +364,8 @@ def containing_subseries(doc_id):
     subscription matching, where skipping the expansion means somebody does not get
     an email they asked for, and that is worth waiting on a fetch for in a background
     task. It still returns an empty list rather than raising when Red cannot be
-    reached: what a change event should do about that is a retry decision, which
-    belongs with ingest and does not exist yet. See the subseries open item.
+    reached. TODO: what a change event should do about that is a retry decision,
+    which belongs with ingest.
     """
     try:
         doc_id = normalize_doc_id(doc_id)

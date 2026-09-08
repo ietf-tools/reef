@@ -1,10 +1,8 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """What a notification says: its subject line and its body.
 
-Split out of tasks.py so that changing the wording does not mean opening the module
-that schedules and delivers. Bodies are templates under templates/subscriptions/mail;
-subject lines are composed here rather than in a template, following the
-templates/rpc/mail convention in Purple.
+Bodies are templates under templates/subscriptions/mail; subject lines are composed
+here rather than in a template, following the templates/rpc/mail convention in Purple.
 """
 
 from django.conf import settings
@@ -22,11 +20,11 @@ CONFIRMATION_SUBJECT = "You are now subscribed to RFC series updates"
 
 
 def digest_subject(events):
-    """The subject line for a digest, composed here rather than in the template.
+    """The subject line for a digest.
 
-    Follows Purple, whose mail templates are bodies only. The documents are
-    listed in the order the feed gave them rather than sorted: a subject that
-    changes when the same batch is retried looks like a second notification.
+    The documents are listed in the order the events came rather than sorted: a
+    subject that changes when the same batch is retried looks like a second
+    notification.
     """
     docs = list(dict.fromkeys(event["doc"] for event in events if event.get("doc")))
     if len(docs) == 1:
@@ -52,7 +50,6 @@ def _reason(subscription):
     """One subscription as the digest names it: the object plus its prose document."""
     return {
         "subscription": subscription,
-        # Only the rfc kind has one, and the template only asks for it there.
         "watched_doc": display_doc_id(subscription.params.get("rfc", "")),
     }
 

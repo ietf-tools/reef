@@ -25,8 +25,6 @@ class MyDocumentsTests(APITestCase):
         self.assertEqual(response.status_code, 200, response.content)
         return {row["doc"]: row for row in response.json()["documents"]}
 
-    # --- Access ---------------------------------------------------------
-
     def test_anonymous_is_refused(self):
         self.client.force_authenticate(user=None)
         self.assertIn(self.client.get(URL).status_code, (401, 403))
@@ -36,8 +34,6 @@ class MyDocumentsTests(APITestCase):
         self.assertIn("Authorization", response.headers["Vary"])
         self.assertIn("Cookie", response.headers["Vary"])
         self.assertEqual(response.headers["Cache-Control"], "private, no-store")
-
-    # --- Documents ------------------------------------------------------
 
     def test_named_document_with_no_state_is_still_returned(self):
         self.assertEqual(
@@ -85,8 +81,6 @@ class MyDocumentsTests(APITestCase):
             sorted([str(first.id), str(second.id)]),
         )
 
-    # --- Whose data it is -----------------------------------------------
-
     def test_another_readers_state_is_not_reported(self):
         Rating.objects.create(rfc="rfc9110", user=self.other, value=1)
         Subscription.objects.create(
@@ -121,8 +115,6 @@ class MyDocumentsTests(APITestCase):
         )
         self.assertIsNone(self.documents("rfc9110")["rfc9110"]["your_subscription_id"])
 
-    # --- Sets ------------------------------------------------------------
-
     def test_sets_carry_no_membership(self):
         document_set = DocumentSet.objects.create(owner=self.reader, title="Mine")
         DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
@@ -134,8 +126,6 @@ class MyDocumentsTests(APITestCase):
     def test_another_readers_sets_are_not_listed(self):
         DocumentSet.objects.create(owner=self.other, title="Theirs")
         self.assertEqual(self.client.get(URL).json()["sets"], [])
-
-    # --- Identifiers -----------------------------------------------------
 
     def test_identifiers_are_canonicalized(self):
         Rating.objects.create(rfc="rfc9110", user=self.reader, value=3)

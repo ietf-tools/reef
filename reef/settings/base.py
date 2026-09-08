@@ -6,7 +6,6 @@ from pathlib import Path
 
 from celery.schedules import crontab
 
-# Build paths inside the project like this: BASE_DIR / "subdir".
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 INSTALLED_APPS = [
@@ -71,8 +70,8 @@ WSGI_APPLICATION = "reef.wsgi.application"
 # Authentication
 AUTH_USER_MODEL = "reefauth.User"
 AUTHENTICATION_BACKENDS = (
-    "reefauth.backends.ReefOIDCAuthBackend",  # Authentik OIDC login
-    "rules.permissions.ObjectPermissionBackend",  # rules-based permissions
+    "reefauth.backends.ReefOIDCAuthBackend",
+    "rules.permissions.ObjectPermissionBackend",
     "django.contrib.auth.backends.ModelBackend",  # break-glass local superuser
 )
 
@@ -110,7 +109,7 @@ LOGOUT_REDIRECT_URL = "/"
 REEF_SURVEYJS_LICENSE_KEY = os.environ.get("REEF_SURVEYJS_LICENSE_KEY", "")
 
 # Base URL of the Nuxt survey runner, used to build the link Red follows from
-# its popover. Empty yields a site-relative "/s/<slug>".
+# its toast. Empty yields a site-relative "/s?slug=<slug>".
 REEF_SURVEY_RUNNER_BASE_URL = os.environ.get("REEF_SURVEY_RUNNER_BASE_URL", "")
 
 # Bearer (resource-server) validation of Authentik access tokens.
@@ -157,8 +156,9 @@ REEF_API_OIDC_ALGORITHMS = [
     )
     if a.strip()
 ]
-# Accepted `aud` values. Defaults to the RP client id to preserve the previous
-# single-caller behaviour. An empty list disables audience verification.
+# Accepted `aud` values. Defaults to the RP client id, so a deployment naming none
+# still accepts only Reef's own application. An empty list disables audience
+# verification.
 REEF_API_OIDC_AUDIENCES = [
     a.strip()
     for a in os.environ.get(
@@ -167,7 +167,6 @@ REEF_API_OIDC_AUDIENCES = [
     if a.strip()
 ] or ([OIDC_RP_CLIENT_ID] if OIDC_RP_CLIENT_ID else [])
 
-# The groups claim maps to staff access.
 REEF_OIDC_GROUPS_CLAIM = os.environ.get("REEF_OIDC_GROUPS_CLAIM", "groups")
 REEF_OIDC_STAFF_GROUPS = [
     g.strip()
@@ -358,7 +357,7 @@ REEF_PRECOMPUTE_CONCURRENCY = int(os.environ.get("REEF_PRECOMPUTE_CONCURRENCY", 
 CELERY_TIMEZONE = "UTC"
 CELERY_BROKER_URL = os.environ.get("REEF_BROKER_URL", "amqp://mq/")
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-CELERY_TASK_IGNORE_RESULT = True  # ignore results unless a task opts in
+CELERY_TASK_IGNORE_RESULT = True
 
 # Schedules live in the database (django-celery-beat) so that staff can retime a job
 # without a deploy. CELERY_BEAT_SCHEDULE below is the default set: DatabaseScheduler

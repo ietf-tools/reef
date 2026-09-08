@@ -80,8 +80,6 @@ class ImportAssignmentsTests(TestCase):
         )
 
     def test_an_unknown_tag_stops_the_run(self):
-        # Documents would otherwise lose a subject somebody wrote down, silently
-        # and in bulk.
         with self.assertRaises(CommandError) as caught:
             self.run_import([("rfc5322", "email;nonesuch")])
         self.assertIn("name no subject", str(caught.exception))
@@ -93,7 +91,6 @@ class ImportAssignmentsTests(TestCase):
         self.assertEqual(self.docs_on(self.email), ["rfc5322"])
 
     def test_a_repeated_pair_is_one_assignment(self):
-        # A sheet naming the same subject twice on one row asserts one thing twice.
         out, _ = self.run_import([("rfc5322", "email;email")])
         self.assertIn("1 assignment", out)
         self.assertEqual(self.docs_on(self.email), ["rfc5322"])

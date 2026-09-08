@@ -142,8 +142,7 @@ def subjects(docs=None, index=None):
     Both are a view's bytes with nothing added, like every other key here. The
     views are `subjects.precompute`, which are not routed anywhere: the metadata
     Reef resolves rather than stores is declared on their serializers, so the
-    contract describes these files and there is no hand-written schema left to
-    validate them against.
+    contract describes these files and nothing else has to.
 
     `index` is unused. The views read `rfcmeta.cached_mapping()`, which the run
     has already warmed by loading the index before the first task.

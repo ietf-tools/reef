@@ -10,8 +10,8 @@ renderer and permission checks, so there is no second definition to drift.
 
 Every payload is rendered as an anonymous caller, which is the whole of what
 this may publish. A key in a blob store has no reader identity attached, so
-anything whose body varies by who is asking has no correct value to store; see
-the exclusions in tasks.py.
+anything whose body varies by who is asking has no correct value to store;
+registry.py lists what that rules out.
 """
 
 from django.contrib.auth.models import AnonymousUser

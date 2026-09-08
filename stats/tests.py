@@ -155,8 +155,7 @@ class DocumentStatsTests(APITestCase):
         )
 
     def test_the_filter_answers_the_same_whoever_asks(self):
-        # Holding the set's id is the whole of the permission here, as it is on
-        # the set read: there is no visibility left to condition on.
+        # Holding the set's id is the whole of the permission, as on the set read.
         document_set = DocumentSet.objects.create(owner=self.a, title="Mine")
         DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
 

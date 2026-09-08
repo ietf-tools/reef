@@ -131,7 +131,7 @@ class NotifyRfcChangesTests(TestCase):
         self.assertEqual(notification.events[0]["doc"], "rfc9999")
 
     def test_a_reader_matched_two_ways_gets_one_notification(self):
-        """The coalescing that per-subscription delivery could never do."""
+        """Coalesced per reader, not per subscription."""
         self.seed()
         document_set = DocumentSet.objects.create(owner=self.user, title="HTTP core")
         DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
@@ -221,11 +221,10 @@ class NotifyRfcChangesTests(TestCase):
 class SubseriesMembershipTests(TestCase):
     """A subseries gaining or losing a constituent is news to whoever follows it.
 
-    Gaining was already covered, because matching expands against current membership
-    and the document is in it by the time the run looks. Losing was not: by then the
-    document has gone, so the expansion no longer reaches the container's followers.
-    Knowing it happened at all needs the previous membership, which is what the
-    snapshot holds.
+    Joining is found by matching alone, because it expands against current membership
+    and the document is in it by the time the run looks. Leaving is not: the document
+    has gone, so the expansion no longer reaches the container's followers, and
+    knowing it happened needs the previous membership the snapshot holds.
     """
 
     def setUp(self):

@@ -56,7 +56,6 @@ class Survey(models.Model):
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
 
-    # SurveyJS survey JSON definition and (optional) theme JSON.
     definition = models.JSONField(default=dict)
     theme = models.JSONField(null=True, blank=True)
 
@@ -67,8 +66,7 @@ class Survey(models.Model):
         max_length=16, choices=Visibility.choices, default=Visibility.OPEN
     )
 
-    # Targeting rules for user-specific offers (for example by subscription).
-    # Scaffolded for now; not yet interpreted.
+    # Where the survey is offered, not who may take it; see surveys.audience.
     audience = models.JSONField(null=True, blank=True)
 
     created_by = models.ForeignKey(

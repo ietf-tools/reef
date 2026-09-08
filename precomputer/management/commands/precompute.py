@@ -117,8 +117,8 @@ class Command(BaseCommand):
         if options["metadata"]:
             index = rfcmeta.get_index()
             if index is None:
-                # Red being unreachable is not a reason to publish nothing. The files
-                # are written with null metadata and the warning above says why.
+                # Red being unreachable is not a reason to publish nothing: the files
+                # are written with null metadata instead.
                 self.stderr.write(
                     self.style.WARNING(
                         "Could not load Red's index; writing null document metadata."
@@ -192,7 +192,7 @@ class Command(BaseCommand):
                     continue
                 uploads.append(pool.submit(store.put, key, body))
             for upload in uploads:
-                upload.result()  # re-raises, failing the task
+                upload.result()  # surfaces upload errors
         return keys
 
     def _purge(self, store, tasks, written, dry_run):

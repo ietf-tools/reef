@@ -100,8 +100,6 @@ class SeedCommandTests(TestCase):
         self.assertEqual(subject.description, "New.")
 
     def test_moving_a_subject_moves_its_descendants(self):
-        """Through save() rather than a bulk update, which is what recomputes the
-        paths underneath."""
         self.seed(
             [
                 row("messaging", "Messaging"),
@@ -157,8 +155,6 @@ class SheetValidationTests(TestCase):
         return str(caught.exception)
 
     def test_a_repeated_slug(self):
-        # Slugs are globally unique because the detail URL carries no path, so a
-        # repeat would make one of the two unreachable.
         self.assertIn("1 problem", self.refuses([row("web"), row("web")]))
 
     def test_a_parent_the_sheet_does_not_name(self):
@@ -176,8 +172,6 @@ class SheetValidationTests(TestCase):
         )
 
     def test_a_path_that_disagrees_with_the_parents(self):
-        # The sheet says both, so the two can contradict each other, and neither
-        # half is authoritative enough to silently win.
         self.assertIn(
             "1 problem",
             self.refuses(
@@ -201,7 +195,6 @@ class SheetValidationTests(TestCase):
         self.assertIn("1 problem", self.refuses(rows))
 
     def test_every_problem_is_reported_at_once(self):
-        # A sheet with three faults should be fixed once, not three times.
         self.assertIn(
             "3 problem",
             self.refuses(

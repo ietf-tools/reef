@@ -9,11 +9,7 @@ PARAM_VALUE_MAX_LENGTH = 128
 
 
 class Subscription(models.Model):
-    """A user's subscription to RFC-series notifications.
-
-    Scaffold: tied to an authenticated user. Email delivery and datatracker
-    change ingestion are stubbed (see tasks.py) pending the full build.
-    """
+    """A user's subscription to RFC-series notifications."""
 
     class Kind(models.TextChoices):
         # Predicates over the event: they say what has to have happened, not
@@ -68,10 +64,9 @@ class Subscription(models.Model):
     )
     subject = models.ForeignKey(
         "subjects.Subject",
-        # Protected, not cascaded. Deleting a subject used to take its subscriptions
-        # with it, which silently stopped mail somebody had asked for; now a subject
-        # with followers cannot be deleted at all, and has to be retired or merged
-        # instead. Django's admin reports the refusal rather than failing.
+        # Protected, not cascaded: cascading would silently stop mail somebody asked
+        # for. A subject with followers has to be retired or merged instead; Django's
+        # admin reports the refusal rather than failing.
         on_delete=models.PROTECT,
         related_name="subscriptions",
         null=True,

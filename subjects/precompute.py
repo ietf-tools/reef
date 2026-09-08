@@ -9,10 +9,9 @@ generates from a urlconf, and that is ``reef.urls_contract``: it exists so the
 contract can describe these payloads, and no deployment serves it.
 
 The point of doing it this way is that the file is a view's bytes, like every
-other key in the store, so ``reef_api.yaml`` describes it and there is nothing
-left for a hand-written JSON Schema to police. A serializer cannot emit a field
-it does not declare, which is the one class of drift the deleted
-``precomputer/schemas.py`` was built to catch.
+other key in the store, so ``reef_api.yaml`` describes it and no separate schema
+has to. A serializer cannot emit a field it does not declare, so nothing else has
+to police drift between the file and the contract.
 
 Two things separate these shapes from the served ones, and both are document
 metadata. Reef stores none: ``reef.rfcmeta`` reads it from Red's published index
@@ -90,9 +89,9 @@ class SubjectMetadataSerializer(serializers.Serializer):
 class SubjectIndexEntrySerializer(serializers.Serializer):
     """One subject in the index file.
 
-    Field order is the file's key order and is load-bearing while the byte
-    equality test against the old hand-built payload stands. It is the list
-    serializer's fields plus the two the index adds.
+    Field order is the file's key order: a run that finds the same data must
+    write the same bytes. It is the list serializer's fields plus the two the
+    index adds.
     """
 
     id = serializers.IntegerField()

@@ -27,7 +27,7 @@ const theme = computed(
   () => (survey.value?.theme ?? null) as Record<string, unknown> | null,
 );
 
-// A 403 means the survey requires authentication; send the visitor to log in.
+// The definition endpoint answers 403 for an authenticated-visibility survey.
 if (error.value && (error.value as FetchError).statusCode === 403) {
   await oidc.login(route.fullPath);
 }

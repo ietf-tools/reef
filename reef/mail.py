@@ -11,13 +11,6 @@ fail_silently defaults to False. Purple's mail is composed by a staff user who
 sees the failure in the UI, so swallowing the exception is survivable there.
 Reef's is unattended notification: a swallowed exception means the retry never
 fires and the message is lost with nothing to show it.
-
-Purple's EmailMessage subclass documents its customization as defaulting the
-from address, which Django has done by itself since long before either project
-(EmailMessage.__init__ sets from_email or DEFAULT_FROM_EMAIL). What is worth
-subclassing for is the Message-ID: Django generates one from the local
-hostname, which under Kubernetes is a pod name that is both meaningless to a
-postmaster reading a bounce and more than Reef needs to disclose.
 """
 
 from email.utils import make_msgid

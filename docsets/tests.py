@@ -37,10 +37,7 @@ class DocumentSetApiTests(APITestCase):
         self.assertNotIn("owner_name", body)  # a set read names no person
 
     def test_id_is_a_random_uuid(self):
-        # A set is readable by anyone holding its id, and that id is handed
-        # around, so the
-        # id has to be unguessable: a sequential one would let anyone walk the
-        # range and read every set in the system.
+        # Sequential ids would let anyone walk /sets/1, /sets/2 and read every set.
         ids = [
             uuid.UUID(self.create_set(title=f"Set {n}").json()["id"]) for n in range(3)
         ]
@@ -49,8 +46,7 @@ class DocumentSetApiTests(APITestCase):
 
     def test_a_set_has_no_visibility_to_ask_for(self):
         # Not a 400: there is no such field, so DRF ignores it like any other
-        # unknown key. A set is readable by whoever holds its id, and no client
-        # can talk its way into some other arrangement.
+        # unknown key.
         response = self.create_set(visibility="private")
         self.assertEqual(response.status_code, 201)
         self.assertNotIn("visibility", response.json())
@@ -61,8 +57,7 @@ class DocumentSetApiTests(APITestCase):
         self.assertEqual(self.client.get(f"/api/reef/sets/{set_id}/").status_code, 200)
 
     def test_retitling_leaves_the_url_alone(self):
-        # The id is a set's identity, so a link that was shared before the
-        # retitle is the same link afterwards.
+        # A link shared before the retitle still works afterwards.
         set_id = self.create_set().json()["id"]
         response = self.client.patch(
             f"/api/reef/sets/{set_id}/", {"title": "HTTP semantics"}, format="json"
@@ -72,7 +67,6 @@ class DocumentSetApiTests(APITestCase):
         self.assertEqual(response.json()["id"], set_id)
 
     def test_one_owner_can_have_two_sets_with_the_same_title(self):
-        # Nothing has to tell them apart: two sets with one title are two ids.
         first, second = self.create_set(), self.create_set()
         self.assertEqual(second.status_code, 201)
         self.assertNotEqual(first.json()["id"], second.json()["id"])
@@ -81,9 +75,7 @@ class DocumentSetApiTests(APITestCase):
         self.assertEqual(self.create_set(title="!!!").status_code, 201)
 
     def test_sets_are_scoped_to_their_owner(self):
-        # The listing and every write are the owner's. Reading is not, because
-        # that is the shared link: a write to someone else's set 404s rather
-        # than 403s, so the refusal says nothing about whose it is.
+        # Reading is the one thing not scoped: that is the shared link.
         other = User.objects.create(username="o", oidc_sub="s2")
         theirs = DocumentSet.objects.create(owner=other, title="Theirs")
 
@@ -224,9 +216,7 @@ class PublicDocumentSetTests(APITestCase):
         self.assertNotIn("owner", body)
 
     def test_the_answer_is_the_same_whoever_asks(self):
-        # There is no visibility to condition on: the id is the permission, so
-        # the owner, a stranger and an anonymous caller get one answer. Only a
-        # staff takedown changes it, and it changes it for all three.
+        # Only a staff takedown changes the answer, and it changes it for all three.
         anonymous = self.client.get(self.url()).json()
         for user in (self.owner, self.stranger):
             with self.subTest(user=user.username):
@@ -239,9 +229,7 @@ class PublicDocumentSetTests(APITestCase):
         )
 
     def test_reading_a_set_is_not_permission_to_change_it(self):
-        # The same URL serves the read and the writes, so the writes have to
-        # scope themselves: a stranger gets the 404 they would get for a set
-        # that does not exist, and an anonymous caller is refused outright.
+        # The same URL serves the read and the writes, so the writes scope themselves.
         self.client.force_authenticate(user=self.stranger)
         for method, kwargs in (
             (self.client.patch, {"data": {"title": "Theirs now"}, "format": "json"}),

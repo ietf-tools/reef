@@ -7,11 +7,9 @@ what makes a branch with no assignments of its own worth having: without it,
 messaging is a heading that matches nothing, a subscription to it is dead the day
 it is made, and its page in Red says there is nothing on the subject of messaging.
 
-Four places asked the same question of the flat vocabulary with the same one-hop
-join -- subscriptions/matching.py, stats/api.py, surveys/audience.py and
-subjects/serializers.py -- and the risk in making the vocabulary a tree was never
-the SQL. It was that four independent joins would be updated one at a time. So
-they all come through here.
+Four callers need the same answer -- subscription matching, subscriber counts,
+survey audiences and the list serializer -- and if each ran its own join they
+would drift apart one at a time. So they all come through here.
 
 Nothing in this module recurses in SQL. Ancestors are the prefixes of a path, so
 they are read off the string; descendants are one indexed prefix match. That
@@ -20,7 +18,7 @@ holds at any depth, and the four-level ceiling is not what makes it work.
 
 from collections import defaultdict
 
-from .models import Subject, ancestor_paths
+from .models import Subject, SubjectAssignment, ancestor_paths
 
 # Re-exported so that a caller doing roll-up has one module to import from, even
 # though the definition lives beside the path column it reads.
@@ -64,8 +62,6 @@ def documents_under(subject):
     One query over the subtree. A document assigned to two subjects in the same
     branch -- to smtp and to email both -- counts once.
     """
-    from .models import SubjectAssignment
-
     docs = set(
         SubjectAssignment.objects.filter(
             subject__in=Subject.all_objects.at_or_under(subject)
@@ -87,8 +83,6 @@ def rollup():
     than sets, because the caller publishes them and a precomputed file has to be
     byte-stable between runs that found the same data.
     """
-    from .models import SubjectAssignment
-
     paths = dict(Subject.all_objects.values_list("pk", "path"))
     direct = defaultdict(set)
     covered = defaultdict(set)

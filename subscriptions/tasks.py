@@ -45,7 +45,7 @@ from .models import PendingNotification
 
 logger = logging.getLogger("reef")
 
-# Held for the length of a change-notification run; see reef.locks.
+# Held for the length of a change-notification run.
 LOCK_NAME = "subscriptions.detect_rfc_changes"
 
 
@@ -151,10 +151,8 @@ def deliver_notification(notification_id: int) -> None:
     PendingNotification.objects.filter(pk=notification_id).update(
         attempts=F("attempts") + 1
     )
-    # Delivery raises SendEmailError, which the retry handles, so reaching here means
-    # this notification is finished with either way. It went out, or there was
-    # permanently nothing to send -- the reader unsubscribed, or has no address --
-    # and both are settled: retrying would rediscover the same answer for three days.
+    # Reaching here means the notification is settled either way: sent, or
+    # permanently nothing to send. SendEmailError has already gone to the retry.
     send_subscription_digest(
         notification.user_id, notification.subscription_ids, notification.events
     )

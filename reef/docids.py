@@ -18,8 +18,8 @@ from django.core.exceptions import ValidationError
 
 # Published series a document identifier can name. The subseries are containers
 # whose membership changes over time (BCP 14 is currently RFC 2119 plus
-# RFC 8174), which matters when matching a change event: see the open items in
-# plan.md.
+# RFC 8174), which matters when a change event is matched against a subseries
+# subscription.
 DOC_SERIES = ("rfc", "bcp", "std", "fyi")
 
 DOC_ID_MAX_LENGTH = 32

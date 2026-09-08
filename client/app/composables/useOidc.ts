@@ -1,5 +1,4 @@
-// OIDC (Authentik) login for the survey runner, using oidc-client-ts (the same
-// library Red uses). Authorization Code + PKCE; tokens kept in localStorage.
+// oidc-client-ts, the same library Red uses.
 import { UserManager, WebStorageStateStore } from "oidc-client-ts";
 
 let manager: UserManager | null = null;

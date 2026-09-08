@@ -14,16 +14,12 @@ User = get_user_model()
 
 class SubjectModelTests(APITestCase):
     def test_documents_are_stored_canonically(self):
-        # The point of canonicalizing here: an assignment has to be joinable to
-        # the same document's ratings, sets and subscriptions.
         subject = Subject.objects.create(slug="security", name="Security")
         assignment = SubjectAssignment.objects.create(subject=subject, doc="RFC 9110")
         assignment.refresh_from_db()
         self.assertEqual(assignment.doc, "rfc9110")
 
     def test_a_bare_number_is_rejected(self):
-        # A subject can be assigned to any published series, so "14" does not
-        # say which document is meant.
         subject = Subject.objects.create(slug="security", name="Security")
         with self.assertRaises(ValidationError):
             SubjectAssignment.objects.create(subject=subject, doc="14")
@@ -70,8 +66,6 @@ class SubjectApiTests(APITestCase):
         SubjectAssignment.objects.create(subject=self.security, doc="rfc9110")
 
     def test_the_vocabulary_is_public(self):
-        # No token: a reader has to be able to see what they would subscribe to
-        # before they have signed in.
         response = self.client.get("/api/reef/subjects/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -87,8 +81,6 @@ class SubjectApiTests(APITestCase):
                 "slug": "security",
                 "name": "Security",
                 "description": "Anything security.",
-                # parent and path are what a caller builds the tree from; both
-                # counts are what it labels a node with without walking one.
                 "parent": None,
                 "path": "security",
                 "document_count": 1,
@@ -97,8 +89,6 @@ class SubjectApiTests(APITestCase):
         )
 
     def test_the_list_carries_no_membership(self):
-        # Membership would make the payload grow with the catalogue rather than
-        # with the vocabulary; it is on the detail read instead.
         self.assertNotIn("documents", self.client.get("/api/reef/subjects/").json()[0])
 
     def test_filtering_by_document(self):
@@ -128,12 +118,10 @@ class SubjectApiTests(APITestCase):
         self.assertEqual(self.client.get("/api/reef/subjects/none/").status_code, 404)
 
     def test_the_detail_read_carries_the_id_that_subscribing_names(self):
-        # Subscribing names the id, and this is the read that supplies one.
         body = self.client.get("/api/reef/subjects/security/").json()
         self.assertEqual(body["id"], self.security.pk)
 
     def test_there_is_no_write_path(self):
-        # Curation is the admin's, so the API is read-only whoever is asking.
         self.assertEqual(
             self.client.post(
                 "/api/reef/subjects/", {"slug": "new", "name": "New"}, format="json"
@@ -174,7 +162,8 @@ class SubjectAdminTests(APITestCase):
 
         Asserted as "the same number of queries for more rows" rather than as
         an exact count, which would be a test of Django's admin rather than of
-        this."""
+        this.
+        """
 
         def queries_for(count):
             Subject.objects.exclude(pk=self.security.pk).delete()
@@ -251,15 +240,11 @@ class SubjectAdminTests(APITestCase):
         )
 
     def test_searching_by_an_alias_finds_the_subject(self):
-        # The question an alias exists to answer: a reader typed this name, which
-        # subject is it.
         self.security.aliases.create(slug="sec")
         body = self.client.get("/admin/subjects/subject/?q=sec").content.decode()
         self.assertIn("Security", body)
 
     def test_searching_by_document_finds_the_subject(self):
-        # The reason assignments__doc is in search_fields: the question a
-        # curator arrives with is usually about a document, not a subject.
         body = self.client.get("/admin/subjects/subject/?q=rfc9110").content.decode()
         self.assertIn("Security", body)
 

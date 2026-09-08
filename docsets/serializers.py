@@ -38,14 +38,8 @@ class DocumentSetSerializer(serializers.ModelSerializer):
         # Membership is changed through the documents endpoints rather than by
         # rewriting the set.
         read_only_fields = ["id", "documents", "created_at", "updated_at"]
-        # There is no visibility field, here or on the model: a set is made to
-        # be shared, and anyone holding its unguessable id can read it. Staff
-        # moderation is the soft delete, which is not in the API either, so a
-        # set staff have taken down cannot be restored by its owner.
-        #
-        # The owner is not in the response either. A set read is anonymous, so
-        # naming the owner would attach a person to a reading list for anyone
-        # holding the link, which is more than the set itself says.
+        # No visibility field and no owner: a set is shared by its id, and an
+        # anonymous read must not attach a person to it.
 
 
 class DocumentSetOrderSerializer(serializers.Serializer):

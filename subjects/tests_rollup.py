@@ -1,9 +1,8 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""Roll-up where it is visible: mail, statistics and survey audiences.
+"""Roll-up where it is visible: mail, statistics, survey audiences and the list read.
 
-subjects/tests_tree.py covers the helper. These are the four callers that used to
-ask the same question with the same one-hop join, tested through their own front
-doors so that one of them quietly keeping the old join would fail here.
+subjects/tests_tree.py covers the helper. Each caller is tested through its own
+front door, so one of them bypassing tree.rollup with a one-hop join fails here.
 """
 
 from django.contrib.auth import get_user_model
@@ -54,8 +53,8 @@ class MatchingTests(SubjectRollupTestCase):
         self.assertIn(self.follow("dkim").pk, self.matched())
 
     def test_a_subscriber_to_the_root_matches_a_document_four_levels_down(self):
-        # The whole point. Before roll-up, following messaging matched nothing at
-        # all, because messaging has no assignments of its own.
+        # messaging has no assignments of its own; without roll-up, following it
+        # would match nothing.
         self.assertEqual(self.made["messaging"].assignments.count(), 0)
         self.assertIn(self.follow("messaging").pk, self.matched())
 
@@ -74,8 +73,8 @@ class MatchingTests(SubjectRollupTestCase):
         self.assertEqual(self.matched("rfc9110"), set())
 
     def test_one_subscription_is_returned_once_per_change(self):
-        # A parent can now reach one document through several children, which is
-        # the second reason distinct() is load-bearing here.
+        # A parent reaches one document through several children, so distinct() in
+        # the matcher is load-bearing.
         SubjectAssignment.objects.create(subject=self.made["email"], doc="rfc6376")
         subscription = self.follow("messaging")
         self.assertEqual(

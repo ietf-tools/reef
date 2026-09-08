@@ -42,14 +42,9 @@ class DocumentSetListCreate(OwnedSetMixin, generics.ListCreateAPIView):
 class DocumentSetDetail(generics.RetrieveUpdateDestroyAPIView):
     """Read a set; retitle, redescribe or delete your own.
 
-    One URL for a set, whoever is asking: the id is the whole of a set's
-    identity, so a shared link is this link and there is no second read
-    endpoint to keep in step with it. Reading needs no token, which is what
-    makes the link shareable, and holding the id is the whole of the
-    permission: a set is a thing its owner made to be passed around, and the
-    id is unguessable so that passing it around is the only way in. Writing is
-    the owner's alone, and a write to somebody else's set 404s rather than 403s
-    so that the refusal says nothing about whose it is.
+    One URL for a set, whoever is asking. Holding the unguessable id is the
+    whole of the read permission; writes are the owner's, and 404 rather than
+    403 so the refusal says nothing about whose it is.
 
     A set staff have taken down 404s here too, for everyone alike: it is left
     out of the queryset rather than refused, so nothing confirms it exists.

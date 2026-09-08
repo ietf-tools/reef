@@ -93,10 +93,9 @@ class SubjectDetailSerializer(SubjectSerializer):
     def get_documents(self, obj) -> list[str]:
         """The documents assigned to this subject, and not to those beneath it.
 
-        Unchanged in meaning, deliberately. Red consumes this array and the
-        precomputer keys document_meta off it, so widening it to the subtree would
-        be a contract change dressed up as a bug fix. The subtree is the index
-        file's business.
+        Direct assignments only. Red consumes this array and the precomputer keys
+        document_meta off it, so widening it to the subtree would be a contract
+        change. The subtree is the index file's business.
         """
         return [assignment.doc for assignment in obj.assignments.all()]
 

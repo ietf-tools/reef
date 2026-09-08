@@ -396,14 +396,9 @@ paths:
       description: |-
         Read a set; retitle, redescribe or delete your own.
 
-        One URL for a set, whoever is asking: the id is the whole of a set's
-        identity, so a shared link is this link and there is no second read
-        endpoint to keep in step with it. Reading needs no token, which is what
-        makes the link shareable, and holding the id is the whole of the
-        permission: a set is a thing its owner made to be passed around, and the
-        id is unguessable so that passing it around is the only way in. Writing is
-        the owner's alone, and a write to somebody else's set 404s rather than 403s
-        so that the refusal says nothing about whose it is.
+        One URL for a set, whoever is asking. Holding the unguessable id is the
+        whole of the read permission; writes are the owner's, and 404 rather than
+        403 so the refusal says nothing about whose it is.
 
         A set staff have taken down 404s here too, for everyone alike: it is left
         out of the queryset rather than refused, so nothing confirms it exists.
@@ -432,14 +427,9 @@ paths:
       description: |-
         Read a set; retitle, redescribe or delete your own.
 
-        One URL for a set, whoever is asking: the id is the whole of a set's
-        identity, so a shared link is this link and there is no second read
-        endpoint to keep in step with it. Reading needs no token, which is what
-        makes the link shareable, and holding the id is the whole of the
-        permission: a set is a thing its owner made to be passed around, and the
-        id is unguessable so that passing it around is the only way in. Writing is
-        the owner's alone, and a write to somebody else's set 404s rather than 403s
-        so that the refusal says nothing about whose it is.
+        One URL for a set, whoever is asking. Holding the unguessable id is the
+        whole of the read permission; writes are the owner's, and 404 rather than
+        403 so the refusal says nothing about whose it is.
 
         A set staff have taken down 404s here too, for everyone alike: it is left
         out of the queryset rather than refused, so nothing confirms it exists.
@@ -479,14 +469,9 @@ paths:
       description: |-
         Read a set; retitle, redescribe or delete your own.
 
-        One URL for a set, whoever is asking: the id is the whole of a set's
-        identity, so a shared link is this link and there is no second read
-        endpoint to keep in step with it. Reading needs no token, which is what
-        makes the link shareable, and holding the id is the whole of the
-        permission: a set is a thing its owner made to be passed around, and the
-        id is unguessable so that passing it around is the only way in. Writing is
-        the owner's alone, and a write to somebody else's set 404s rather than 403s
-        so that the refusal says nothing about whose it is.
+        One URL for a set, whoever is asking. Holding the unguessable id is the
+        whole of the read permission; writes are the owner's, and 404 rather than
+        403 so the refusal says nothing about whose it is.
 
         A set staff have taken down 404s here too, for everyone alike: it is left
         out of the queryset rather than refused, so nothing confirms it exists.
@@ -525,14 +510,9 @@ paths:
       description: |-
         Read a set; retitle, redescribe or delete your own.
 
-        One URL for a set, whoever is asking: the id is the whole of a set's
-        identity, so a shared link is this link and there is no second read
-        endpoint to keep in step with it. Reading needs no token, which is what
-        makes the link shareable, and holding the id is the whole of the
-        permission: a set is a thing its owner made to be passed around, and the
-        id is unguessable so that passing it around is the only way in. Writing is
-        the owner's alone, and a write to somebody else's set 404s rather than 403s
-        so that the refusal says nothing about whose it is.
+        One URL for a set, whoever is asking. Holding the unguessable id is the
+        whole of the read permission; writes are the owner's, and 404 rather than
+        403 so the refusal says nothing about whose it is.
 
         A set staff have taken down 404s here too, for everyone alike: it is left
         out of the queryset rather than refused, so nothing confirms it exists.
@@ -1439,10 +1419,9 @@ components:
           description: |-
             The documents assigned to this subject, and not to those beneath it.
 
-            Unchanged in meaning, deliberately. Red consumes this array and the
-            precomputer keys document_meta off it, so widening it to the subtree would
-            be a contract change dressed up as a bug fix. The subtree is the index
-            file's business.
+            Direct assignments only. Red consumes this array and the precomputer keys
+            document_meta off it, so widening it to the subtree would be a contract
+            change. The subtree is the index file's business.
           readOnly: true
         document_meta:
           type: object
@@ -1697,10 +1676,9 @@ components:
           description: |-
             The documents assigned to this subject, and not to those beneath it.
 
-            Unchanged in meaning, deliberately. Red consumes this array and the
-            precomputer keys document_meta off it, so widening it to the subtree would
-            be a contract change dressed up as a bug fix. The subtree is the index
-            file's business.
+            Direct assignments only. Red consumes this array and the precomputer keys
+            document_meta off it, so widening it to the subtree would be a contract
+            change. The subtree is the index file's business.
           readOnly: true
       required:
       - aliases
@@ -1751,9 +1729,9 @@ components:
       description: |-
         One subject in the index file.
 
-        Field order is the file's key order and is load-bearing while the byte
-        equality test against the old hand-built payload stands. It is the list
-        serializer's fields plus the two the index adds.
+        Field order is the file's key order: a run that finds the same data must
+        write the same bytes. It is the list serializer's fields plus the two the
+        index adds.
       properties:
         id:
           type: integer

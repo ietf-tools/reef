@@ -47,7 +47,7 @@ class SubscriptionApiTests(APITestCase):
         self.assertEqual(create.status_code, 201)
 
         listing = self.client.get("/api/reef/subscriptions/")
-        self.assertEqual(len(listing.json()), 1)  # only own, not other's
+        self.assertEqual(len(listing.json()), 1)
         sub_id = listing.json()[0]["id"]
 
         delete = self.client.delete(f"/api/reef/subscriptions/{sub_id}/")
@@ -219,8 +219,8 @@ class SetSubscriptionTests(APITestCase):
     def test_cannot_subscribe_to_someone_elses_set(self):
         other = User.objects.create(username="o", oidc_sub="s2")
         theirs = DocumentSet.objects.create(owner=other, title="Theirs")
-        # Readable, but not yet subscribable: a set that is not yours is, to
-        # the subscription endpoint, the same as one that does not exist.
+        # To the subscription endpoint, a set that is not yours is the same as
+        # one that does not exist.
         self.assertEqual(self.subscribe(kind="set", set=theirs.pk).status_code, 400)
         unknown = str(uuid.uuid4())
         self.assertEqual(self.subscribe(kind="set", set=unknown).status_code, 400)
@@ -373,8 +373,8 @@ class SubjectSubscriptionTests(APITestCase):
         self.assertEqual([row["id"] for row in listing], [subscription_id])
 
     def test_a_followed_subject_cannot_be_deleted(self):
-        """It used to cascade, which silently stopped mail somebody had asked for.
-        Retiring or merging is now the only way to take one out of use."""
+        """Cascading would silently stop mail somebody asked for; retiring or merging
+        is the only way to take one out of use."""
         self.subscribe(kind="subject", subject=self.subject.pk)
         with self.assertRaises(ProtectedError), transaction.atomic():
             self.subject.delete()
@@ -538,8 +538,8 @@ class DocumentMatchingTests(APITestCase):
         self.assertIn(subscription, matched)
 
     def test_no_index_means_no_expansion_rather_than_an_error(self):
-        """A real gap: the bcp14 subscriber misses a notification. Whether that
-        should be retried belongs to ingest, which does not exist yet."""
+        """A real gap: the bcp14 subscriber misses a notification rather than the run
+        failing."""
         rfcmeta.clear_cache()
         DocumentSetEntry.objects.create(document_set=self.set, doc="bcp14")
         Subscription.objects.create(
@@ -607,7 +607,6 @@ class SendSubscriptionDigestTests(APITestCase):
         self.assertTrue(sent.extra_headers["Message-ID"].endswith("@example.org>"))
 
     def test_a_batch_is_one_mail_not_one_per_document(self):
-        # The scenario plan.md calls out as unverifiable while nothing sent mail.
         document_set = DocumentSet.objects.create(owner=self.user, title="HTTP")
         for doc in ("rfc9110", "rfc9111", "rfc9112"):
             DocumentSetEntry.objects.create(document_set=document_set, doc=doc)
@@ -634,7 +633,7 @@ class SendSubscriptionDigestTests(APITestCase):
 
     def test_prose_is_wrapped_for_plain_text(self):
         # A set title is up to 200 characters of the owner's choosing and a
-        # change line comes from the datatracker feed, so neither can be
+        # change line can name any number of documents, so neither can be
         # trusted to fit a line.
         document_set = DocumentSet.objects.create(
             owner=self.user, title="Everything the HTTP working group has ever " * 4
@@ -887,7 +886,6 @@ class SubscribeSendsAConfirmationTests(APITestCase):
         self.assertIn("now subscribed to changes to RFC 9110", mail.outbox[0].body)
 
     def test_a_repeated_post_does_not_send_a_second_one(self):
-        # Subscribing is idempotent, so a double click must not mail twice.
         body = {"kind": "rfc", "params": {"rfc": "rfc9110"}}
         self.assertEqual(self.subscribe(body).status_code, 201)
         self.assertEqual(self.subscribe(body).status_code, 201)
@@ -903,9 +901,8 @@ class SubscribeSendsAConfirmationTests(APITestCase):
 class DigestCoalescingTests(APITestCase):
     """One mail per reader, however many of their subscriptions matched.
 
-    This is what the notification-volume open item was about, and it could only be
-    fixed here: a task that sees one subscription cannot know the reader holds
-    another covering the same document.
+    Only possible here: a task that sees one subscription cannot know the reader
+    holds another covering the same document.
     """
 
     def setUp(self):

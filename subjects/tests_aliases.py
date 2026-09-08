@@ -85,7 +85,6 @@ class NameSpaceTests(TestCase):
             self.routing.full_clean()
 
     def test_a_subject_may_hold_its_own_alias_while_being_validated(self):
-        """full_clean() on an unchanged subject must not trip over its own names."""
         SubjectAlias.objects.create(slug="sec", subject=self.security)
         self.security.full_clean()
 

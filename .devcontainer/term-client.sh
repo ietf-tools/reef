@@ -14,15 +14,6 @@ if [ -n "$EDITOR_VSCODE" ]; then
       sleep 2
   done
 
-  if [ ! -f $CLIENT_DIR/package.json ]; then
-    echo "====== CLIENT DEV SERVER ======\n"
-    echo "  The Nuxt client is not present yet."
-    echo "  It is added later in the project plan (the survey runner).\n"
-    echo "================================\n"
-    zsh
-    exit 0
-  fi
-
   # The task runs with cwd /workspace, which has no package.json.
   cd $CLIENT_DIR
 
@@ -61,8 +52,7 @@ if [ -n "$EDITOR_VSCODE" ]; then
 
   # DISABLE_AUTO_UPDATE: an interactive zsh runs Oh My Zsh's update check, and
   # its "Would you like to update? [Y/n]" prompt would block the server from
-  # ever starting. Set here as well as in devcontainer.json so containers built
-  # before that change are covered without a rebuild.
+  # ever starting.
   DISABLE_AUTO_UPDATE=true zsh -i -c "npm run dev"
   clear
   echo "====== CLIENT DEV SERVER ======\n"

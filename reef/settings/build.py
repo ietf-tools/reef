@@ -17,11 +17,9 @@ DEBUG = False
 ALLOWED_HOSTS = []
 
 # No database connection is made during builds, but the engine still has to be the
-# real one. drf-spectacular reads integer bounds from the backend, so generating the
-# schema against sqlite published PositiveIntegerField as int64 while the Postgres
-# deployment will only ever produce int32 -- a contract that quietly disagreed with
-# the API, and that differed depending on which of the two documented commands
-# somebody ran. Named after nothing, because nothing connects.
+# real one: drf-spectacular reads integer bounds from the backend, and sqlite would
+# publish PositiveIntegerField as int64 where Postgres produces int32. Named after
+# nothing, because nothing connects.
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",

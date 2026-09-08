@@ -1,10 +1,10 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Folding one subject into another, taking its documents and its followers with it.
 
-The operation the admin had no mechanism for. Renaming covers a subject whose wording
-changed; this covers one whose meaning was absorbed -- "security is now part of
-security and privacy" -- where the documents under it belong under the other, and the
-people following it were following what it meant rather than what it was called.
+Renaming covers a subject whose wording changed; this covers one whose meaning was
+absorbed -- "security is now part of security and privacy" -- where the documents
+under it belong under the other, and the people following it were following what it
+meant rather than what it was called.
 
 Kept out of the model because it is not one write: it moves three kinds of row, decides
 what to do about people who already follow both, retires the source, and tells
@@ -16,7 +16,7 @@ import logging
 
 from django.db import transaction
 
-from .models import SubjectAssignment
+from .models import Subject, SubjectAssignment
 
 logger = logging.getLogger("reef")
 
@@ -63,8 +63,6 @@ def merge_subjects(source, target):
 
 
 def _paths_under(subject):
-    from .models import Subject
-
     return list(Subject.all_objects.under(subject).values_list("path", flat=True))
 
 

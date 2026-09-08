@@ -4,9 +4,9 @@
 Anything resolving a document identifier goes through reef.rfcmeta, and rfcmeta's
 whole job is to fetch from another service. A test that reaches it really does open a
 socket to www.rfc-editor.org, which makes the suite slow, dependent on the network,
-and dependent on what Red happens to be publishing that day. Three call sites did it
-without anybody noticing, which is why reef.test_runner now refuses urlopen for the
-whole suite: this is how a test says it meant to resolve documents.
+and dependent on what Red happens to be publishing that day. Call sites do it without
+anybody noticing, which is why reef.test_runner refuses urlopen for the whole suite:
+this is how a test says it meant to resolve documents.
 """
 
 from unittest import mock

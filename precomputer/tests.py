@@ -131,9 +131,8 @@ class OutputTests(PrecomputeTestCase):
         )
 
     def test_an_augmented_payload_is_the_live_response_plus_added_keys(self):
-        """The invariant that replaced byte-identity: strip what the precomputer
-        added and the rest must match the endpoint exactly, so nothing it writes can
-        quietly disagree with what Reef serves."""
+        """Strip what the precomputer added and the rest must match the endpoint
+        exactly, so nothing it writes can quietly disagree with what Reef serves."""
         PopularEntry.objects.create(rfc="rfc9110", rank=1)
         self.precompute("popularity")
 
@@ -197,7 +196,7 @@ class OutputTests(PrecomputeTestCase):
 
 
 class SubjectIndexTests(PrecomputeTestCase):
-    """subjects.json, the one payload that is not an endpoint's bytes.
+    """subjects.json: the whole vocabulary in one file.
 
     Red fetches it per route and renders from it, so it carries the tree, the
     assignments and the titles in one file. What it must not do is carry any of
@@ -354,8 +353,7 @@ class DocumentMetadataTests(PrecomputeTestCase):
         self.assertEqual(payload["document_meta"]["rfc9110"]["title"], "HTTP Semantics")
 
     def test_an_unresolvable_document_gets_null_metadata_not_omission(self):
-        """Null rather than omitted or echoed back, so a reader can tell "no such
-        document" from "not looked up"."""
+        """Null, so a reader can tell "no such document" from "not looked up"."""
         Rating.objects.create(rfc="rfc8446", user=self.user, value=4)
         self.precompute("stats")
         row = next(r for r in self.read("stats.json") if r["doc"] == "rfc8446")
@@ -380,8 +378,7 @@ class DocumentMetadataTests(PrecomputeTestCase):
         self.assertIsNone(row["title"])
 
     def test_the_index_is_loaded_once_per_run_not_per_document(self):
-        """Validating ten thousand entries is a couple of seconds; doing it per
-        lookup would make a run unusable."""
+        """Per-lookup validation of ten thousand entries would make a run unusable."""
         for number in (9110, 2119, 8446):
             Rating.objects.create(rfc=f"rfc{number}", user=self.user, value=3)
         self.precompute()
@@ -563,9 +560,9 @@ class PurgeTests(PrecomputeTestCase):
         self.assertEqual(self.written(), {"subjects.json"})
 
     def test_a_renamed_subject_keeps_its_old_key_as_a_redirect(self):
-        """This used to be the purge's example. A rename now leaves an alias behind,
-        so the old key is one the run still produces, and what it holds is the stub
-        that sends a reader following an old link to the new name."""
+        """A rename leaves an alias behind, so the old key is one the run still
+        produces: the stub that sends a reader following an old link to the new
+        name."""
         subject = Subject.objects.create(name="Security", slug="security")
         self.precompute("subjects")
         subject.slug = "sec"
@@ -795,8 +792,7 @@ class CeleryTaskTests(PrecomputeTestCase):
         self.assertEqual(self.written(), set())
 
     def test_a_failing_run_is_reported_rather_than_raised(self):
-        """A raise here would earn a Celery retry that recomputes the same broken
-        thing, and an alert for what the next tick fixes by itself."""
+        """A raise would earn a Celery retry that recomputes the same broken thing."""
         with mock.patch(
             "precomputer.tasks.call_command", side_effect=CommandError("nope")
         ):
@@ -827,8 +823,7 @@ class CuratedSignalTests(TestCase):
         self.assertEqual(self.enqueue.call_count, 1)
 
     def test_reader_activity_does_not_enqueue_anything(self):
-        """Ratings arrive continuously from Red; a task per write would enqueue
-        thousands to rebuild a file nobody reads in between."""
+        """A task per rating would enqueue thousands to rebuild a file nobody reads."""
         user = User.objects.create(username="a", oidc_sub="a")
         with self.captureOnCommitCallbacks(execute=True):
             Rating.objects.create(rfc="rfc9110", user=user, value=4)

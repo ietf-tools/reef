@@ -25,7 +25,6 @@ class RetireTests(TestCase):
         self.assertTrue(Subject.all_objects.filter(pk=self.subject.pk).exists())
 
     def test_retiring_is_undone_by_unretiring(self):
-        """Retired means retired until somebody says otherwise."""
         self.subject.retire()
         self.subject.unretire()
         self.assertTrue(Subject.objects.filter(pk=self.subject.pk).exists())
@@ -102,7 +101,6 @@ class MergeTests(TestCase):
             merge_subjects(self.source, self.source)
 
     def test_merging_into_a_retired_subject_is_refused(self):
-        """It would strand the followers somewhere nobody is offered."""
         self.target.retire()
         with self.assertRaises(MergeError):
             merge_subjects(self.source, self.target)

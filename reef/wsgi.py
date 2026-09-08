@@ -1,9 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""WSGI config for the Reef project.
-
-It exposes the WSGI callable as a module-level variable named ``application``.
-See https://docs.djangoproject.com/en/5.2/howto/deployment/wsgi/
-"""
+"""WSGI config for the Reef project."""
 
 import os
 

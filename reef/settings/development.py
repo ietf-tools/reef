@@ -6,10 +6,7 @@ import os
 from .base import *
 from .logging.development import LOGGING as _logging
 
-# SECURITY WARNING: insecure key for local development only.
 SECRET_KEY = "django-insecure-reef-dev-key-do-not-use-in-production"
-
-# SECURITY WARNING: never run with debug turned on in production.
 DEBUG = True
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
@@ -46,7 +43,6 @@ CACHES = {
 
 LOGGING = _logging
 
-# Local settings override, if present.
 try:
     from .development_local import *
 except ImportError:

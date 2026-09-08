@@ -1,11 +1,10 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Working out what has changed about the RFC series since Reef last looked.
 
-The ticket for this called it datatracker change-feed ingestion, and there is no such
-feed: the datatracker publishes a document list, a document, and the subseries, and
-no events endpoint or webhook to subscribe to. What Reef does instead is diff two
-readings of Red's published index, which it already fetches, validates and caches for
-titles, and which carries everything the six subscription kinds need.
+The datatracker publishes a document list, a document, and the subseries, and no
+events endpoint or webhook to subscribe to. Reef instead diffs two readings of Red's
+published index, which it already fetches, validates and caches for titles, and which
+carries everything the six subscription kinds need.
 
 The previous reading is a DocumentSnapshot. Comparing is the only thing done with it:
 nothing here asks the snapshot what a document's status is, only whether it is the
@@ -42,7 +41,6 @@ class DocumentChange:
     """
 
     doc: str
-    # True when the document is not in the previous snapshot at all.
     is_new: bool = False
     # field name -> (previous value, current value). Empty for a new document, whose
     # only news is that it exists.
@@ -257,11 +255,9 @@ def _removed(pair):
 def render_change(change, index):
     """The sentence a digest shows for one document, composed from the diff.
 
-    The templates were written expecting this to arrive already written, from the
-    change feed that turned out not to exist. Reef writes it instead, from the fields
-    that moved plus the document's current state, which is why the index is passed in:
-    a status change reads better as the name Red gives it than as the slug the
-    snapshot stores.
+    Composed from the fields that moved plus the document's current state, which is
+    why the index is passed in: a status change reads better as the name Red gives it
+    than as the slug the snapshot stores.
 
     One sentence per fact, joined, so that a document obsoleted and made historic in
     one publication reads as one line rather than two mails.
@@ -315,12 +311,7 @@ def render_change(change, index):
 
 
 def as_event(change, index):
-    """One change in the shape delivery takes: doc, doc_display, change, url.
-
-    The shape predates the detection path and is unchanged by it, which is the point:
-    send_subscription_digest and its templates were built against it and do not have
-    to know that the events now come from a diff rather than a feed.
-    """
+    """One change in the shape delivery takes: doc, doc_display, change, url."""
     return {
         "doc": change.doc,
         "doc_display": change.doc_display,

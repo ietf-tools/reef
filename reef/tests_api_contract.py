@@ -4,8 +4,7 @@
 reef_api.yaml is not documentation, it is the contract Red and the Nuxt client
 generate their types from, and it is committed rather than built. So it goes stale
 silently: a serializer changes, the file does not, and the next consumer to regenerate
-gets types describing an API that no longer exists. That has happened once already,
-and it took the subjects redirect shape with it.
+gets types describing an API that no longer exists.
 
 CI runs `spectacular --validate`, which checks the schema is well formed, not that
 the committed one is current -- exactly the gap this closes. Red's precomputer has

@@ -91,7 +91,6 @@ class BearerTokenAuthenticationTests(TestCase):
         with self.assertRaises(exceptions.AuthenticationFailed):
             self.auth.authenticate(request)
 
-    # The case that motivated splitting these settings from the RP login ones:
     # Red is a second Authentik application, so its tokens carry a different
     # issuer and a different `aud` from the survey runner's, and both must pass.
     @override_settings(
@@ -119,8 +118,7 @@ class BearerTokenAuthenticationTests(TestCase):
             self.auth.authenticate(request)
 
     # Red's real configuration: the rfc-editor application signs with ES256, not
-    # the RS256 that Reef's own login uses. Hardcoding the RP algorithm here used
-    # to reject every one of Red's tokens.
+    # the RS256 that Reef's own login uses.
     @override_settings(
         REEF_API_OIDC_JWKS_ENDPOINTS={_RED_ISSUER: f"{_RED_ISSUER}jwks/"},
         REEF_API_OIDC_AUDIENCES=[_RED_AUDIENCE],

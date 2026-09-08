@@ -38,11 +38,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # You can only subscribe to your own sets for now, so someone else's set
-        # is indistinguishable from one that does not exist, and so is one staff
-        # have taken down, which the default manager leaves out. Opening this up
-        # means rechecking at send time that the set is still there; see plan.md
-        # open items.
+        # You can only subscribe to your own sets, so someone else's set is
+        # indistinguishable from one that does not exist, and so is one staff
+        # have taken down, which the default manager leaves out.
         request = self.context.get("request")
         if request is not None and request.user.is_authenticated:
             self.fields["set"].queryset = DocumentSet.objects.filter(owner=request.user)

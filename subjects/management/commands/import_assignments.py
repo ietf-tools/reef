@@ -2,18 +2,17 @@
 """Assign documents to subjects that already exist, from a curated sheet.
 
 The third of the three, and the one that fills the counts in. seed_subjects
-loads the vocabulary; this files documents under it; import_subjects is the
-older route that did both at once, building subjects out of the paths in an
-assignment sheet.
+loads the vocabulary; this files documents under it; import_subjects does both
+at once, building subjects out of the paths in an assignment sheet.
 
-That older route is the wrong tool once a vocabulary has been seeded, and the
-reason is worth writing down. An assignment sheet carries a path per tag as well
-as the tag itself, and the two sheets can disagree about where a subject sits
-without disagreeing about which subjects exist -- the assignment sheet in hand
-files `arpanet` under `link-layer` where the vocabulary makes it a root, and 150
-of its 488 paths differ that way. Building subjects from those paths would try
-to create a second `arpanet`, which the unique slug refuses, and where it did
-not refuse it would file documents under a branch nobody curated.
+That route is the wrong tool once a vocabulary has been seeded, and the reason
+is worth writing down. An assignment sheet carries a path per tag as well as the
+tag itself, and the two sheets can disagree about where a subject sits without
+disagreeing about which subjects exist -- an assignment sheet can file `arpanet`
+under `link-layer` where the vocabulary makes it a root. Building subjects from
+those paths would try to create a second `arpanet`, which the unique slug
+refuses, and where it did not refuse it would file documents under a branch
+nobody curated.
 
 So this resolves by leaf slug and creates no subjects at all. That works because
 slugs are globally unique, which is the property the whole flat-tag arrangement

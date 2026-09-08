@@ -1,14 +1,12 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Which subscriptions a change should notify.
 
-Split out of tasks.py because none of it is a task: it is the query that turns one
-changed document into the people who asked about it, and it is called from the
-scheduled run rather than being one.
+The query that turns one changed document into the people who asked about it,
+called from the scheduled run rather than being a task.
 
-Two halves that cannot be one query, for a reason the model has carried since it was
-written. The kinds naming a document resolve by join. The predicate kinds say what has
-to have happened rather than which document it happened to, so they are matched
-against the change itself.
+Two halves that cannot be one query. The kinds naming a document resolve by join. The
+predicate kinds say what has to have happened rather than which document it happened
+to, so they are matched against the change itself.
 """
 
 import logging
@@ -42,10 +40,7 @@ def subscriptions_for_document(doc):
     what carried it when the subscriber signed up.
 
     The subject kind can be matched here at all only because the vocabulary is
-    Reef's own. It was drafted as a predicate over the event, alongside the
-    kinds below, back when a subject was going to arrive on the event from the
-    datatracker; hosting the vocabulary here turned it into a join and moved
-    it off the ingest path's critical list.
+    Reef's own.
 
     Subseries are expanded, so a change to rfc2119 matches a subscription to bcp14,
     which is what somebody subscribing to BCP 14 meant. The membership comes from
@@ -63,14 +58,12 @@ def subscriptions_for_document(doc):
     email-authentication, email and messaging too, and a subscriber to any of them
     named something that covers it.
 
-    If Red cannot be reached the expansion is skipped, and a bcp14 subscriber misses
-    a notification they should have had. That is a real gap rather than a tidy
-    degradation; it is left here because the retry that would fix it belongs to the
-    ingest path, which does not exist yet. See the subseries open item in plan.md.
+    If Red cannot be reached the expansion is skipped and a bcp14 subscriber misses
+    a notification they should have had; the run does not retry.
 
     The predicate kinds (new_rfc, by_status, obsoleted) match on what happened rather
-    than on which document it happened to, so they are not here; they belong to the
-    ingest path once the event shape is known.
+    than on which document it happened to, and are handled by
+    subscriptions_for_change.
     """
     doc = normalize_doc_id(doc)
     # The changed document, plus every container it belongs to. A subscription naming
@@ -108,11 +101,9 @@ def subscriptions_for_document(doc):
 def subscriptions_for_change(change, index):
     """Every subscription one change should notify, across all six kinds.
 
-    Two halves that cannot be one query. The kinds naming a document resolve by join,
-    through subscriptions_for_document, which also expands the subseries containing
-    it. The predicate kinds say what has to have happened rather than which document
-    it happened to, so they are matched against the change itself; the model has said
-    so since it was written, and this is the code it was waiting for.
+    The kinds naming a document resolve by join, through subscriptions_for_document,
+    which also expands the subseries containing it. The predicate kinds are matched
+    against the change itself.
     """
     matched = set(subscriptions_for_document(change.doc))
 
@@ -121,8 +112,7 @@ def subscriptions_for_change(change, index):
     # is in it by then; leaving one is not, because by the time the run looks the
     # document is no longer a constituent and the expansion no longer reaches the
     # people following the container. Their subseries lost a document, which is news
-    # about the subseries rather than about the document, and until the snapshot
-    # started holding the previous membership there was no way to know it happened.
+    # about the subseries rather than about the document.
     for departed in _departed_subseries(change):
         matched |= set(subscriptions_for_document(departed))
 

@@ -56,9 +56,8 @@ def _your_subscription_ids(user, docs):
     reflects the direct subscription and nothing else, and Red's subscribe
     control stays a thing it can undo.
 
-    At most one row per document: the unique constraint on
-    (user, kind, params, document_set, subject) makes a second identical
-    subscription impossible.
+    At most one row per document: Subscription's uniqueness constraint forbids
+    a second identical one.
     """
     rows = (
         Subscription.objects.filter(user=user, kind=Subscription.Kind.RFC)

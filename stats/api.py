@@ -65,7 +65,7 @@ def _subscriber_counts():
     mail about this document, so somebody is watching it. They are the broadest
     thing counted here, though, since a subject can cover far more documents
     than any hand-built set. If the number ever reads as noise, this is the
-    term to revisit; see the subject-breadth open item in plan.md.
+    term to revisit.
 
     Merged in Python rather than SQL because a user reaching one document
     through two of these is one subscriber, and the three paths are different
@@ -87,8 +87,9 @@ def _subscriber_counts():
         document_set__entries__isnull=False,
         document_set__deleted_at__isnull=True,
     ).values_list("document_set__entries__doc", "user_id")
-    # No takedown filter to match the set one above: a subject has no state
-    # between existing and not, so there is nothing here to leave out.
+    # No takedown filter to match the set one above: a retired subject keeps
+    # its followers on purpose, since they still get mail about its documents,
+    # so its subscriptions still count.
     #
     # Deliberately not a join. A subject covers everything beneath it, so
     # subject__assignments__doc would return a row per subscription per covered
@@ -178,15 +179,10 @@ class DocumentStatsList(APIView):
 
     @staticmethod
     def _documents_in_set(request, raw_id):
-        """The documents a set holds, if the caller may know what they are.
+        """The documents a set holds.
 
-        This endpoint is anonymous, so an unguarded set filter would let anyone
-        read an unpublished set's membership off the rows it returned.
-        Aggregate counts naming nobody is one thing; listing what a named
-        person is tracking is another.
-
-        A private set 404s rather than 403s, matching the public set read, so
-        the filter does not confirm that one exists.
+        Holding the id is the whole of the permission, as on the set read; a
+        taken-down or unknown set 404s so the filter confirms nothing.
         """
         try:
             set_id = uuid.UUID(raw_id)

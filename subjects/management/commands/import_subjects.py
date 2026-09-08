@@ -1,9 +1,9 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Load a curated sheet of subject assignments, building the tree as it goes.
 
-The source plan.md's open item said was missing. Deriving subjects from keywords
-would be a guess dressed as data, and the point of hosting the vocabulary in Reef
-was to decide it rather than read it; a curated sheet is a decision, written down.
+Deriving subjects from keywords would be a guess dressed as data, and the point
+of hosting the vocabulary in Reef was to decide it rather than read it; a curated
+sheet is a decision, written down.
 
 Two columns matter. `full_paths` carries the hierarchy, one slash-separated path
 per subject with a pipe between them, and is what builds the vocabulary: every

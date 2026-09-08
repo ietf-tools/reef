@@ -2,14 +2,12 @@
 """The project's test runner, which is here to stop tests reaching the network.
 
 reef.rfcmeta fetches Red's published index, and anything that resolves a document
-identifier eventually reaches it. Three separate call sites have been added without
-noticing that they made the suite open a socket to www.rfc-editor.org: the admin
-title column, subscription matching, and change notification. Each time the symptom
-was the same, a suite that got mysteriously slower, and each time it was found by
-looking at timings rather than by anything failing.
+identifier eventually reaches it. Call sites reach it by accident, and the only
+symptom is a suite that gets mysteriously slower, found by looking at timings rather
+than by anything failing.
 
-So the default is now that a test cannot do it. Anything wanting the index stubs it
-with reef.testing.stub_rfc_index, and anything genuinely exercising the fetch patches
+So the default is that a test cannot do it. Anything wanting the index stubs it with
+reef.testing.stub_rfc_index, and anything genuinely exercising the fetch patches
 urlopen itself, which overrides this.
 """
 

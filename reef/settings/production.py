@@ -16,7 +16,6 @@ def _multiline_to_list(value):
     return [item.strip() for item in value.split("\n") if item.strip()]
 
 
-# SECURITY WARNING: keep the secret key secret.
 SECRET_KEY = os.environ["REEF_DJANGO_SECRET_KEY"]
 assert not SECRET_KEY.startswith("django-insecure")  # never the dev key
 

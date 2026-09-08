@@ -27,7 +27,6 @@
     try {
       creator.theme = cfg.theme;
     } catch (e) {
-      // Older/newer Creator versions may expose the theme differently; ignore.
     }
   }
 
@@ -38,7 +37,6 @@
         body.theme = creator.theme;
       }
     } catch (e) {
-      // no theme available
     }
     fetch(cfg.apiUrl, {
       method: "PATCH",

@@ -8,7 +8,7 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
-    path("health/", lambda _: HttpResponse(status=204)),  # no content
+    path("health/", lambda _: HttpResponse(status=204)),
     path("admin/", admin.site.urls),
     path("oidc/", include("mozilla_django_oidc.urls")),
     path("api/reef/schema/", SpectacularAPIView.as_view(), name="schema"),

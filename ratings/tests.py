@@ -112,7 +112,6 @@ class RatingApiTests(APITestCase):
         self.client.force_authenticate(user=mine)
         resp = self.client.delete("/api/reef/ratings/rfc9110/")
         self.assertEqual(resp.status_code, 200)
-        # The caller's rating is gone and no longer counts towards the average.
         self.assertEqual(
             resp.json(),
             {"rfc": "rfc9110", "average": 1.0, "count": 1, "your_rating": None},

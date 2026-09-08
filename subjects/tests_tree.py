@@ -60,8 +60,6 @@ class CoveringSubjectTests(TestCase):
         self.assertEqual(self._slugs(["rfc9110"]), [])
 
     def test_a_retired_subject_still_covers_its_documents(self):
-        # Retiring stops a subject being offered; it does not stop the people
-        # already following it from matching, which is the point of retiring.
         self.made["dkim"].retire()
         self.assertIn("dkim", self._slugs(["rfc6376"]))
 
@@ -95,7 +93,6 @@ class DocumentsUnderTests(TestCase):
         self.assertEqual(documents_under(self.made["email"]).count("rfc6376"), 1)
 
     def test_an_empty_branch_covers_what_is_beneath_it(self):
-        # The whole reason roll-up exists: messaging has no assignments of its own.
         self.assertEqual(self.made["messaging"].assignments.count(), 0)
         self.assertEqual(
             documents_under(self.made["messaging"]),

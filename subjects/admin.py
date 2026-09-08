@@ -36,9 +36,9 @@ class SubjectAdminForm(forms.ModelForm):
 class RootSubjectFilter(admin.SimpleListFilter):
     """Filter by the top of the branch rather than by the subject.
 
-    A filter per subject is one link per subject, which was reasonable for a
-    vocabulary of a dozen and is not for one of several hundred. The roots are
-    fourteen or so, and a prefix match on the path narrows to the branch.
+    A filter per subject is a link per subject, which a vocabulary of several
+    hundred cannot afford. The roots are fourteen or so, and a prefix match on the
+    path narrows to the branch.
     """
 
     title = "top-level subject"
@@ -144,8 +144,10 @@ class SubjectAdmin(admin.ModelAdmin):
     # rename leaves the old slug behind as an alias, and growing one of those
     # every time somebody reworded a name would be noise rather than history.
     prepopulated_fields = {"slug": ["name"]}
-    # aliases__slug included so that searching the name a reader typed finds the
-    # subject it resolves to, which is the question an alias exists to answer.
+    # assignments__doc, because the question a curator arrives with is usually
+    # about a document rather than a subject. aliases__slug, so that searching the
+    # name a reader typed finds the subject it resolves to, which is the question an
+    # alias exists to answer.
     search_fields = [
         "name",
         "slug",
@@ -170,7 +172,6 @@ class SubjectAdmin(admin.ModelAdmin):
 
     @admin.display(description="Subject", ordering="path")
     def indented_name(self, obj):
-        """The name, indented by depth, so the listing reads as the tree it is."""
         if not obj.depth:
             return obj.name
         return format_html(
@@ -251,8 +252,6 @@ class SubjectAssignmentAdmin(DocumentTitleMixin, admin.ModelAdmin):
     """
 
     list_display = ["doc", "document_title", "subject_path", "assigned_at"]
-    # By the top of the branch rather than by the subject: a link per subject was
-    # reasonable for a dozen of them and is not for several hundred.
     list_filter = [RootSubjectFilter]
     autocomplete_fields = ["subject"]
     search_fields = ["doc", "subject__path", "subject__name"]
