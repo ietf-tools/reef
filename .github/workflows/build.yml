@@ -212,11 +212,10 @@ jobs:
         with:
           name: frontend
 
-      - run: ls -R
-
-      # - name: Deploy frontend to Cloudflare Workers
-      #   uses: cloudflare/wrangler-action@v4
-      #   with:
-      #     apiToken: ${{ secrets.CF_WORKER_DEPLOY_TOKEN }}
-      #     accountId: ${{ secrets.CF_WORKER_DEPLOY_ACCOUNT_ID }}
-      #     command: deploy
+      - name: Deploy frontend to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CF_WORKER_DEPLOY_TOKEN }}
+          accountId: ${{ secrets.CF_WORKER_DEPLOY_ACCOUNT_ID }}
+          command: deploy --env staging
+          environment: staging
