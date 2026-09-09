@@ -38,6 +38,13 @@ MIDDLEWARE = [
     # can generate a response of its own (CommonMiddleware, SecurityMiddleware).
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # Serves STATIC_ROOT. Nothing in front of gunicorn does: the Cloudflare
+    # Worker hands /static/ back to the origin (see client/wrangler.jsonc) and
+    # the origin is this process. Documented position, directly after
+    # SecurityMiddleware -- a static file is answered here and never reaches
+    # CSPMiddleware, which is what we want, as a CSP header on a .js file
+    # governs nothing.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "csp.middleware.CSPMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -242,6 +249,19 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
 # Self-hosted SurveyJS bundles (populated by vendor/sync.sh via npm).
 STATICFILES_DIRS = [BASE_DIR / "vendor" / "static"]
+
+# Hash every collected file and record the mapping in staticfiles.json, so the
+# names {% static %} emits are content-addressed and whitenoise can serve them
+# immutable and cached for a year. Deployed builds run collectstatic during the
+# image build (dev/build/backend.Dockerfile), which is where the manifest is
+# written; development overrides this back to the unhashed storage, because
+# there the manifest would be stale the moment a static file is edited.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    },
+}
 
 # Content Security Policy (django-csp). Strict, self-only: the SurveyJS Creator
 # and Analytics bundles are self-hosted, not loaded from a CDN. SurveyJS injects

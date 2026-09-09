@@ -16,3 +16,4 @@ pymemcache>=4.0
 PyJWT[crypto]>=2.8
 python-json-logger>=2.0.7
 rules>=3.5
+whitenoise>=6.9

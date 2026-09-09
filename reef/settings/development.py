@@ -41,6 +41,18 @@ CACHES = {
     }
 }
 
+# Serve static files straight from the source trees, unhashed. runserver's own
+# staticfiles handler does this for /static/ in DEBUG, ahead of whitenoise, so
+# the collectstatic run in docker/scripts/app-init.sh is only there to give
+# whitenoise something if DEBUG is ever turned off here. Base's manifest
+# storage would make {% static %} raise for any file added since that run.
+STORAGES = {
+    **STORAGES,
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+    },
+}
+
 LOGGING = _logging
 
 try:
