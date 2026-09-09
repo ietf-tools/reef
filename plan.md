@@ -1173,15 +1173,28 @@ Then, for precomputed reads:
   dressed as data in any case, and the point of hosting the vocabulary here was to
   decide it rather than read it. Assigning at scale is still
   the practical unknown in subjects.
-- Assignment as an event: "changes to anything on the subject of X" is ambiguous in the
-  same way the subseries question is. A subscriber could mean a change to a document
-  carrying X, which is what is built, or a document being newly given X, which is not.
-  The second is an event no feed can supply: it happens when staff assign a subject in
-  Reef's own admin, which would make Reef a source of change events rather than only a
-  consumer of them. Everything in the notification path assumes the other direction.
-  Wiring it means enqueuing a digest from the assignment save path, and deciding
-  whether a subscriber wants to hear about a five-year-old RFC because it has just been
-  categorized.
+- Assignment as an event: built, for the case that matters. "Changes to anything on
+  the subject of X" was ambiguous in the same way the subseries question was: a
+  subscriber could mean a change to a document carrying X, which the daily diff of
+  Red's index already caught, or a document being newly given X, which nothing did,
+  because that fact exists only in Reef's own admin and no diff of Red's index would
+  ever see it. subscriptions/signals.py now enqueues a notification straight from
+  SubjectAssignment's post_save, to subject subscriptions covering the document
+  including ancestors, the moment staff assign one document at a time. What that
+  leaves resolved rather than open: bulk_create fires no post_save signal, so
+  import_assignments and import_subjects -- the tools a back-catalogue backfill would
+  use -- notify nobody, which is what answers the "five-year-old RFC just
+  categorized" worry without a flag to decide it. Unassigning does not notify either,
+  on the same footing as Red losing a relation: a correction to the vocabulary rather
+  than news about the document.
+
+  Left open rather than solved: the signal enqueues immediately, outside the daily
+  run's per-reader coalescing, so a document tagged in the morning and also changed
+  in that night's diff of Red's index sends its subscriber two mails rather than one
+  naming both. Each is individually accurate and non-duplicate -- the dedupe_key
+  differs because the scope and the event text do -- so nothing is wrong, only
+  un-merged. Coalescing the two would mean routing the signal through the same daily
+  run rather than sending on commit, which trades the immediacy for the merge.
 - Subject breadth in the statistics: subscriber_count now includes subject
   subscriptions, on the same reasoning that includes set ones: they produce mail about
   the document, so somebody is watching it. But a subject can cover a large fraction of
