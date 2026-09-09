@@ -47,7 +47,7 @@ jobs:
     outputs:
       buildVersion: ${{ steps.buildvars.outputs.buildVersion }}
       previousVersion: ${{ steps.semver.outputs.current }}
-      baseImageVersion: ${{ steps.baseimgversion.outputs.baseImageVersion }}
+      baseImageVersion: ${{ steps.buildvars.outputs.baseImageVersion }}
 
     steps:
     - uses: actions/checkout@v7
@@ -60,7 +60,7 @@ jobs:
       uses: ietf-tools/semver-action@v1
       with:
         token: ${{ github.token }}
-        branch: release
+        branch: main
         skipInvalidTags: true
         noVersionBumpBehavior: 'current'
         noNewCommitBehavior: 'current'
@@ -72,10 +72,6 @@ jobs:
         echo "Will set build version to: ${{ steps.semver.outputs.nextMajorStrict }}.0.0-dev.$SHORT_SHA"
         echo "buildVersion=${{ steps.semver.outputs.nextMajorStrict }}.0.0-dev.$SHORT_SHA" >> $GITHUB_OUTPUT
         echo "::notice::Non-production build ${{ steps.semver.outputs.nextMajorStrict }}.0.0-dev.$SHORT_SHA created using branch $GITHUB_REF_NAME"
-
-    - name: Get Base Image Target Version
-      id: baseimgversion
-      run: |
         echo "baseImageVersion=$(sed -n '1p' dev/build/TARGET_BASE)" >> $GITHUB_OUTPUT
 
   # -----------------------------------------------------------------
@@ -192,22 +188,35 @@ jobs:
       BUILD_VERSION: ${{ needs.prepare.outputs.buildVersion }}
 
     steps:
-      - name: Refresh Staging DB
-        uses: ietf-tools/workflow-dispatch-action@v1
-        with:
-          workflow: deploy-db.yml
-          repo: ietf-tools/infra-k8s
-          ref: main
-          token: ${{ secrets.GH_INFRA_K8S_TOKEN }}
-          inputs: '{ "environment":"${{ secrets.GHA_K8S_CLUSTER }}", "app":"reef", "manifest":"postgres", "forceRecreate":true, "restoreToLastFullSnapshot":true, "waitClusterReady":true }'
-          waitForCompletionTimeout: 120m
+      # - name: Refresh Staging DB
+      #   uses: ietf-tools/workflow-dispatch-action@v1
+      #   with:
+      #     workflow: deploy-db.yml
+      #     repo: ietf-tools/infra-k8s
+      #     ref: main
+      #     token: ${{ secrets.GH_INFRA_K8S_TOKEN }}
+      #     inputs: '{ "environment":"${{ secrets.GHA_K8S_CLUSTER }}", "app":"reef", "manifest":"postgres", "forceRecreate":true, "restoreToLastFullSnapshot":true, "waitClusterReady":true }'
+      #     waitForCompletionTimeout: 120m
 
-      - name: Deploy to staging
-        uses: ietf-tools/workflow-dispatch-action@v1
+      # - name: Deploy to staging
+      #   uses: ietf-tools/workflow-dispatch-action@v1
+      #   with:
+      #     workflow: deploy.yml
+      #     repo: ietf-tools/infra-k8s
+      #     ref: main
+      #     token: ${{ secrets.GH_INFRA_K8S_TOKEN }}
+      #     inputs: '{ "environment":"${{ secrets.GHA_K8S_CLUSTER }}", "app":"reef", "appVersion":"${{ env.BUILD_VERSION }}", "remoteRef":"${{ github.sha }}", "deployStrategy":"${{ inputs.deployStrategy }}" }'
+      #     waitForCompletionTimeout: 30m
+
+      - uses: actions/download-artifact@v8
         with:
-          workflow: deploy.yml
-          repo: ietf-tools/infra-k8s
-          ref: main
-          token: ${{ secrets.GH_INFRA_K8S_TOKEN }}
-          inputs: '{ "environment":"${{ secrets.GHA_K8S_CLUSTER }}", "app":"reef", "appVersion":"${{ env.BUILD_VERSION }}", "remoteRef":"${{ github.sha }}", "deployStrategy":"${{ inputs.deployStrategy }}" }'
-          waitForCompletionTimeout: 30m
+          name: frontend
+
+      - run: ls -R
+
+      # - name: Deploy frontend to Cloudflare Workers
+      #   uses: cloudflare/wrangler-action@v4
+      #   with:
+      #     apiToken: ${{ secrets.CF_WORKER_DEPLOY_TOKEN }}
+      #     accountId: ${{ secrets.CF_WORKER_DEPLOY_ACCOUNT_ID }}
+      #     command: deploy

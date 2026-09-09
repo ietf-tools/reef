@@ -28,14 +28,8 @@ jobs:
     outputs:
       buildVersion: ${{ steps.buildvars.outputs.buildVersion }}
       previousVersion: ${{ steps.semver.outputs.current }}
-      baseImageVersion: ${{ steps.baseimgversion.outputs.baseImageVersion }}
+      baseImageVersion: ${{ steps.buildvars.outputs.baseImageVersion }}
     steps:
-      - name: Ensure release branch
-        if: github.ref != 'refs/heads/release'
-        run: |
-          echo "This workflow can only run on the 'release' branch (current: ${{ github.ref_name }})"
-          exit 1
-
       - uses: actions/checkout@v7
 
       - name: Get Next Version
@@ -43,7 +37,7 @@ jobs:
         uses: ietf-tools/semver-action@v1
         with:
           token: ${{ github.token }}
-          branch: release
+          branch: main
           skipInvalidTags: true
           patchAll: true
 
@@ -64,10 +58,6 @@ jobs:
           echo "Will set build version to: ${{ steps.semver.outputs.nextStrict }}"
           echo "buildVersion=${{ steps.semver.outputs.nextStrict }}" >> $GITHUB_OUTPUT
           echo "::notice::Release ${{ steps.semver.outputs.nextStrict }} created using branch $GITHUB_REF_NAME"
-
-      - name: Get Base Image Target Version
-        id: baseimgversion
-        run: |
           echo "baseImageVersion=$(sed -n '1p' dev/build/TARGET_BASE)" >> $GITHUB_OUTPUT
 
   # -----------------------------------------------------------------

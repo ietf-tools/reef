@@ -1,0 +1,29 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+  "name": "reef-frontend",
+  "compatibility_date": "2025-06-16",
+  "observability": {
+    "logs": {
+      "enabled": true
+    },
+    "traces": {
+      "enabled": true,
+      "destinations": ["heimdall-otlp"]
+    }
+  },
+  "env": {
+    "staging": {
+      "routes": [{ "pattern": "surveys.staging.rfc-editor.org/*", "zone_name": "rfc-editor.org" }]
+    },
+    "production": {
+      "routes": [{ "pattern": "surveys.rfc-editor.org/*", "zone_name": "rfc-editor.org" }]
+    }
+  },
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
