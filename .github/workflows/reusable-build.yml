@@ -68,6 +68,7 @@ jobs:
         echo "Packaging build..."
         mkdir -p package/dist
         cp -r .output/public/. package/dist/
+        cp worker.js package/worker.js
         cp wrangler.jsonc package/wrangler.jsonc
 
     - name: Upload Build Artifacts

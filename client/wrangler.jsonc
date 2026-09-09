@@ -5,6 +5,7 @@
 {
   "name": "reef-frontend",
   "compatibility_date": "2025-06-16",
+  "main": "./worker.js",
   "observability": {
     "logs": {
       "enabled": true
@@ -24,6 +25,33 @@
   },
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
+    // The route above claims the whole hostname, so the paths Django owns have
+    // to be handed back to the origin by hand. This list mirrors the proxy in
+    // docker/configs/nginx-proxy.conf, which is where the same split is
+    // configured for dev; the two have to be changed together.
+    //
+    // /static/ is Django's STATIC_URL and carries the admin's own CSS and JS.
+    // Nuxt's bundle lives under /_nuxt/, so the two never collide.
+    //
+    // Each prefix is listed with and without the trailing glob: `/admin/*` is
+    // documented to deep-match, but whether it also matches a bare `/admin/`
+    // is not, and /admin/ is the URL the admin actually answers on.
+    "run_worker_first": [
+      "/api/reef/",
+      "/api/reef/*",
+      "/admin",
+      "/admin/",
+      "/admin/*",
+      "/oidc/",
+      "/oidc/*",
+      "/manage",
+      "/manage/",
+      "/manage/*",
+      "/static/",
+      "/static/*",
+      "/health/",
+      "/health/*"
+    ]
   }
 }
