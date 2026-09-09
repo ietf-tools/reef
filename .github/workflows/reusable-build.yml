@@ -109,7 +109,7 @@ jobs:
         DOCKER_BUILD_SUMMARY: false
       with:
         context: .
-        file: dev/build/Dockerfile
+        file: dev/build/backend.Dockerfile
         platforms: ${{ inputs.skipArmBuild && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
         push: true
         tags: |
