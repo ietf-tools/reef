@@ -38,8 +38,18 @@ spec:
             readOnlyRootFilesystem: true
             runAsUser: 1000
             runAsGroup: 1000
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 100m
               memory: 512Mi
+      volumes:
+        # The root filesystem is read-only, but the prefork pool needs a
+        # writable tempfile.gettempdir() — billiard puts its per-pool pymp-*
+        # directory there when the worker starts. Nothing in it has to outlive
+        # the pod.
+        - name: tmp
+          emptyDir: {}
       terminationGracePeriodSeconds: 600

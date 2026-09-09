@@ -38,6 +38,9 @@ spec:
             readOnlyRootFilesystem: true
             runAsUser: 1000
             runAsGroup: 1000
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: backend
           image: ghcr.io/ietf-tools/reef-backend:$APP_IMAGE_TAG
@@ -66,10 +69,19 @@ spec:
             readOnlyRootFilesystem: true
             runAsUser: 1000
             runAsGroup: 1000
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 250m
               memory: 2Gi
+      volumes:
+        # The root filesystem is read-only, but gunicorn keeps a heartbeat file
+        # per worker under tempfile.gettempdir() and dies at startup when it
+        # cannot write one. Nothing here needs the contents to outlive the pod.
+        - name: tmp
+          emptyDir: {}
       terminationGracePeriodSeconds: 60
 ---
 apiVersion: v1
