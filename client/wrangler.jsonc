@@ -34,23 +34,19 @@
     // /static/ is Django's STATIC_URL and carries the admin's own CSS and JS.
     // Nuxt's bundle lives under /_nuxt/, so the two never collide.
     //
-    // Each prefix is listed with and without the trailing glob: `/admin/*` is
-    // documented to deep-match, but whether it also matches a bare `/admin/`
-    // is not, and /admin/ is the URL the admin actually answers on.
+    // The trailing glob deep-matches and also covers the bare directory URL
+    // (/admin/* claims /admin/, which is the URL the admin actually answers
+    // on) -- wrangler rejects the redundant /admin/ entry outright. The
+    // slashless forms are listed separately because /admin/* does not match
+    // /admin.
     "run_worker_first": [
-      "/api/reef/",
       "/api/reef/*",
       "/admin",
-      "/admin/",
       "/admin/*",
-      "/oidc/",
       "/oidc/*",
       "/manage",
-      "/manage/",
       "/manage/*",
-      "/static/",
       "/static/*",
-      "/health/",
       "/health/*"
     ]
   }
