@@ -96,3 +96,23 @@ if _cors_origins is not None:
 
 # Behind a TLS-terminating proxy in staging and production.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+
+# Short on purpose: an HSTS mistake is correctable only by waiting out what browsers
+# have already cached.
+SECURE_HSTS_SECONDS = 3600
+# Adding the rfc-editor.org apex to REEF_ALLOWED_HOSTS would extend this to every
+# subdomain of the apex, including hosts this service knows nothing about.
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+# SECURE_HSTS_PRELOAD stays off: getting back off the preload list takes months, and it
+# commits an apex that belongs to more than this service.
+
+# The kubelet probe reaches this process over plain http, addressed to the pod IP.
+# Unexempted, Django answers it with a 301, which Kubernetes counts as a pass (anything
+# under 400), leaving the probe reporting health without testing it.
+SECURE_SSL_REDIRECT = True
+# `/?` because the redirect is decided before URL resolution, so APPEND_SLASH never
+# gets to normalise a probe pointed at /health.
+SECURE_REDIRECT_EXEMPT = [r"^health/?$"]

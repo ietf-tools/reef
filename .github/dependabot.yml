@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/client"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
+    versioning-strategy: "increase"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker"
+    directory: "/dev/build"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # build-base-app.yml rewrites this tag and commits the result, so a bump
+      # proposed here would either lose to that job or undo it.
+      - dependency-name: "ghcr.io/ietf-tools/reef-app-base"
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"

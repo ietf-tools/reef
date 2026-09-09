@@ -5,6 +5,11 @@ on:
     branches: [prototype, main]
   pull_request:
   workflow_dispatch:
+  # Two things change without a commit to react to: advisories are published against
+  # versions already shipped, and the >= bounds in requirements.txt let a new upstream
+  # release into the next build. Off the hour, which GitHub asks for.
+  schedule:
+    - cron: "17 6 * * 1"
 
 jobs:
   backend:
@@ -40,6 +45,25 @@ jobs:
       - run: ruff format --check .
       - run: python manage.py migrate
       - run: python manage.py test
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install --disable-pip-version-check -r requirements.txt
+      - name: Audit installed packages
+        # Auditing requirements.txt directly would audit its lower bounds, which many
+        # releases satisfy; what matters is the versions this build installed. pip-audit
+        # runs from its own environment so its own dependencies are not part of what is
+        # being audited.
+        run: |
+          pip freeze > /tmp/installed.txt
+          python -m venv /tmp/audit
+          /tmp/audit/bin/pip install --disable-pip-version-check pip-audit
+          /tmp/audit/bin/pip-audit --strict --no-deps -r /tmp/installed.txt
 
   client:
     runs-on: ubuntu-latest
