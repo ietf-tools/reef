@@ -20,7 +20,6 @@ mailing every subscriber about years-old documents newly categorized -- see the
 Only assignment through the admin, one document at a time, notifies.
 """
 
-import logging
 from collections import defaultdict
 
 from django.conf import settings
@@ -30,8 +29,6 @@ from django.dispatch import receiver
 
 from reef.docids import display_doc_id
 from subjects.models import SubjectAssignment
-
-logger = logging.getLogger("reef")
 
 
 def _document_url(doc):
