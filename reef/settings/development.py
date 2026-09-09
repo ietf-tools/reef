@@ -48,9 +48,7 @@ CACHES = {
 # storage would make {% static %} raise for any file added since that run.
 STORAGES = {
     **STORAGES,
-    "staticfiles": {
-        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
-    },
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 
 LOGGING = _logging
