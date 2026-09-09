@@ -28,8 +28,7 @@ jobs:
   # -----------------------------------------------------------------
   build:
     name: Build Image
-    runs-on:
-      group: hperf-8c32r
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       packages: write
@@ -137,11 +136,4 @@ jobs:
         tag: ${{ inputs.buildVersion }}
         name: ${{ inputs.buildVersion }}
         body: ${{ steps.changelog.outputs.changes }}
-        artifacts: "/home/runner/work/release/release.tar.gz"
         token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v7
-      with:
-        name: release-${{ inputs.buildVersion }}
-        path: /home/runner/work/release/release.tar.gz

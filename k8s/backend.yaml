@@ -48,6 +48,11 @@ spec:
           env:
             - name: CONTAINER_ROLE
               value: backend
+            # Probes arrive addressed to the pod IP; ALLOWED_HOSTS has to include it.
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           envFrom:
             - secretRef:
                 name: reef-secrets-env
