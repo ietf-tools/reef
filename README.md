@@ -96,6 +96,7 @@ Authentik application setup, including the redirect URIs to register.
 ruff check .              # lint
 ruff format --check .     # format check
 REEF_DEPLOYMENT_MODE=build ./manage.py spectacular \
+  --urlconf reef.urls_contract \
   --file reef_api.yaml --validate            # API schema
 cd client && npm run typecheck                            # client types
 ```

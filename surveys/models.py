@@ -1,11 +1,18 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from .audience import normalize_audience, validate_audience
 
 
 class SurveyQuerySet(models.QuerySet):
+    def live(self):
+        return self.filter(deleted_at__isnull=True)
+
+    def deleted(self):
+        return self.filter(deleted_at__isnull=False)
+
     def offerable_to(self, user):
         """Published surveys that may be offered to the given user.
 
@@ -38,6 +45,17 @@ class SurveyQuerySet(models.QuerySet):
         )
 
 
+class LiveSurveyManager(models.Manager.from_queryset(SurveyQuerySet)):
+    """Sees live surveys only. The default manager, so that omission is safe.
+
+    Every read path reaches a survey through this or through get_object_or_404,
+    so a deleted one has to be excluded here rather than at each call site.
+    """
+
+    def get_queryset(self):
+        return super().get_queryset().live()
+
+
 class Survey(models.Model):
     """A SurveyJS survey: its JSON definition, theme, and lifecycle state."""
 
@@ -50,7 +68,8 @@ class Survey(models.Model):
         OPEN = "open", "Open (anonymous)"
         AUTHENTICATED = "authenticated", "Authenticated only"
 
-    objects = SurveyQuerySet.as_manager()
+    objects = LiveSurveyManager()
+    all_objects = models.Manager.from_queryset(SurveyQuerySet)()
 
     slug = models.SlugField(max_length=100, unique=True)
     title = models.CharField(max_length=255)
@@ -76,6 +95,21 @@ class Survey(models.Model):
         on_delete=models.SET_NULL,
         related_name="surveys_created",
     )
+    # Response.survey cascades, so a real delete takes every answer with it -- one
+    # mis-click in the builder against everything ever submitted. Withdrawal keeps
+    # the rows, and can be reviewed or undone.
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Blank for a live survey. Set it to withdraw the survey: it "
+        "then 404s for the runner and the builder alike, and stops being "
+        "offered. Clear it to restore. Responses are kept either way.",
+    )
+    deleted_reason = models.TextField(
+        blank=True,
+        help_text="Why the survey was withdrawn, for whoever reviews the "
+        "decision later. Never served through the API.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -98,6 +132,21 @@ class Survey(models.Model):
 
     def requires_authentication(self) -> bool:
         return self.visibility == self.Visibility.AUTHENTICATED
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
+
+    def soft_delete(self, reason=""):
+        """Withdraw the survey, keeping it and every response to it."""
+        self.deleted_at = timezone.now()
+        self.deleted_reason = reason
+        self.save(update_fields=["deleted_at", "deleted_reason", "updated_at"])
+
+    def restore(self):
+        self.deleted_at = None
+        self.deleted_reason = ""
+        self.save(update_fields=["deleted_at", "deleted_reason", "updated_at"])
 
 
 # Pinned for SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"]. VisibilityEnum is the

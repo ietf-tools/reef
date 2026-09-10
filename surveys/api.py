@@ -36,6 +36,10 @@ class SurveyDetail(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = SurveySerializer
     permission_classes = [CanManageSurveys]
 
+    def perform_destroy(self, instance):
+        # Withdrawn, not removed: a real delete would cascade to every response.
+        instance.soft_delete()
+
 
 class OpenSurveyList(generics.ListAPIView):
     """Open surveys Red may offer. Bearer optional: an identified user also
@@ -90,7 +94,9 @@ class SurveyResults(APIView):
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     def get(self, request, pk):
-        survey = get_object_or_404(Survey, pk=pk)
+        # all_objects: withdrawing a survey is what keeps its responses, so the
+        # results have to stay readable afterwards or the keeping achieves nothing.
+        survey = get_object_or_404(Survey.all_objects, pk=pk)
         results = list(survey.responses.values_list("data", flat=True))
         return DRFResponse(
             {
