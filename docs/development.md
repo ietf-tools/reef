@@ -38,7 +38,20 @@ values:
 - `REEF_SURVEYJS_LICENSE_KEY` - required in production for Creator and Analytics.
 
 Production adds environment-driven `REEF_DJANGO_SECRET_KEY`, `REEF_ALLOWED_HOSTS`,
-and `REEF_DB_*`; see `reef/settings/production.py`.
+`REEF_DB_*` and `REEF_CORS_ALLOWED_ORIGINS`; see `reef/settings/production.py`.
+
+- `REEF_CORS_ALLOWED_ORIGINS` - newline-separated browser origins allowed to call
+  the API, which is Red's origin for that environment
+  (`https://www.staging.rfc-editor.org` in staging, `https://www.rfc-editor.org` in
+  production). Unset means no cross-origin access: every request Red makes fails
+  at the preflight with a missing `Access-Control-Allow-Origin` header, and a
+  system check warns at startup. Development hard-codes Red's dev server in
+  `development.py` and ignores this variable.
+
+Staging is the production module unchanged. Anything that differs between staging
+and production is an environment value, and those live in the `reef-secrets-env`
+Kubernetes secret that the ietf-tools/infra-k8s repository defines per cluster,
+not in a settings file here.
 
 ## Email
 

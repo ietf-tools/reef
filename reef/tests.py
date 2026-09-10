@@ -1,6 +1,6 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.core.exceptions import ValidationError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from reef.docids import display_doc_id, normalize_doc_id
 
@@ -68,3 +68,42 @@ class DisplayDocIdTests(SimpleTestCase):
         for value in ("", None, "RFC 9110", "draft-ietf-httpbis-semantics"):
             with self.subTest(value=value):
                 self.assertEqual(display_doc_id(value), value)
+
+
+@override_settings(CORS_ALLOWED_ORIGINS=["https://www.staging.rfc-editor.org"])
+class CorsPreflightTests(SimpleTestCase):
+    """Red calls the API from its own origin with a Bearer token, so each of its
+    requests is preceded by a preflight that only the CORS middleware can answer."""
+
+    red_origin = "https://www.staging.rfc-editor.org"
+
+    def preflight(self, path, origin):
+        return self.client.options(
+            path,
+            HTTP_ORIGIN=origin,
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="GET",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="authorization",
+        )
+
+    def test_an_allowed_origin_is_answered_at_the_preflight(self):
+        response = self.preflight(
+            "/api/reef/me/documents/?doc=rfc9993", self.red_origin
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Access-Control-Allow-Origin"], self.red_origin)
+        self.assertIn(
+            "authorization", response["Access-Control-Allow-Headers"].lower()
+        )
+
+    def test_another_origin_gets_no_allow_header(self):
+        response = self.preflight("/api/reef/me/documents/", "https://example.org")
+        self.assertNotIn("Access-Control-Allow-Origin", response)
+
+    def test_only_the_api_is_cross_origin(self):
+        response = self.preflight("/health/", self.red_origin)
+        self.assertNotIn("Access-Control-Allow-Origin", response)
+
+    @override_settings(CORS_ALLOWED_ORIGINS=[])
+    def test_no_origins_means_no_cross_origin_access(self):
+        response = self.preflight("/api/reef/me/documents/", self.red_origin)
+        self.assertNotIn("Access-Control-Allow-Origin", response)
