@@ -3,11 +3,12 @@ import datetime
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework import exceptions
 from rest_framework.test import APIRequestFactory
 
 from reefauth.authentication import BearerTokenAuthentication
+from reefauth.checks import cors_origins_configured
 
 _ISSUER = "https://account.ietf.org/application/o/reef/"
 _AUDIENCE = "reef-client"
@@ -174,3 +175,21 @@ class BearerTokenAuthenticationTests(TestCase):
         )
         user, _ = self.auth.authenticate(request)
         self.assertTrue(user.is_staff)
+
+
+class CorsOriginsCheckTests(SimpleTestCase):
+    @override_settings(DEPLOYMENT_MODE="staging", CORS_ALLOWED_ORIGINS=[])
+    def test_a_cross_origin_deployment_with_no_origins_warns(self):
+        [warning] = cors_origins_configured(None)
+        self.assertEqual(warning.id, "reefauth.W001")
+
+    @override_settings(
+        DEPLOYMENT_MODE="production",
+        CORS_ALLOWED_ORIGINS=["https://www.rfc-editor.org"],
+    )
+    def test_a_configured_deployment_is_quiet(self):
+        self.assertEqual(cors_origins_configured(None), [])
+
+    @override_settings(DEPLOYMENT_MODE="development", CORS_ALLOWED_ORIGINS=[])
+    def test_development_is_not_asked(self):
+        self.assertEqual(cors_origins_configured(None), [])
