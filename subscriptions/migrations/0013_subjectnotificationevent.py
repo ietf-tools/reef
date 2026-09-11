@@ -1,8 +1,8 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 
+import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
-import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
@@ -25,6 +25,8 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("subscription_ids", models.JSONField(default=list)),
+                ("event_kind", models.CharField(blank=True, max_length=64, null=True)),
+                ("event_key", models.CharField(blank=True, max_length=255, null=True)),
                 ("event", models.JSONField()),
                 ("processed_at", models.DateTimeField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -43,6 +45,17 @@ class Migration(migrations.Migration):
                     models.Index(
                         fields=["processed_at", "created_at"],
                         name="subject_event_pending_idx",
+                    )
+                ],
+                "constraints": [
+                    models.UniqueConstraint(
+                        condition=models.Q(
+                            ("event_key__isnull", False),
+                            ("event_kind__isnull", False),
+                            ("processed_at__isnull", True),
+                        ),
+                        fields=("user", "event_kind", "event_key"),
+                        name="unique_pending_subject_event",
                     )
                 ],
             },

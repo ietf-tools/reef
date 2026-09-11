@@ -168,12 +168,9 @@ def notify_merge(source, target, subscription_ids):
         stage_subject_event(
             subscription.user_id,
             [subscription.pk],
-            {
-                "doc": "",
-                "change": change,
-                "url": "",
-                "event_key": f"subject-merge:{source.pk}:{target.pk}",
-            },
+            "subject_merge",
+            f"subject-merge:{source.pk}:{target.pk}",
+            {"doc": "", "change": change, "url": ""},
         )
 
 

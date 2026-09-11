@@ -158,7 +158,7 @@ class NotifyRfcChangesTests(TestCase):
             notification.events[0]["change"], "Added to the subject Security."
         )
         self.assertEqual(
-            SubjectNotificationEvent.objects.filter(processed_at__isnull=True).count(),
+            SubjectNotificationEvent.objects.count(),
             0,
         )
 
@@ -177,6 +177,44 @@ class NotifyRfcChangesTests(TestCase):
                 self.assertEqual(detect_rfc_changes(), 1)
 
         self.assertEqual(PendingNotification.objects.count(), 1)
+
+    def test_identical_subject_events_on_different_days_do_not_collide(self):
+        subject = Subject.objects.create(name="Security", slug="security")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        event = {
+            "doc": "rfc9110",
+            "change": "Added to the subject Security.",
+            "url": "https://www.rfc-editor.org/info/rfc9110/",
+        }
+        with mock.patch(
+            "subscriptions.tasks.timezone.localdate",
+            side_effect=[
+                datetime.date(2026, 9, 1),
+                datetime.date(2026, 9, 1),
+                datetime.date(2026, 9, 2),
+            ],
+        ):
+            self.seed()
+            SubjectNotificationEvent.objects.create(
+                user=self.user,
+                subscription_ids=[subscription.pk],
+                event_kind="subject_assignment",
+                event_key="subject-assignment:1",
+                event=event,
+            )
+            self.assertEqual(detect_rfc_changes(), 1)
+            SubjectNotificationEvent.objects.create(
+                user=self.user,
+                subscription_ids=[subscription.pk],
+                event_kind="subject_assignment",
+                event_key="subject-assignment:2",
+                event=event,
+            )
+            self.assertEqual(detect_rfc_changes(), 1)
+
+        self.assertEqual(PendingNotification.objects.count(), 2)
 
     def test_a_reader_matched_two_ways_gets_one_notification(self):
         """Coalesced per reader, not per subscription."""

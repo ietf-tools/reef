@@ -288,6 +288,8 @@ class SubjectNotificationEvent(models.Model):
         related_name="subject_notification_events",
     )
     subscription_ids = models.JSONField(default=list)
+    event_kind = models.CharField(max_length=64, null=True, blank=True)
+    event_key = models.CharField(max_length=255, null=True, blank=True)
     event = models.JSONField()
     processed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -298,5 +300,16 @@ class SubjectNotificationEvent(models.Model):
             models.Index(
                 fields=["processed_at", "created_at"],
                 name="subject_event_pending_idx",
-            )
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "event_kind", "event_key"],
+                condition=models.Q(
+                    ("event_key__isnull", False),
+                    ("event_kind__isnull", False),
+                    ("processed_at__isnull", True),
+                ),
+                name="unique_pending_subject_event",
+            ),
         ]

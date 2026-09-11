@@ -98,11 +98,13 @@ def queue_notification(user_id, subscription_ids, events, scope=""):
     return notification
 
 
-def stage_subject_event(user_id, subscription_ids, event):
+def stage_subject_event(user_id, subscription_ids, event_kind, event_key, event):
     """Hold a subject event for the next consolidated digest."""
     return SubjectNotificationEvent.objects.create(
         user_id=user_id,
         subscription_ids=list(subscription_ids),
+        event_kind=event_kind,
+        event_key=event_key,
         event=event,
     )
 
@@ -280,8 +282,8 @@ def _detect_and_notify():
     result = detect()
 
     # Per reader, not per subscription: somebody who follows a document directly and
-    # also holds it in a set hears once. Events are keyed by document so that the two
-    # ways of reaching one collapse into a single line rather than two.
+    # also holds it in a set hears once. RFC events are keyed by document and subject
+    # events by their event identity, so distinct facts about one document remain.
     per_reader = defaultdict(lambda: {"subscriptions": set(), "events": {}})
 
     if result is not None:
@@ -292,6 +294,10 @@ def _detect_and_notify():
                 reader = per_reader[subscription.user_id]
                 reader["subscriptions"].add(subscription.pk)
                 reader["events"][(change.doc, "rfc")] = event
+    else:
+        # Red is unreachable. The snapshot deliberately remains unchanged, so the
+        # next run compares against the same reading and misses nothing.
+        logger.info("RFC change detection skipped because Red is unavailable")
 
     subject_events = list(
         SubjectNotificationEvent.objects.filter(processed_at__isnull=True)
@@ -299,13 +305,13 @@ def _detect_and_notify():
     for subject_event in subject_events:
         reader = per_reader[subject_event.user_id]
         reader["subscriptions"].update(subject_event.subscription_ids)
-        event = dict(subject_event.event)
-        event_key = event.pop("event_key", subject_event.pk)
-        reader["events"][(event.get("doc", ""), event_key)] = event
+        event = subject_event.event
+        reader["events"][(event.get("doc", ""), subject_event.event_key)] = event
 
     with transaction.atomic():
-        reading = result.created_on if result is not None else timezone.localdate()
-        scope = f"daily:{reading}"
+        # Red's created_on can remain unchanged for several days without a publish;
+        # it is not the day this digest run is processing.
+        scope = f"daily:{timezone.localdate()}"
         for user_id, reader in per_reader.items():
             queue_notification(
                 user_id,
@@ -317,7 +323,7 @@ def _detect_and_notify():
             result.save()
         SubjectNotificationEvent.objects.filter(
             pk__in=[subject_event.pk for subject_event in subject_events]
-        ).update(processed_at=timezone.now())
+        ).delete()
 
     logger.info(
         "%s change(s) notified to %s reader(s) (%s subject event(s))",

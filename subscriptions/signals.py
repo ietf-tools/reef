@@ -28,7 +28,6 @@ from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from reef.docids import display_doc_id
 from subjects.models import SubjectAssignment
 
 
@@ -61,7 +60,6 @@ def _notify_new_assignment(sender, instance, created, **kwargs):
 
         event = {
             "doc": instance.doc,
-            "doc_display": display_doc_id(instance.doc),
             "change": f"Added to the subject {instance.subject.name}.",
             "url": _document_url(instance.doc),
         }
@@ -74,7 +72,9 @@ def _notify_new_assignment(sender, instance, created, **kwargs):
             stage_subject_event(
                 user_id,
                 subscription_ids,
-                {**event, "event_key": f"subject-assignment:{instance.pk}"},
+                "subject_assignment",
+                f"subject-assignment:{instance.pk}",
+                event,
             )
 
     transaction.on_commit(notify)
