@@ -91,9 +91,7 @@ class CorsPreflightTests(SimpleTestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Access-Control-Allow-Origin"], self.red_origin)
-        self.assertIn(
-            "authorization", response["Access-Control-Allow-Headers"].lower()
-        )
+        self.assertIn("authorization", response["Access-Control-Allow-Headers"].lower())
 
     def test_another_origin_gets_no_allow_header(self):
         response = self.preflight("/api/reef/me/documents/", "https://example.org")
