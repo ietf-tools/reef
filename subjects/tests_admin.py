@@ -10,6 +10,8 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
+from subscriptions.models import SubjectNotificationEvent, Subscription
+
 from .admin import RootSubjectFilter, SubjectAdminForm
 from .models import Subject, SubjectAssignment
 from .tests_hierarchy import tree
@@ -149,6 +151,51 @@ class RetireActionTests(SubjectAdminTestCase):
     def test_retiring_a_leaf_still_works_through_the_plain_action(self):
         self.post_action("retire_selected", self.made["smtp"])
         self.assertTrue(Subject.all_objects.get(slug="smtp").is_retired)
+
+    def test_merge_action_opens_confirmation_for_one_subject(self):
+        merge_url = reverse(
+            "admin:subjects_subject_merge", args=[self.made["email"].pk]
+        )
+        response = self.client.post(
+            reverse("admin:subjects_subject_changelist"),
+            {
+                "action": "merge_selected",
+                "_selected_action": [str(self.made["email"].pk)],
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], merge_url)
+        page = self.client.get(merge_url)
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Merge subject")
+        self.assertContains(page, "Email")
+        self.assertContains(page, "security")
+        self.assertNotContains(page, "messaging/email/smtp")
+
+    def test_merge_action_moves_data_and_queues_notification(self):
+        source = self.made["email"]
+        target = self.made["security"]
+        subscription = Subscription.objects.create(
+            user=self.staff, kind=Subscription.Kind.SUBJECT, subject=source
+        )
+        url = reverse("admin:subjects_subject_merge", args=[source.pk])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(url, {"target": target.pk})
+
+        self.assertRedirects(response, reverse("admin:subjects_subject_changelist"))
+        source.refresh_from_db()
+        subscription.refresh_from_db()
+        self.assertTrue(source.is_retired)
+        self.assertEqual(subscription.subject_id, target.pk)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 1)
+
+    def test_merge_action_requires_one_selected_subject(self):
+        response = self.post_action(
+            "merge_selected", self.made["email"], self.made["security"]
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Select exactly one subject")
 
 
 class AssignmentAdminTests(SubjectAdminTestCase):

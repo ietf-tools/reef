@@ -277,3 +277,26 @@ class PendingNotification(models.Model):
     def __str__(self):
         state = f"sent {self.sent_at}" if self.sent_at else "unsent"
         return f"Notification to {self.user} of {len(self.events)} change(s), {state}"
+
+
+class SubjectNotificationEvent(models.Model):
+    """A subject event waiting for the next consolidated digest."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="subject_notification_events",
+    )
+    subscription_ids = models.JSONField(default=list)
+    event = models.JSONField()
+    processed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(
+                fields=["processed_at", "created_at"],
+                name="subject_event_pending_idx",
+            )
+        ]

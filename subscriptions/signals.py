@@ -15,9 +15,10 @@ subscriptions/changes.py::render_change).
 Deliberately does not fire for a bulk assignment. import_assignments and
 import_subjects both write with bulk_create, which sends no post_save signal, and
 that is what keeps a back-catalogue backfill of the roughly 9,800 RFCs from
-mailing every subscriber about years-old documents newly categorized -- see the
+queuing events for every years-old document newly categorized -- see the
 "Assigning subjects at scale" and "Assignment as an event" open items in plan.md.
-Only assignment through the admin, one document at a time, notifies.
+Only assignment through the admin, one document at a time, queues an event for
+the daily digest.
 """
 
 from collections import defaultdict
@@ -47,7 +48,7 @@ def _notify_new_assignment(sender, instance, created, **kwargs):
     def notify():
         from .matching import subscriptions_for_document
         from .models import Subscription
-        from .tasks import queue_notification
+        from .tasks import stage_subject_event
 
         # subscriptions_for_document already expands to every subject covering the
         # document, ancestors included; kind=SUBJECT excludes the rfc and set
@@ -64,20 +65,16 @@ def _notify_new_assignment(sender, instance, created, **kwargs):
             "change": f"Added to the subject {instance.subject.name}.",
             "url": _document_url(instance.doc),
         }
-        # Grouped by reader before enqueuing, not queued once per subscription: a
-        # reader following both the assigned subject and a covering ancestor
-        # matches twice, and notification_key hashes (user, scope, events) rather
-        # than the subscription, so two calls for one reader would collide on the
-        # same dedupe_key and the second insert would raise.
+        # Grouped by reader before queuing, so the daily digest can name every
+        # matching subscription without creating duplicate event rows.
         subscription_ids_by_user = defaultdict(list)
         for subscription in subscriptions:
             subscription_ids_by_user[subscription.user_id].append(subscription.pk)
         for user_id, subscription_ids in subscription_ids_by_user.items():
-            queue_notification(
+            stage_subject_event(
                 user_id,
                 subscription_ids,
-                [event],
-                scope=f"subject-assignment:{instance.pk}",
+                {**event, "event_key": f"subject-assignment:{instance.pk}"},
             )
 
     transaction.on_commit(notify)

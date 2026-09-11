@@ -4,11 +4,15 @@ from django.contrib import admin, messages
 from django.contrib.admin.views.main import ChangeList
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Q
+from django.http import HttpResponseRedirect
+from django.shortcuts import get_object_or_404, render
+from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
 from reef.admin_documents import DocumentTitleMixin
 
+from .merge import MergeError, merge_and_notify
 from .models import PATH_SEPARATOR, Subject, SubjectAlias, SubjectAssignment
 from .tree import rollup
 
@@ -31,6 +35,18 @@ class SubjectAdminForm(forms.ModelForm):
         model = Subject
         fields = "__all__"
         field_classes = {"parent": SubjectParentField}
+
+
+class SubjectMergeForm(forms.Form):
+    target = SubjectParentField(queryset=Subject.objects.none(), label="Merge into")
+
+    def __init__(self, source, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["target"].queryset = Subject.objects.exclude(
+            Q(pk=source.pk)
+            | Q(path=source.path)
+            | Q(path__startswith=source.path + PATH_SEPARATOR)
+        ).order_by("path")
 
 
 class RootSubjectFilter(admin.SimpleListFilter):
@@ -138,7 +154,12 @@ class SubjectAdmin(admin.ModelAdmin):
     # being scattered through an alphabetical list of several hundred names.
     ordering = ["path"]
     autocomplete_fields = ["parent"]
-    actions = ["retire_selected", "unretire_selected", "retire_subtree_selected"]
+    actions = [
+        "retire_selected",
+        "unretire_selected",
+        "retire_subtree_selected",
+        "merge_selected",
+    ]
     # Typing the name fills the slug, which is the order the two are decided
     # in. It stops filling once the subject has been saved, which is right: a
     # rename leaves the old slug behind as an alias, and growing one of those
@@ -169,6 +190,58 @@ class SubjectAdmin(admin.ModelAdmin):
 
     def get_changelist(self, request, **kwargs):
         return SubjectChangeList
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/merge/",
+                self.admin_site.admin_view(self.merge_view),
+                name="subjects_subject_merge",
+            ),
+        ]
+        return custom_urls + urls
+
+    @admin.action(description="Merge selected subject into another subject")
+    def merge_selected(self, request, queryset):
+        if queryset.count() != 1:
+            self.message_user(
+                request,
+                "Select exactly one subject to merge.",
+                level=messages.ERROR,
+            )
+            return None
+        source = queryset.get()
+        return HttpResponseRedirect(
+            reverse("admin:subjects_subject_merge", args=[source.pk])
+        )
+
+    def merge_view(self, request, object_id):
+        source = get_object_or_404(Subject.all_objects, pk=object_id)
+        form = SubjectMergeForm(source, request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            target = form.cleaned_data["target"]
+            try:
+                affected = merge_and_notify(source, target)
+            except MergeError as exc:
+                form.add_error("target", str(exc))
+            else:
+                self.message_user(
+                    request,
+                    f"Merged {source} into {target}; "
+                    f"notified {len(affected)} subscriber(s).",
+                )
+                return HttpResponseRedirect(
+                    reverse("admin:subjects_subject_changelist")
+                )
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Merge subject",
+            "source": source,
+            "form": form,
+            "changelist_url": reverse("admin:subjects_subject_changelist"),
+        }
+        return render(request, "admin/subjects/subject/merge.html", context)
 
     @admin.display(description="Subject", ordering="path")
     def indented_name(self, obj):

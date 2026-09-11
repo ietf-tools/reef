@@ -9,7 +9,7 @@ from reef.testing import document_meta as meta
 from reef.testing import stub_rfc_index
 from subjects.models import Subject, SubjectAssignment
 
-from .models import PendingNotification, Subscription
+from .models import SubjectNotificationEvent, Subscription
 
 User = get_user_model()
 
@@ -32,13 +32,11 @@ class NewAssignmentNotificationTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             SubjectAssignment.objects.create(subject=self.subject, doc="rfc9110")
 
-        notification = PendingNotification.objects.get()
+        notification = SubjectNotificationEvent.objects.get()
         self.assertEqual(notification.user_id, self.user.pk)
         self.assertEqual(notification.subscription_ids, [subscription.pk])
-        self.assertEqual(
-            notification.events[0]["change"], "Added to the subject Security."
-        )
-        self.assertEqual(notification.events[0]["doc"], "rfc9110")
+        self.assertEqual(notification.event["change"], "Added to the subject Security.")
+        self.assertEqual(notification.event["doc"], "rfc9110")
 
     def test_a_subscriber_to_a_covering_ancestor_is_also_notified(self):
         parent = Subject.objects.create(name="Messaging", slug="messaging")
@@ -47,7 +45,7 @@ class NewAssignmentNotificationTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             SubjectAssignment.objects.create(subject=child, doc="rfc9110")
 
-        self.assertEqual(PendingNotification.objects.count(), 1)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 1)
 
     def test_a_subscriber_to_an_unrelated_subject_is_not_notified(self):
         other = Subject.objects.create(name="Routing", slug="routing")
@@ -55,7 +53,7 @@ class NewAssignmentNotificationTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             SubjectAssignment.objects.create(subject=self.subject, doc="rfc9110")
 
-        self.assertEqual(PendingNotification.objects.count(), 0)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_an_rfc_subscriber_is_not_renotified_by_a_tagging(self):
         """A change to the document, not a change to what it is tagged with, is
@@ -66,7 +64,7 @@ class NewAssignmentNotificationTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             SubjectAssignment.objects.create(subject=self.subject, doc="rfc9110")
 
-        self.assertEqual(PendingNotification.objects.count(), 0)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_a_reader_following_both_the_subject_and_its_ancestor_is_told_once(self):
         """Two matching subscriptions for one reader must not collide on the
@@ -79,7 +77,7 @@ class NewAssignmentNotificationTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             SubjectAssignment.objects.create(subject=child, doc="rfc9110")
 
-        notification = PendingNotification.objects.get()
+        notification = SubjectNotificationEvent.objects.get()
         self.assertEqual(
             sorted(notification.subscription_ids), sorted([first.pk, second.pk])
         )
@@ -94,7 +92,7 @@ class NewAssignmentNotificationTests(TestCase):
                 [SubjectAssignment(subject=self.subject, doc="rfc9110")]
             )
 
-        self.assertEqual(PendingNotification.objects.count(), 0)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_unassigning_notifies_nobody(self):
         """Removing an assignment is a correction to the vocabulary, not news
@@ -104,12 +102,12 @@ class NewAssignmentNotificationTests(TestCase):
             assignment = SubjectAssignment.objects.create(
                 subject=self.subject, doc="rfc9110"
             )
-        PendingNotification.objects.all().delete()
+        SubjectNotificationEvent.objects.all().delete()
 
         with self.captureOnCommitCallbacks(execute=True):
             assignment.delete()
 
-        self.assertEqual(PendingNotification.objects.count(), 0)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_a_rolled_back_assignment_notifies_nobody(self):
         self.follow(self.subject)
@@ -118,5 +116,5 @@ class NewAssignmentNotificationTests(TestCase):
                 SubjectAssignment.objects.create(subject=self.subject, doc="rfc9110")
                 transaction.set_rollback(True)
 
-        self.assertEqual(PendingNotification.objects.count(), 0)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
         self.assertFalse(SubjectAssignment.objects.exists())
