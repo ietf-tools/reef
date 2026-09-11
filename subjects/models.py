@@ -24,6 +24,7 @@ rating or a set entry naming a nonexistent RFC already is.
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
+from simple_history.models import HistoricalRecords
 
 from reef.docids import DOC_ID_MAX_LENGTH, normalize_doc_id
 
@@ -193,6 +194,10 @@ class Subject(models.Model):
 
     objects = LiveSubjectManager()
     all_objects = models.Manager.from_queryset(SubjectQuerySet)()
+
+    # A merge or a retirement rewrites a public, curated taxonomy, and both are
+    # administrative acts nobody can reconstruct from the surviving rows.
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["name"]
@@ -497,9 +502,10 @@ class SubjectAssignment(models.Model):
     join a subscription match runs through, so it has to be indexable from the
     document end, which is the end an incoming change event arrives at.
 
-    Assignment is a curation act with no history kept beyond when it happened.
-    Unassigning is a hard delete, in the way unsubscribing is: there is no
-    state between assigned and not.
+    Assignment is a curation act, and unassigning is a hard delete: there is no
+    state between assigned and not. Which documents carried a subject before an
+    unassignment or a merge lives in the history table, not here -- a merge drops
+    every one of the source's rows at once.
     """
 
     subject = models.ForeignKey(
@@ -507,6 +513,7 @@ class SubjectAssignment(models.Model):
     )
     doc = models.CharField(max_length=DOC_ID_MAX_LENGTH, db_index=True)
     assigned_at = models.DateTimeField(auto_now_add=True)
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["doc"]

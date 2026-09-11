@@ -57,6 +57,31 @@ def _jwks_client(jwks_endpoint):
     return jwt.PyJWKClient(jwks_endpoint)
 
 
+def _unaccepted_issuer_message(issuer):
+    """Name the slug to configure, not just the issuer that was presented.
+
+    REEF_API_OIDC_APP_SLUGS takes Authentik application slugs and the issuer is
+    derived from each, so a message that only quotes the issuer URL invites
+    pasting that URL into the setting, where it can never match.
+    """
+    applications = f"{settings.REEF_OIDC_HOST}/application/o/"
+    accepted = ", ".join(
+        repr(accepted_issuer.removeprefix(applications).strip("/"))
+        for accepted_issuer in settings.REEF_API_OIDC_JWKS_ENDPOINTS
+    )
+    presented = f"Bearer token from an issuer this API does not accept: {issuer!r}."
+    if isinstance(issuer, str) and issuer.startswith(applications):
+        slug = issuer.removeprefix(applications).strip("/")
+        return (
+            f"{presented} Its Authentik application slug is {slug!r}; add that to "
+            f"REEF_API_OIDC_APP_SLUGS, which currently names {accepted}."
+        )
+    return (
+        f"{presented} Only applications on {settings.REEF_OIDC_HOST} named in "
+        f"REEF_API_OIDC_APP_SLUGS are accepted; it currently names {accepted}."
+    )
+
+
 class BearerTokenAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
 
@@ -91,10 +116,7 @@ class BearerTokenAuthentication(authentication.BaseAuthentication):
             ) from exc
         issuer = unverified.get("iss")
         if issuer not in settings.REEF_API_OIDC_JWKS_ENDPOINTS:
-            raise exceptions.AuthenticationFailed(
-                f"Bearer token from an issuer this API does not accept: {issuer!r}. "
-                "Add its Authentik application slug to REEF_API_OIDC_APP_SLUGS."
-            )
+            raise exceptions.AuthenticationFailed(_unaccepted_issuer_message(issuer))
         return issuer
 
     def get_signing_key(self, token, issuer):

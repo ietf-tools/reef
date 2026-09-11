@@ -2,6 +2,7 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from simple_history.models import HistoricalRecords
 
 from reef.docids import normalize_doc_id
 
@@ -73,6 +74,10 @@ class Subscription(models.Model):
         blank=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    # Unsubscribing is a hard delete, which leaves nothing to distinguish somebody
+    # who unsubscribed from somebody who never subscribed -- the question that
+    # matters when a reader says they were mailed after opting out.
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["-created_at"]

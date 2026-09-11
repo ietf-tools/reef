@@ -96,6 +96,7 @@ Authentik application setup, including the redirect URIs to register.
 ruff check .              # lint
 ruff format --check .     # format check
 REEF_DEPLOYMENT_MODE=build ./manage.py spectacular \
+  --urlconf reef.urls_contract \
   --file reef_api.yaml --validate            # API schema
 cd client && npm run typecheck                            # client types
 ```
@@ -103,9 +104,10 @@ cd client && npm run typecheck                            # client types
 ## Deployment
 
 Production images are built from `dev/build/` (backend, frontend, statics) and
-published to ghcr.io by the GitHub Actions in `.github/workflows/`. Deployment
-uses Kustomize: `k8s/base` with `k8s/overlays/staging` and
-`k8s/overlays/production`.
+published to ghcr.io by the GitHub Actions in `.github/workflows/`. The release
+workflow dispatches to ietf-tools/infra-k8s, which applies the manifests in `k8s/`
+and supplies each environment's values through the `reef-secrets-env` secret; see
+`docs/development.md` for the variables it has to carry.
 
 ## Repository layout
 

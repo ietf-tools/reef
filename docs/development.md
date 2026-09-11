@@ -38,7 +38,41 @@ values:
 - `REEF_SURVEYJS_LICENSE_KEY` - required in production for Creator and Analytics.
 
 Production adds environment-driven `REEF_DJANGO_SECRET_KEY`, `REEF_ALLOWED_HOSTS`,
-and `REEF_DB_*`; see `reef/settings/production.py`.
+`REEF_DB_*`, `REEF_CORS_ALLOWED_ORIGINS`, `REEF_API_OIDC_APP_SLUGS` and
+`REEF_API_OIDC_AUDIENCES`; see `reef/settings/production.py`. Red reaches the API
+only once the last three are set, and each one fails in the browser rather than in
+a server log:
+
+- `REEF_CORS_ALLOWED_ORIGINS` - newline-separated browser origins allowed to call
+  the API, which is Red's origin for that environment
+  (`https://www.staging.rfc-editor.org` in staging, `https://www.rfc-editor.org` in
+  production). Unset means no cross-origin access: every request Red makes fails
+  at the preflight with a missing `Access-Control-Allow-Origin` header, and a
+  system check warns at startup. Development hard-codes Red's dev server in
+  `development.py` and ignores this variable.
+- `REEF_API_OIDC_APP_SLUGS` - comma-separated Authentik application slugs whose
+  access tokens the API accepts. Set it to `reef,rfc-editor`: the survey runner
+  and Red. The value is the slug alone, not the issuer URL; Reef builds the issuer
+  as `https://account.ietf.org/application/o/<slug>/` and matches a token's `iss`
+  against that, so a URL here can never match; the 401 Red gets back names the
+  slug to add. Setting the variable replaces the default of Reef's own slug rather
+  than adding to it, so `reef` has to stay in the list or the runner's own tokens
+  are rejected. Staging and production share the Authentik instance and its
+  applications, so the value is the same in both.
+- `REEF_API_OIDC_AUDIENCES` - comma-separated client ids of those same
+  applications, which is what Authentik puts in a token's `aud`. Defaults to Reef's
+  own client id alone, so with the slugs set but this not, Red's tokens pass the
+  issuer check and then fail on audience. List the values already in this
+  environment as `REEF_OIDC_RP_CLIENT_ID` and `NUXT_PUBLIC_OIDC_CLIENT_ID`, plus
+  Red's client id, which Red commits as the `oidcClientId` default in its
+  `website/nuxt.config.ts` and Authentik shows under the rfc-editor application's
+  provider. To confirm what a caller actually sends, decode the JWT in its
+  `Authorization` header and read `aud`. These are public client ids, not secrets.
+
+Staging is the production module unchanged. Anything that differs between staging
+and production is an environment value, and those live in the `reef-secrets-env`
+Kubernetes secret that the ietf-tools/infra-k8s repository defines per cluster,
+not in a settings file here.
 
 ## Email
 

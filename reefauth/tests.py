@@ -3,11 +3,12 @@ import datetime
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework import exceptions
 from rest_framework.test import APIRequestFactory
 
 from reefauth.authentication import BearerTokenAuthentication
+from reefauth.checks import cors_origins_configured
 
 _ISSUER = "https://account.ietf.org/application/o/reef/"
 _AUDIENCE = "reef-client"
@@ -81,6 +82,19 @@ class BearerTokenAuthenticationTests(TestCase):
             "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
         )
         with self.assertRaises(exceptions.AuthenticationFailed):
+            self.auth.authenticate(request)
+
+    @override_settings(REEF_OIDC_HOST="https://account.ietf.org")
+    def test_an_unlisted_application_is_named_by_its_slug(self):
+        token = _make_token(self.key, iss=_RED_ISSUER)
+        request = self.factory.get(
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        with self.assertRaisesMessage(
+            exceptions.AuthenticationFailed,
+            "slug is 'rfc-editor'; add that to REEF_API_OIDC_APP_SLUGS, which "
+            "currently names 'reef'.",
+        ):
             self.auth.authenticate(request)
 
     def test_wrong_audience_fails(self):
@@ -174,3 +188,21 @@ class BearerTokenAuthenticationTests(TestCase):
         )
         user, _ = self.auth.authenticate(request)
         self.assertTrue(user.is_staff)
+
+
+class CorsOriginsCheckTests(SimpleTestCase):
+    @override_settings(DEPLOYMENT_MODE="staging", CORS_ALLOWED_ORIGINS=[])
+    def test_a_cross_origin_deployment_with_no_origins_warns(self):
+        [warning] = cors_origins_configured(None)
+        self.assertEqual(warning.id, "reefauth.W001")
+
+    @override_settings(
+        DEPLOYMENT_MODE="production",
+        CORS_ALLOWED_ORIGINS=["https://www.rfc-editor.org"],
+    )
+    def test_a_configured_deployment_is_quiet(self):
+        self.assertEqual(cors_origins_configured(None), [])
+
+    @override_settings(DEPLOYMENT_MODE="development", CORS_ALLOWED_ORIGINS=[])
+    def test_development_is_not_asked(self):
+        self.assertEqual(cors_origins_configured(None), [])
