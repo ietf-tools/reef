@@ -28,7 +28,6 @@ class Migration(migrations.Migration):
                 ("event_kind", models.CharField(blank=True, max_length=64, null=True)),
                 ("event_key", models.CharField(blank=True, max_length=255, null=True)),
                 ("event", models.JSONField()),
-                ("processed_at", models.DateTimeField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "user",
@@ -41,18 +40,11 @@ class Migration(migrations.Migration):
             ],
             options={
                 "ordering": ["created_at"],
-                "indexes": [
-                    models.Index(
-                        fields=["processed_at", "created_at"],
-                        name="subject_event_pending_idx",
-                    )
-                ],
                 "constraints": [
                     models.UniqueConstraint(
                         condition=models.Q(
                             ("event_key__isnull", False),
                             ("event_kind__isnull", False),
-                            ("processed_at__isnull", True),
                         ),
                         fields=("user", "event_kind", "event_key"),
                         name="unique_pending_subject_event",

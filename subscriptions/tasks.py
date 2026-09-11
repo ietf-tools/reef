@@ -299,9 +299,7 @@ def _detect_and_notify():
         # next run compares against the same reading and misses nothing.
         logger.info("RFC change detection skipped because Red is unavailable")
 
-    subject_events = list(
-        SubjectNotificationEvent.objects.filter(processed_at__isnull=True)
-    )
+    subject_events = list(SubjectNotificationEvent.objects.all())
     for subject_event in subject_events:
         reader = per_reader[subject_event.user_id]
         reader["subscriptions"].update(subject_event.subscription_ids)

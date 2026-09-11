@@ -17,10 +17,11 @@ import_subjects both write with bulk_create, which sends no post_save signal, an
 that is what keeps a back-catalogue backfill of the roughly 9,800 RFCs from
 queuing events for every years-old document newly categorized -- see the
 "Assigning subjects at scale" and "Assignment as an event" open items in plan.md.
-Only assignment through the admin, one document at a time, queues an event for
-the daily digest.
+Admin assignments do fire, each row of the subject's assignment inline included; the
+daily digest folds however many were saved into one mail per reader.
 """
 
+import logging
 from collections import defaultdict
 
 from django.conf import settings
@@ -28,7 +29,9 @@ from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from subjects.models import SubjectAssignment
+from subjects.models import Subject, SubjectAssignment
+
+logger = logging.getLogger("reef")
 
 
 def _document_url(doc):
@@ -45,15 +48,19 @@ def _notify_new_assignment(sender, instance, created, **kwargs):
         return
 
     def notify():
-        from .matching import subscriptions_for_document
         from .models import Subscription
         from .tasks import stage_subject_event
 
-        # subscriptions_for_document already expands to every subject covering the
-        # document, ancestors included; kind=SUBJECT excludes the rfc and set
-        # subscribers it also matches, who are not being told anything new.
-        subscriptions = subscriptions_for_document(instance.doc).filter(
-            kind=Subscription.Kind.SUBJECT
+        # Matched on the subject and its ancestors, not through the document: a
+        # reader following HTTP learns nothing from the same document also becoming
+        # Security, which subscriptions_for_document would tell them.
+        subject = instance.subject
+        ancestor_ids = Subject.all_objects.filter(
+            path__in=subject.ancestor_paths
+        ).values_list("pk", flat=True)
+        subscriptions = Subscription.objects.filter(
+            kind=Subscription.Kind.SUBJECT,
+            subject_id__in=[subject.pk, *ancestor_ids],
         )
         if not subscriptions:
             return
@@ -63,8 +70,8 @@ def _notify_new_assignment(sender, instance, created, **kwargs):
             "change": f"Added to the subject {instance.subject.name}.",
             "url": _document_url(instance.doc),
         }
-        # Grouped by reader before queuing, so the daily digest can name every
-        # matching subscription without creating duplicate event rows.
+        # One row per reader: following both Email and Messaging is one line with
+        # two reasons, and a second row would break the (user, kind, key) constraint.
         subscription_ids_by_user = defaultdict(list)
         for subscription in subscriptions:
             subscription_ids_by_user[subscription.user_id].append(subscription.pk)
@@ -77,4 +84,16 @@ def _notify_new_assignment(sender, instance, created, **kwargs):
                 event,
             )
 
-    transaction.on_commit(notify)
+    def notify_guarded():
+        # The save has already committed. An exception here would 500 it and make
+        # Django drop the commit hooks queued behind this one.
+        try:
+            notify()
+        except Exception:
+            logger.warning(
+                "Could not stage a notification for assignment %s",
+                instance.pk,
+                exc_info=True,
+            )
+
+    transaction.on_commit(notify_guarded)

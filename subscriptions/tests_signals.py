@@ -1,12 +1,12 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Notifying subject subscribers from SubjectAssignment.save(), not from the diff."""
 
+from unittest import mock
+
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.test import TestCase
 
-from reef.testing import document_meta as meta
-from reef.testing import stub_rfc_index
 from subjects.models import Subject, SubjectAssignment
 
 from .models import SubjectNotificationEvent, Subscription
@@ -16,7 +16,6 @@ User = get_user_model()
 
 class NewAssignmentNotificationTests(TestCase):
     def setUp(self):
-        stub_rfc_index(self, {"rfc9110": meta()})
         self.user = User.objects.create(
             username="u", oidc_sub="s", email="reader@example.org"
         )
@@ -46,6 +45,17 @@ class NewAssignmentNotificationTests(TestCase):
             SubjectAssignment.objects.create(subject=child, doc="rfc9110")
 
         self.assertEqual(SubjectNotificationEvent.objects.count(), 1)
+
+    def test_a_follower_of_another_subject_on_the_document_is_not_notified(self):
+        """The document already carried HTTP. Tagging it Security is news to
+        Security's followers; nothing about HTTP changed."""
+        http = Subject.objects.create(name="HTTP", slug="http")
+        SubjectAssignment.objects.create(subject=http, doc="rfc9110")
+        self.follow(http)
+        with self.captureOnCommitCallbacks(execute=True):
+            SubjectAssignment.objects.create(subject=self.subject, doc="rfc9110")
+
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_a_subscriber_to_an_unrelated_subject_is_not_notified(self):
         other = Subject.objects.create(name="Routing", slug="routing")
@@ -107,6 +117,23 @@ class NewAssignmentNotificationTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             assignment.delete()
 
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
+
+    def test_a_staging_failure_does_not_fail_the_save(self):
+        """The assignment has already committed when the hook runs; a missing
+        digest line is logged rather than turned into a 500."""
+        self.follow(self.subject)
+        with (
+            mock.patch(
+                "subscriptions.tasks.stage_subject_event",
+                side_effect=DatabaseError("down"),
+            ),
+            self.assertLogs("reef", level="WARNING") as logs,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            SubjectAssignment.objects.create(subject=self.subject, doc="rfc9110")
+
+        self.assertIn("Could not stage a notification", logs.output[0])
         self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_a_rolled_back_assignment_notifies_nobody(self):
