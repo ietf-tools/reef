@@ -14,7 +14,11 @@ from reef.testing import stub_rfc_index, warm_rfc_index
 from subjects.models import Subject, SubjectAssignment
 from subscriptions.changes import diff, load_snapshot, reduce_index
 from subscriptions.matching import subscriptions_for_change
-from subscriptions.models import PendingNotification, Subscription
+from subscriptions.models import (
+    PendingNotification,
+    SubjectNotificationEvent,
+    Subscription,
+)
 from subscriptions.tasks import detect_rfc_changes
 
 User = get_user_model()
@@ -129,6 +133,88 @@ class NotifyRfcChangesTests(TestCase):
         notification = PendingNotification.objects.get()
         self.assertEqual(notification.user, self.user)
         self.assertEqual(notification.events[0]["doc"], "rfc9999")
+
+    def test_a_subject_event_is_consolidated_into_the_daily_digest(self):
+        self.seed()
+        subject = Subject.objects.create(name="Security", slug="security")
+        SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        SubjectNotificationEvent.objects.create(
+            user=self.user,
+            subscription_ids=[subscription.pk],
+            event={
+                "doc": "rfc9110",
+                "change": "Added to the subject Security.",
+                "url": "https://www.rfc-editor.org/info/rfc9110/",
+            },
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(detect_rfc_changes(), 1)
+
+        notification = PendingNotification.objects.get()
+        self.assertEqual(
+            notification.events[0]["change"], "Added to the subject Security."
+        )
+        self.assertEqual(
+            SubjectNotificationEvent.objects.count(),
+            0,
+        )
+
+    def test_a_pending_subject_event_is_delivered_when_red_is_unavailable(self):
+        subject = Subject.objects.create(name="Security", slug="security")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        SubjectNotificationEvent.objects.create(
+            user=self.user,
+            subscription_ids=[subscription.pk],
+            event={"doc": "", "change": "Subject merged.", "url": ""},
+        )
+        with mock.patch("reef.rfcmeta.get_index", return_value=None):
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertEqual(detect_rfc_changes(), 1)
+
+        self.assertEqual(PendingNotification.objects.count(), 1)
+
+    def test_identical_subject_events_on_different_days_do_not_collide(self):
+        subject = Subject.objects.create(name="Security", slug="security")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        event = {
+            "doc": "rfc9110",
+            "change": "Added to the subject Security.",
+            "url": "https://www.rfc-editor.org/info/rfc9110/",
+        }
+        with mock.patch(
+            "subscriptions.tasks.timezone.localdate",
+            side_effect=[
+                datetime.date(2026, 9, 1),
+                datetime.date(2026, 9, 1),
+                datetime.date(2026, 9, 2),
+            ],
+        ):
+            self.seed()
+            SubjectNotificationEvent.objects.create(
+                user=self.user,
+                subscription_ids=[subscription.pk],
+                event_kind="subject_assignment",
+                event_key="subject-assignment:1",
+                event=event,
+            )
+            self.assertEqual(detect_rfc_changes(), 1)
+            SubjectNotificationEvent.objects.create(
+                user=self.user,
+                subscription_ids=[subscription.pk],
+                event_kind="subject_assignment",
+                event_key="subject-assignment:2",
+                event=event,
+            )
+            self.assertEqual(detect_rfc_changes(), 1)
+
+        self.assertEqual(PendingNotification.objects.count(), 2)
 
     def test_a_reader_matched_two_ways_gets_one_notification(self):
         """Coalesced per reader, not per subscription."""

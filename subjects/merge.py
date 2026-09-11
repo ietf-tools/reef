@@ -155,22 +155,22 @@ def merge_message(source, target):
 def notify_merge(source, target, subscription_ids):
     """Tell everybody whose subscription now means something else.
 
-    Through the ordinary notification queue rather than a message of its own, so it
-    inherits everything that path already settled: written to the database before it
-    is enqueued, one mail per reader, and held rather than sent if the deployment has
-    no unsubscribe URL. The event carries no document, which the digest template and
-    subject line already handle, because this is news about the vocabulary rather
-    than about an RFC.
+    Stage the event for the next consolidated digest. The event carries no document,
+    which the digest template and subject line already handle, because this is news
+    about the vocabulary rather than about an RFC.
     """
     from subscriptions.models import Subscription
-    from subscriptions.tasks import queue_notification
+    from subscriptions.tasks import stage_subject_event
 
     change = merge_message(source, target)
-    for subscription in Subscription.objects.filter(pk__in=subscription_ids):
-        queue_notification(
+    subscriptions = Subscription.objects.filter(pk__in=subscription_ids)
+    for subscription in subscriptions:
+        stage_subject_event(
             subscription.user_id,
             [subscription.pk],
-            [{"doc": "", "change": change, "url": ""}],
+            "subject_merge",
+            f"subject-merge:{source.pk}:{target.pk}",
+            {"doc": "", "change": change, "url": ""},
         )
 
 

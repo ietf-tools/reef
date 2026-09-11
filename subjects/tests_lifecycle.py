@@ -10,7 +10,7 @@ from reef.testing import stub_rfc_index
 from subjects.merge import MergeError, merge_and_notify, merge_subjects
 from subjects.models import Subject, SubjectAssignment
 from subjects.tests_hierarchy import tree
-from subscriptions.models import PendingNotification, Subscription
+from subscriptions.models import SubjectNotificationEvent, Subscription
 
 User = get_user_model()
 
@@ -116,10 +116,10 @@ class MergeTests(TestCase):
         self.follow(self.source, user=other)
         with self.captureOnCommitCallbacks(execute=True):
             merge_and_notify(self.source, self.target)
-        self.assertEqual(PendingNotification.objects.count(), 2)
-        notification = PendingNotification.objects.first()
-        self.assertIn("Security", notification.events[0]["change"])
-        self.assertIn("Security and privacy", notification.events[0]["change"])
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 2)
+        notification = SubjectNotificationEvent.objects.first()
+        self.assertIn("Security", notification.event["change"])
+        self.assertIn("Security and privacy", notification.event["change"])
 
     def test_somebody_following_both_is_told_once(self):
         """Their subscription changed meaning even though it was not the one that
@@ -128,7 +128,7 @@ class MergeTests(TestCase):
         self.follow(self.target)
         with self.captureOnCommitCallbacks(execute=True):
             merge_and_notify(self.source, self.target)
-        self.assertEqual(PendingNotification.objects.count(), 1)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 1)
 
     def test_the_notice_carries_no_document(self):
         """It is news about the vocabulary rather than about an RFC, which the
@@ -136,7 +136,7 @@ class MergeTests(TestCase):
         self.follow(self.source)
         with self.captureOnCommitCallbacks(execute=True):
             merge_and_notify(self.source, self.target)
-        self.assertEqual(PendingNotification.objects.get().events[0]["doc"], "")
+        self.assertEqual(SubjectNotificationEvent.objects.get().event["doc"], "")
 
 
 class RetiredSubjectApiTests(APITestCase):
