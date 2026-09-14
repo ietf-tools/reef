@@ -10,12 +10,19 @@ exception itself in the response body so it's visible without log access.
 TODO: revert to `mozilla_django_oidc.views.OIDCAuthenticationCallbackView`
 directly (or just `include("mozilla_django_oidc.urls")` in reef/urls.py) once
 the staging 500 is diagnosed.
+
+Deliberately not gated on settings.DEPLOYMENT_MODE: a first version tried to
+only show the traceback outside "production", but that assumed staging's
+REEF_DEPLOYMENT_MODE is actually set to "staging" rather than defaulting to
+"production" — an assumption that turned out to be wrong (or at least
+unverifiable from here), which silently swallowed the debug output. This
+always shows it, which does mean anyone who completes (or replays) a login
+here sees a traceback until this is reverted.
 """
 
 import logging
 import traceback
 
-from django.conf import settings
 from django.http import HttpResponse
 from mozilla_django_oidc.views import OIDCAuthenticationCallbackView
 
@@ -28,8 +35,6 @@ class DebugOIDCAuthenticationCallbackView(OIDCAuthenticationCallbackView):
             return super().get(request)
         except Exception:
             logger.exception("OIDC callback failed")
-            if settings.DEPLOYMENT_MODE == "production":
-                raise
             return HttpResponse(
                 "OIDC callback failed:\n\n" + traceback.format_exc(),
                 status=500,
