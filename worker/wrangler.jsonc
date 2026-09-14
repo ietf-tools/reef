@@ -1,0 +1,57 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "reef-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-16",
+  "observability": {
+    "logs": {
+      "enabled": true
+    },
+    "traces": {
+      "enabled": true,
+      "destinations": ["heimdall-otlp"]
+    }
+  },
+  "env": {
+    "staging": {
+      // More specific than reef-frontend's `surveys.staging.rfc-editor.org/*` route
+      // (client/wrangler.jsonc), so Cloudflare sends these paths here first. Django
+      // itself only knows these same endpoints under /api/reef/*, not /api/v1/*; each
+      // route's originPath (src/index.ts) rewrites to the real path on a bucket miss.
+      "routes": [{ "pattern": "surveys.staging.rfc-editor.org/api/v1/*", "zone_name": "rfc-editor.org" }],
+      "r2_buckets": [
+        {
+          "binding": "REEF_BUCKET",
+          // Placeholder: point this at whatever bucket REEF_PRECOMPUTE_S3_BUCKET
+          // names for staging.
+          "bucket_name": "reef-staging",
+          "preview_bucket_name": "reef-staging"
+        }
+      ],
+      "vars": {
+        // Must track Django's REEF_CORS_ALLOWED_ORIGINS for this environment
+        // (reef/settings/production.py) -- these bucket reads bypass Django's own
+        // CORS middleware entirely, so the worker has to enforce the same policy.
+        "ALLOWED_ORIGINS": "https://www.staging.rfc-editor.org"
+      }
+    },
+    "production": {
+      "routes": [{ "pattern": "surveys.rfc-editor.org/api/v1/*", "zone_name": "rfc-editor.org" }],
+      "r2_buckets": [
+        {
+          "binding": "REEF_BUCKET",
+          // Placeholder: point this at whatever bucket REEF_PRECOMPUTE_S3_BUCKET
+          // names for production.
+          "bucket_name": "reef-prod"
+        }
+      ],
+      "vars": {
+        "ALLOWED_ORIGINS": "https://www.rfc-editor.org"
+      }
+    }
+  }
+}

@@ -109,7 +109,10 @@ OIDC_OP_END_SESSION_ENDPOINT = f"{_oidc_app}/{REEF_ADMIN_OIDC_APP_SLUG}/end-sess
 
 OIDC_RP_CLIENT_ID = os.environ.get("REEF_ADMIN_OIDC_RP_CLIENT_ID", "")
 OIDC_RP_CLIENT_SECRET = os.environ.get("REEF_ADMIN_OIDC_RP_CLIENT_SECRET", "")
-OIDC_RP_SIGN_ALGO = "RS256"
+# reef-admin's assigned signing key is EC, same as rfc-editor's (see
+# REEF_API_OIDC_ALGORITHMS below) — this instance's certificates are EC by
+# convention, not RSA.
+OIDC_RP_SIGN_ALGO = "ES256"
 OIDC_RP_SCOPES = "openid profile email"
 OIDC_STORE_ID_TOKEN = True  # kept in session for RP-initiated logout
 OIDC_OP_LOGOUT_URL_METHOD = "reefauth.utils.op_logout_url"
