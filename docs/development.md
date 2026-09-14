@@ -29,12 +29,18 @@ static generation during image builds).
 Copy `.env.example` to `.env`. docker compose reads it automatically. The key
 values:
 
-- `REEF_OIDC_RP_CLIENT_ID` / `REEF_OIDC_RP_CLIENT_SECRET` - the confidential
-  Authentik client for the Django builder/analytics site.
-- `NUXT_PUBLIC_OIDC_CLIENT_ID` - the public (PKCE) Authentik client for the Nuxt
-  runner.
+- `REEF_ADMIN_OIDC_RP_CLIENT_ID` / `REEF_ADMIN_OIDC_RP_CLIENT_SECRET` - the
+  confidential Authentik client for the "reef-admin" application, the only
+  interactive login Reef performs (Django admin and the builder/analytics site
+  at `/manage/` — the same administration functionality, gated the same way).
+- `NUXT_PUBLIC_OIDC_CLIENT_ID` - the public (PKCE) Authentik client the Nuxt
+  runner uses to authenticate a survey-taker directly against Red's own
+  "rfc-editor" application. Entirely client-side; Reef is never a party to
+  this login, see the API section below for the server-side half.
 - `REEF_OIDC_STAFF_GROUPS` - comma-separated Authentik groups granted staff
-  access. Empty means no one is staff via OIDC; use the break-glass superuser.
+  access, whether logging into the admin/builder site directly or calling the
+  API with an rfc-editor bearer token. Empty means no one is staff via OIDC;
+  use the break-glass superuser for admin access instead.
 - `REEF_SURVEYJS_LICENSE_KEY` - required in production for Creator and Analytics.
 
 Production adds environment-driven `REEF_DJANGO_SECRET_KEY`, `REEF_ALLOWED_HOSTS`,
@@ -51,20 +57,20 @@ a server log:
   system check warns at startup. Development hard-codes Red's dev server in
   `development.py` and ignores this variable.
 - `REEF_API_OIDC_APP_SLUGS` - comma-separated Authentik application slugs whose
-  access tokens the API accepts. Set it to `reef,rfc-editor`: the survey runner
-  and Red. The value is the slug alone, not the issuer URL; Reef builds the issuer
-  as `https://account.ietf.org/application/o/<slug>/` and matches a token's `iss`
-  against that, so a URL here can never match; the 401 Red gets back names the
-  slug to add. Setting the variable replaces the default of Reef's own slug rather
-  than adding to it, so `reef` has to stay in the list or the runner's own tokens
-  are rejected. Staging and production share the Authentik instance and its
+  access tokens the API accepts. The one caller today is `rfc-editor`: both Red
+  itself and survey-takers the Nuxt runner authenticated (`NUXT_PUBLIC_OIDC_CLIENT_ID`
+  above is a client of that same application), so it's the default. The value is
+  the slug alone, not the issuer URL; Reef builds the issuer as
+  `https://account.ietf.org/application/o/<slug>/` and matches a token's `iss`
+  against that, so a URL here can never match; the 401 a caller gets back names
+  the slug to add. Staging and production share the Authentik instance and its
   applications, so the value is the same in both.
 - `REEF_API_OIDC_AUDIENCES` - comma-separated client ids of those same
-  applications, which is what Authentik puts in a token's `aud`. Defaults to Reef's
-  own client id alone, so with the slugs set but this not, Red's tokens pass the
-  issuer check and then fail on audience. List the values already in this
-  environment as `REEF_OIDC_RP_CLIENT_ID` and `NUXT_PUBLIC_OIDC_CLIENT_ID`, plus
-  Red's client id, which Red commits as the `oidcClientId` default in its
+  applications, which is what Authentik puts in a token's `aud`. No default: a
+  client id is opaque and per-deployment, so unlike the slug above there's
+  nothing sensible to name automatically — an empty list disables audience
+  verification, so every real deployment must set this. List `NUXT_PUBLIC_OIDC_CLIENT_ID`
+  plus Red's client id, which Red commits as the `oidcClientId` default in its
   `website/nuxt.config.ts` and Authentik shows under the rfc-editor application's
   provider. To confirm what a caller actually sends, decode the JWT in its
   `Authorization` header and read `aud`. These are public client ids, not secrets.
@@ -101,17 +107,22 @@ confirmation.
 
 ## Authentik setup
 
-Register a `reef` application in Authentik (account.ietf.org). Reef uses two
-clients against it:
+Reef itself registers one application in Authentik (account.ietf.org):
 
-- Confidential client (Django site). Register redirect URI
-  `http://localhost:8088/oidc/callback/` for development, plus the staging and
-  production equivalents.
-- Public client with PKCE (Nuxt runner). Register redirect URI
-  `http://localhost:8088/auth/callback` for development.
+- `reef-admin` (`reef-admin-staging` in staging, per `REEF_ADMIN_OIDC_APP_SLUG`)
+  — the Django admin and `/manage/` builder/analytics, the same administration
+  functionality gated the same way. One confidential client against it,
+  redirect URI `http://localhost:8088/oidc/callback/` for development, plus the
+  staging and production equivalents.
+
+Public survey-taking authenticates against Red's own `rfc-editor` application
+instead, entirely client-side (see `NUXT_PUBLIC_OIDC_CLIENT_ID` above) — Reef
+doesn't register anything for that, it only validates the resulting access
+token as an API caller (`REEF_API_OIDC_*`).
 
 OIDC endpoints are derived from the host and application slug in
-`reef/settings/base.py`; only credentials and redirect URIs need configuring.
+`reef/settings/base.py`; only credentials and the redirect URI need
+configuring.
 
 ## Break-glass superuser
 
@@ -121,27 +132,30 @@ For access when Authentik is unavailable, create a local superuser:
 ./manage.py createsuperuser
 ```
 
-It can sign in at `/admin/`.
+It can sign in at `/admin/`, using the username/password form below the
+"Sign in with Authentik" link.
 
 ## Authentication summary
 
-- Django `/manage/` builder and analytics: server-side OIDC login (session).
-- Nuxt runner: browser OIDC via oidc-client-ts; required only for surveys whose
-  visibility is `authenticated`.
+- Django `/manage/` builder/analytics and `/admin/`: the same interactive,
+  server-side OIDC login (session), via the `reef-admin` application — follow
+  the "Sign in with Authentik" link on `/admin/login/`, or go directly to
+  `/oidc/authenticate/?next=/manage/` (or `?next=/admin/`).
+- Nuxt runner: browser OIDC via oidc-client-ts, against Red's `rfc-editor`
+  application; required only for surveys whose visibility is `authenticated`.
 - API: Reef validates Authentik bearer tokens as a resource server; the
   open-survey list treats a token as optional (it adds user-specific surveys
   when present) and popularity and open surveys are anonymous.
 
-Logging staff into the Django site and validating API callers' tokens are two
-separate roles, configured separately. The `OIDC_*` settings (derived from
-`REEF_OIDC_APP_SLUG`) are the relying-party login. Which callers the API accepts
-is `REEF_API_OIDC_APP_SLUGS`, `REEF_API_OIDC_AUDIENCES` and
-`REEF_API_OIDC_ALGORITHMS`, because each calling Authentik application — the
-survey runner under `reef`, Red under `rfc-editor` — has its own issuer, JWKS,
-client id and signing key. A caller whose application slug is not listed is
-rejected with a message naming the issuer it presented, and each token is
-verified against its own issuer's JWKS, so one accepted application's token
-cannot be presented as another's.
+Logging staff into Reef and validating API callers' tokens are two separate
+roles, configured separately. The `OIDC_*` settings (derived from
+`REEF_ADMIN_OIDC_APP_SLUG`) are the one relying-party login, shared by
+`/manage/` and `/admin/` alike. Which callers the API accepts is
+`REEF_API_OIDC_APP_SLUGS`, `REEF_API_OIDC_AUDIENCES` and
+`REEF_API_OIDC_ALGORITHMS` — today just `rfc-editor`, which has its own issuer,
+JWKS, client id and signing key, independent of the admin login's. A caller
+whose application slug is not listed is rejected with a message naming the
+issuer it presented, and each token is verified against its own issuer's JWKS.
 
 Note the algorithm is per application and is not `OIDC_RP_SIGN_ALGO`: Authentik
 signs with whatever key the application was given, and rfc-editor uses ES256

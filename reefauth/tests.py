@@ -4,6 +4,7 @@ import datetime
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
 from rest_framework import exceptions
 from rest_framework.test import APIRequestFactory
 
@@ -206,3 +207,15 @@ class CorsOriginsCheckTests(SimpleTestCase):
     @override_settings(DEPLOYMENT_MODE="development", CORS_ALLOWED_ORIGINS=[])
     def test_development_is_not_asked(self):
         self.assertEqual(cors_origins_configured(None), [])
+
+
+class AdminLoginPageTests(TestCase):
+    """/admin/login/ must still offer the break-glass username/password form
+    (for when Authentik is unavailable) alongside the Authentik link, since
+    that form is the only way in for the local superuser."""
+
+    def test_login_page_offers_both_authentik_and_the_local_form(self):
+        response = self.client.get("/admin/login/")
+        oidc_url = reverse("oidc_authentication_init")
+        self.assertContains(response, f'href="{oidc_url}')
+        self.assertContains(response, 'name="password"')
