@@ -6,11 +6,26 @@ from django.contrib import admin
 from django.http import HttpResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from mozilla_django_oidc.views import OIDCAuthenticationRequestView, OIDCLogoutView
+
+from reefauth.views import DebugOIDCAuthenticationCallbackView
 
 urlpatterns = [
     path("health/", lambda _: HttpResponse(status=204)),
     path("admin/", admin.site.urls),
-    path("oidc/", include("mozilla_django_oidc.urls")),
+    # TODO: swap back to include("mozilla_django_oidc.urls") once the staging
+    # 500 at /oidc/callback/ is diagnosed — see reefauth/views.py.
+    path(
+        "oidc/authenticate/",
+        OIDCAuthenticationRequestView.as_view(),
+        name="oidc_authentication_init",
+    ),
+    path(
+        "oidc/callback/",
+        DebugOIDCAuthenticationCallbackView.as_view(),
+        name="oidc_authentication_callback",
+    ),
+    path("oidc/logout/", OIDCLogoutView.as_view(), name="oidc_logout"),
     path("api/reef/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
         "api/reef/schema/swagger-ui/",
