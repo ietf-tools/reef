@@ -5,6 +5,7 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.db import DatabaseError, transaction
+from django.db.models.signals import post_save
 from django.test import TestCase
 
 from subjects.models import Subject, SubjectAssignment
@@ -36,6 +37,9 @@ class NewAssignmentNotificationTests(TestCase):
         self.assertEqual(notification.subscription_ids, [subscription.pk])
         self.assertEqual(notification.event["change"], "Added to the subject Security.")
         self.assertEqual(notification.event["doc"], "rfc9110")
+        self.assertEqual(
+            notification.event_key, f"subject-assignment:{self.subject.pk}:rfc9110"
+        )
 
     def test_a_subscriber_to_a_covering_ancestor_is_also_notified(self):
         parent = Subject.objects.create(name="Messaging", slug="messaging")
@@ -103,6 +107,34 @@ class NewAssignmentNotificationTests(TestCase):
             )
 
         self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
+
+    def test_a_fixture_load_notifies_nobody(self):
+        """loaddata saves each row with raw=True and created=True for a fresh
+        table; replaying a dump is not staff tagging anything."""
+        self.follow(self.subject)
+        assignment = SubjectAssignment(subject=self.subject, doc="rfc9110")
+        with self.captureOnCommitCallbacks(execute=True):
+            post_save.send(
+                sender=SubjectAssignment, instance=assignment, created=True, raw=True
+            )
+
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
+
+    def test_a_tag_removed_and_re_added_before_the_digest_is_one_line(self):
+        """The key names the fact, not the row, so the second stage hits the
+        unique constraint and is dropped rather than duplicating the line. That
+        is routine, not a warning."""
+        self.follow(self.subject)
+        with self.captureOnCommitCallbacks(execute=True):
+            SubjectAssignment.objects.create(subject=self.subject, doc="rfc9110")
+            SubjectAssignment.objects.get().delete()
+        with (
+            self.assertNoLogs("reef", level="WARNING"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            SubjectAssignment.objects.create(subject=self.subject, doc="rfc9110")
+
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 1)
 
     def test_unassigning_notifies_nobody(self):
         """Removing an assignment is a correction to the vocabulary, not news

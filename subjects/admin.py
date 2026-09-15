@@ -228,8 +228,8 @@ class SubjectAdmin(admin.ModelAdmin):
             else:
                 self.message_user(
                     request,
-                    f"Merged {source} into {target}; "
-                    f"notified {len(affected)} subscriber(s).",
+                    f"Merged {source} into {target}; {len(affected)} "
+                    f"subscriber(s) will be told in the next daily digest.",
                 )
                 return HttpResponseRedirect(
                     reverse("admin:subjects_subject_changelist")

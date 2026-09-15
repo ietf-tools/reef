@@ -1,8 +1,11 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Retiring and merging: taking a subject out of use without cutting anybody off."""
 
+from unittest import mock
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db import DatabaseError
 from django.test import TestCase
 from rest_framework.test import APITestCase
 
@@ -120,6 +123,27 @@ class MergeTests(TestCase):
         notification = SubjectNotificationEvent.objects.first()
         self.assertIn("Security", notification.event["change"])
         self.assertIn("Security and privacy", notification.event["change"])
+
+    def test_a_merge_whose_followers_cannot_be_told_is_rolled_back(self):
+        """Better an admin error than a subscription that changed meaning with
+        nobody the wiser."""
+        self.follow(self.source)
+        SubjectAssignment.objects.create(subject=self.source, doc="rfc9110")
+        with (
+            mock.patch(
+                "subscriptions.tasks.stage_subject_event",
+                side_effect=DatabaseError("down"),
+            ),
+            self.assertRaises(DatabaseError),
+        ):
+            merge_and_notify(self.source, self.target)
+
+        self.source.refresh_from_db()
+        self.assertFalse(self.source.is_retired)
+        self.assertEqual(self.source.assignments.count(), 1)
+        self.assertEqual(self.target.assignments.count(), 0)
+        self.assertEqual(Subscription.objects.get().subject, self.source)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_somebody_following_both_is_told_once(self):
         """Their subscription changed meaning even though it was not the one that

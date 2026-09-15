@@ -181,7 +181,7 @@ class RetireActionTests(SubjectAdminTestCase):
         url = reverse("admin:subjects_subject_merge", args=[source.pk])
 
         with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(url, {"target": target.pk})
+            response = self.client.post(url, {"target": target.pk}, follow=True)
 
         self.assertRedirects(response, reverse("admin:subjects_subject_changelist"))
         source.refresh_from_db()
@@ -189,6 +189,10 @@ class RetireActionTests(SubjectAdminTestCase):
         self.assertTrue(source.is_retired)
         self.assertEqual(subscription.subject_id, target.pk)
         self.assertEqual(SubjectNotificationEvent.objects.count(), 1)
+        # Nothing has been sent yet; the message must not claim otherwise.
+        self.assertContains(
+            response, "1 subscriber(s) will be told in the next daily digest"
+        )
 
     def test_merge_action_requires_one_selected_subject(self):
         response = self.post_action(

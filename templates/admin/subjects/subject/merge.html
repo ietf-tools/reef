@@ -3,7 +3,7 @@
 {% block content %}
 <h1>Merge subject</h1>
 <p>Merge <strong>{{ source.name }}</strong> into the selected subject.</p>
-<p>This moves its documents, children, aliases, and subscriptions, then retires the source. Affected subscribers will receive a notification.</p>
+<p>This moves its documents, children, aliases, and subscriptions, then retires the source. Affected subscribers will be told in the next daily digest.</p>
 <form method="post">
   {% csrf_token %}
   {{ form.as_p }}

@@ -7,10 +7,11 @@ Reef's own admin produces no event there -- nothing in Red's index moved. This i
 the other half: a signal on SubjectAssignment, the write that decides "this
 document now carries this subject", which is the only place that fact exists.
 
-post_save with created=True only, not post_delete: unassigning is a correction to
-the vocabulary rather than news about the document, in the same way Red losing an
-obsoleted_by entry is described but does not warrant its own mail (see
-subscriptions/changes.py::render_change).
+post_save with created=True only, not post_delete: unassigning is a curation
+correction -- a tag that should not have been there -- rather than news about the
+document, so it earns no line. That is a narrower rule than Red's relations get,
+where losing one is reported ("No longer obsoleted by"), because there the relation
+is a fact about the document rather than about the vocabulary.
 
 Deliberately does not fire for a bulk assignment. import_assignments and
 import_subjects both write with bulk_create, which sends no post_save signal, and
@@ -18,14 +19,18 @@ that is what keeps a back-catalogue backfill of the roughly 9,800 RFCs from
 queuing events for every years-old document newly categorized -- see the
 "Assigning subjects at scale" and "Assignment as an event" open items in plan.md.
 Admin assignments do fire, each row of the subject's assignment inline included; the
-daily digest folds however many were saved into one mail per reader.
+daily digest folds however many were saved into one mail per reader. A merge moves
+the source's documents onto the target with bulk_create as well, so the target's
+existing followers are not told about the arrivals: the documents were already
+categorized, only re-filed. The source's followers hear about the merge itself, from
+subjects.merge.notify_merge.
 """
 
 import logging
 from collections import defaultdict
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -44,7 +49,8 @@ def _document_url(doc):
     post_save, sender=SubjectAssignment, dispatch_uid="notify_new_subject_assignment"
 )
 def _notify_new_assignment(sender, instance, created, **kwargs):
-    if not created:
+    # raw is a fixture load replaying rows, not staff tagging a document.
+    if not created or kwargs.get("raw"):
         return
 
     def notify():
@@ -75,14 +81,28 @@ def _notify_new_assignment(sender, instance, created, **kwargs):
         subscription_ids_by_user = defaultdict(list)
         for subscription in subscriptions:
             subscription_ids_by_user[subscription.user_id].append(subscription.pk)
+        # Keyed on the fact, not the row: a tag removed and re-added before the
+        # digest runs is one line, because the unique constraint refuses the
+        # second stage. The savepoint keeps that refusal from poisoning any
+        # transaction this callback happens to run inside.
+        event_key = f"subject-assignment:{subject.pk}:{instance.doc}"
         for user_id, subscription_ids in subscription_ids_by_user.items():
-            stage_subject_event(
-                user_id,
-                subscription_ids,
-                "subject_assignment",
-                f"subject-assignment:{instance.pk}",
-                event,
-            )
+            try:
+                with transaction.atomic():
+                    stage_subject_event(
+                        user_id,
+                        subscription_ids,
+                        "subject_assignment",
+                        event_key,
+                        event,
+                    )
+            except IntegrityError:
+                logger.info(
+                    "Assignment of %s to %s already staged for user %s",
+                    instance.doc,
+                    subject.slug,
+                    user_id,
+                )
 
     def notify_guarded():
         # The save has already committed. An exception here would 500 it and make

@@ -1177,23 +1177,24 @@ Then, for precomputed reads:
   subscriber could mean a change to a document carrying X, which the daily diff of
   Red's index already caught, or a document being newly given X, which nothing did,
   because that fact exists only in Reef's own admin and no diff of Red's index would
-  ever see it. subscriptions/signals.py now enqueues a notification straight from
-  SubjectAssignment's post_save, to subject subscriptions covering the document
-  including ancestors, the moment staff assign one document at a time. What that
-  leaves resolved rather than open: bulk_create fires no post_save signal, so
-  import_assignments and import_subjects -- the tools a back-catalogue backfill would
-  use -- notify nobody, which is what answers the "five-year-old RFC just
-  categorized" worry without a flag to decide it. Unassigning does not notify either,
-  on the same footing as Red losing a relation: a correction to the vocabulary rather
-  than news about the document.
-
-  Left open rather than solved: the signal enqueues immediately, outside the daily
-  run's per-reader coalescing, so a document tagged in the morning and also changed
-  in that night's diff of Red's index sends its subscriber two mails rather than one
-  naming both. Each is individually accurate and non-duplicate -- the dedupe_key
-  differs because the scope and the event text do -- so nothing is wrong, only
-  un-merged. Coalescing the two would mean routing the signal through the same daily
-  run rather than sending on commit, which trades the immediacy for the merge.
+  ever see it. subscriptions/signals.py now catches it at SubjectAssignment's
+  post_save and stages one SubjectNotificationEvent row per reader, for the subject
+  subscriptions covering the document including ancestors, keyed on the subject and
+  the document so that a tag removed and re-added before the digest runs is still
+  one line. The daily run then folds the staged rows into the same per-reader
+  digest as Red's changes and deletes them. That closes the coalescing question
+  this item once left open: a document tagged in the morning and also changed in
+  that night's diff of Red's index is one mail naming both, at the price of the
+  tagging being reported the next morning rather than on commit. What stays
+  resolved: bulk_create fires no post_save signal, so import_assignments and
+  import_subjects -- the tools a back-catalogue backfill would use -- notify nobody,
+  which is what answers the "five-year-old RFC just categorized" worry without a
+  flag to decide it, and a fixture load (a raw save) is skipped for the same reason.
+  Unassigning does not notify: a correction to the vocabulary rather than news about
+  the document. A merge moves the source's documents onto the target with
+  bulk_create too, so the target's existing followers are not told about the
+  arrivals; the source's followers are told, by the merge notice, that their
+  subscription now means something else.
 - Subject breadth in the statistics: subscriber_count now includes subject
   subscriptions, on the same reasoning that includes set ones: they produce mail about
   the document, so somebody is watching it. But a subject can cover a large fraction of
