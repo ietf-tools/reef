@@ -2,7 +2,7 @@
 
 <img src="https://static.ietf.org/logos/icon-surveys.svg" alt="REEF" height="125" />
 
-# REEF
+# Surveys.RFC-Editor.org 
 
 [![Release](https://img.shields.io/github/release/ietf-tools/reef.svg?style=flat&maxAge=300)](https://github.com/ietf-tools/reef/releases)
 [![License](https://img.shields.io/github/license/ietf-tools/reef)](https://github.com/ietf-tools/reef/blob/main/LICENSE)
@@ -11,7 +11,7 @@
 [![Node Version](https://img.shields.io/badge/node.js-26.x-green?logo=node.js&logoColor=white)](#prerequisites)
 [![PostgreSQL Version](https://img.shields.io/badge/postgres-18-blue?logo=postgresql&logoColor=white)](#prerequisites)
 
-##### RFC Editor Engagement Features
+##### RFC Editor Engagement Features (REEF)
 
 </div>
 
