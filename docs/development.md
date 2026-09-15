@@ -41,6 +41,12 @@ values:
   access, whether logging into the admin/builder site directly or calling the
   API with an rfc-editor bearer token. Empty means no one is staff via OIDC;
   use the break-glass superuser for admin access instead.
+- `REEF_OIDC_SUPERUSER_GROUPS` - comma-separated Authentik groups granted full
+  superuser access via OIDC (implies staff, regardless of the setting above).
+  Empty by default, so the local break-glass superuser remains the only one
+  until an operator opts a group in — being staff alone shows an empty admin
+  with no models visible, since Django's permission system is separate from
+  is_staff.
 - `REEF_SURVEYJS_LICENSE_KEY` - required in production for Creator and Analytics.
 
 Production adds environment-driven `REEF_DJANGO_SECRET_KEY`, `REEF_ALLOWED_HOSTS`,

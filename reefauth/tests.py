@@ -191,6 +191,25 @@ class BearerTokenAuthenticationTests(TestCase):
         user, _ = self.auth.authenticate(request)
         self.assertTrue(user.is_staff)
 
+    @override_settings(REEF_OIDC_SUPERUSER_GROUPS=["team-dev"])
+    def test_superuser_group_grants_superuser_and_staff(self):
+        token = _make_token(self.key, groups=["team-dev"])
+        request = self.factory.get(
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        user, _ = self.auth.authenticate(request)
+        self.assertTrue(user.is_superuser)
+        self.assertTrue(user.is_staff)  # the admin refuses a superuser who isn't
+
+    def test_no_superuser_groups_configured_grants_neither(self):
+        token = _make_token(self.key, groups=["team-dev"])
+        request = self.factory.get(
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        user, _ = self.auth.authenticate(request)
+        self.assertFalse(user.is_superuser)
+        self.assertFalse(user.is_staff)
+
 
 class CorsOriginsCheckTests(SimpleTestCase):
     @override_settings(DEPLOYMENT_MODE="staging", CORS_ALLOWED_ORIGINS=[])
