@@ -1,4 +1,4 @@
-# reef-worker
+# reef-frontend
 
 CF Worker for `surveys.{env}.rfc-editor.org`. Serves the built Nuxt SPA
 (`../client/dist`) as static assets, and for the paths listed in

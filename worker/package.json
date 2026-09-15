@@ -1,5 +1,5 @@
 {
-  "name": "reef-worker",
+  "name": "reef-frontend",
   "version": "0.0.0",
   "private": true,
   "scripts": {
