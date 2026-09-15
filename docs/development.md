@@ -32,7 +32,8 @@ values:
 - `REEF_ADMIN_OIDC_RP_CLIENT_ID` / `REEF_ADMIN_OIDC_RP_CLIENT_SECRET` - the
   confidential Authentik client for the "reef-admin" application, the only
   interactive login Reef performs (Django admin and the builder/analytics site
-  at `/manage/` — the same administration functionality, gated the same way).
+  nested under it at `/admin/survey-builder/` — the same administration
+  functionality, gated the same way).
 - `NUXT_PUBLIC_OIDC_CLIENT_ID` - the public (PKCE) Authentik client the Nuxt
   runner uses to authenticate a survey-taker directly against Red's own
   "rfc-editor" application. Entirely client-side; Reef is never a party to
@@ -116,10 +117,10 @@ confirmation.
 Reef itself registers one application in Authentik (account.ietf.org):
 
 - `reef-admin` (`reef-admin-staging` in staging, per `REEF_ADMIN_OIDC_APP_SLUG`)
-  — the Django admin and `/manage/` builder/analytics, the same administration
-  functionality gated the same way. One confidential client against it,
-  redirect URI `http://localhost:8088/oidc/callback/` for development, plus the
-  staging and production equivalents.
+  — the Django admin and its nested `/admin/survey-builder/` builder/analytics,
+  the same administration functionality gated the same way. One confidential
+  client against it, redirect URI `http://localhost:8088/oidc/callback/` for
+  development, plus the staging and production equivalents.
 
 Public survey-taking authenticates against Red's own `rfc-editor` application
 instead, entirely client-side (see `NUXT_PUBLIC_OIDC_CLIENT_ID` above) — Reef
@@ -143,10 +144,10 @@ It can sign in at `/admin/`, using the username/password form below the
 
 ## Authentication summary
 
-- Django `/manage/` builder/analytics and `/admin/`: the same interactive,
-  server-side OIDC login (session), via the `reef-admin` application — follow
-  the "Sign in with Authentik" link on `/admin/login/`, or go directly to
-  `/oidc/authenticate/?next=/manage/` (or `?next=/admin/`).
+- Django `/admin/` and its nested `/admin/survey-builder/` builder/analytics:
+  the same interactive, server-side OIDC login (session), via the
+  `reef-admin` application — follow the "Sign in with Authentik" link on
+  `/admin/login/`, or go directly to `/oidc/authenticate/?next=/admin/`.
 - Nuxt runner: browser OIDC via oidc-client-ts, against Red's `rfc-editor`
   application; required only for surveys whose visibility is `authenticated`.
 - API: Reef validates Authentik bearer tokens as a resource server; the
@@ -156,8 +157,8 @@ It can sign in at `/admin/`, using the username/password form below the
 Logging staff into Reef and validating API callers' tokens are two separate
 roles, configured separately. The `OIDC_*` settings (derived from
 `REEF_ADMIN_OIDC_APP_SLUG`) are the one relying-party login, shared by
-`/manage/` and `/admin/` alike. Which callers the API accepts is
-`REEF_API_OIDC_APP_SLUGS`, `REEF_API_OIDC_AUDIENCES` and
+`/admin/` and its nested `/admin/survey-builder/` alike. Which callers the
+API accepts is `REEF_API_OIDC_APP_SLUGS`, `REEF_API_OIDC_AUDIENCES` and
 `REEF_API_OIDC_ALGORITHMS` — today just `rfc-editor`, which has its own issuer,
 JWKS, client id and signing key, independent of the admin login's. A caller
 whose application slug is not listed is rejected with a message naming the

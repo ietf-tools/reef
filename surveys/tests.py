@@ -129,34 +129,36 @@ class ManageBuilderTests(TestCase):
         return User.objects.create(username="admin", oidc_sub="s-admin", is_staff=True)
 
     def test_list_requires_login(self):
-        resp = self.client.get("/manage/surveys/")
+        resp = self.client.get("/admin/survey-builder/surveys/")
         self.assertEqual(resp.status_code, 302)
         self.assertIn("oidc", resp["Location"])
 
     def test_non_staff_forbidden(self):
         user = User.objects.create(username="plain", oidc_sub="s-plain", is_staff=False)
         self.client.force_login(user)
-        resp = self.client.get("/manage/surveys/")
+        resp = self.client.get("/admin/survey-builder/surveys/")
         self.assertEqual(resp.status_code, 302)  # redirected to login
 
     def test_staff_sees_list(self):
         self.client.force_login(self._staff())
-        resp = self.client.get("/manage/surveys/")
+        resp = self.client.get("/admin/survey-builder/surveys/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Surveys")
 
     def test_create_then_edit_renders_creator(self):
         self.client.force_login(self._staff())
         create = self.client.post(
-            "/manage/surveys/new/", {"title": "My Survey", "slug": ""}
+            "/admin/survey-builder/surveys/new/", {"title": "My Survey", "slug": ""}
         )
         self.assertEqual(create.status_code, 302)
         survey = Survey.objects.get()
         self.assertEqual(survey.slug, "my-survey")
         self.assertEqual(survey.status, Survey.Status.DRAFT)
-        self.assertEqual(create["Location"], f"/manage/surveys/{survey.pk}/edit/")
+        self.assertEqual(
+            create["Location"], f"/admin/survey-builder/surveys/{survey.pk}/edit/"
+        )
 
-        edit = self.client.get(f"/manage/surveys/{survey.pk}/edit/")
+        edit = self.client.get(f"/admin/survey-builder/surveys/{survey.pk}/edit/")
         self.assertEqual(edit.status_code, 200)
         self.assertContains(edit, 'id="surveyCreator"')
         self.assertContains(edit, 'id="reef-config"')
@@ -168,13 +170,13 @@ class ManageAnalyticsTests(TestCase):
         return User.objects.create(username="admin", oidc_sub="s-a", is_staff=True)
 
     def test_analytics_requires_staff(self):
-        resp = self.client.get("/manage/surveys/1/analytics/")
+        resp = self.client.get("/admin/survey-builder/surveys/1/analytics/")
         self.assertEqual(resp.status_code, 302)
 
     def test_staff_analytics_page_renders(self):
         survey = make_survey(slug="a1")
         self.client.force_login(self._staff())
-        resp = self.client.get(f"/manage/surveys/{survey.pk}/analytics/")
+        resp = self.client.get(f"/admin/survey-builder/surveys/{survey.pk}/analytics/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'id="surveyVizPanel"')
         self.assertContains(resp, "init-analytics.js")
@@ -189,7 +191,8 @@ class ManageStatusControlTests(TestCase):
         survey = make_survey(slug="p1", status=Survey.Status.DRAFT)
         self.client.force_login(self._staff())
         resp = self.client.post(
-            f"/manage/surveys/{survey.pk}/status/", {"status": "published"}
+            f"/admin/survey-builder/surveys/{survey.pk}/status/",
+            {"status": "published"},
         )
         self.assertEqual(resp.status_code, 302)
         survey.refresh_from_db()
@@ -198,14 +201,17 @@ class ManageStatusControlTests(TestCase):
     def test_invalid_status_ignored(self):
         survey = make_survey(slug="p2", status=Survey.Status.DRAFT)
         self.client.force_login(self._staff())
-        self.client.post(f"/manage/surveys/{survey.pk}/status/", {"status": "bogus"})
+        self.client.post(
+            f"/admin/survey-builder/surveys/{survey.pk}/status/", {"status": "bogus"}
+        )
         survey.refresh_from_db()
         self.assertEqual(survey.status, Survey.Status.DRAFT)
 
     def test_non_staff_cannot_set_status(self):
         survey = make_survey(slug="p3", status=Survey.Status.DRAFT)
         resp = self.client.post(
-            f"/manage/surveys/{survey.pk}/status/", {"status": "published"}
+            f"/admin/survey-builder/surveys/{survey.pk}/status/",
+            {"status": "published"},
         )
         self.assertEqual(resp.status_code, 302)  # bounced to login
         survey.refresh_from_db()

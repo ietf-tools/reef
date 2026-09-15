@@ -88,8 +88,9 @@ AUTHENTICATION_BACKENDS = (
 # the per-application slug; credentials come from the environment.
 #
 # These OIDC_* settings are Reef as a *relying party*, logging staff into the
-# Django admin and the builder/analytics site (/manage/) under the
-# "reef-admin" application (REEF_ADMIN_OIDC_APP_SLUG, e.g. "reef-admin" in
+# Django admin, including the builder/analytics site nested under it at
+# /admin/survey-builder/, under the "reef-admin" application
+# (REEF_ADMIN_OIDC_APP_SLUG, e.g. "reef-admin" in
 # production, "reef-admin-staging" in staging) — the only interactive login
 # Reef performs; anyone else gets the break-glass local superuser. Public
 # survey-taking is never logged into here: it authenticates against Red's own

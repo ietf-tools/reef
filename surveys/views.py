@@ -1,5 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""Server-rendered survey builder pages (the private /manage/ site).
+"""Server-rendered survey builder pages, under /admin/survey-builder/.
 
 These pages host the self-hosted SurveyJS Creator. Authoring and results are
 staff-only; login goes through Authentik (LOGIN_URL).

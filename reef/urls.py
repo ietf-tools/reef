@@ -9,6 +9,11 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
     path("health/", lambda _: HttpResponse(status=204)),
+    # Ahead of admin.site.urls: both are under admin/, and Django tries top-level
+    # patterns in order, falling through to the next on a Resolver404 from the one
+    # it tried -- but listing the more specific prefix first is the clearer way to
+    # keep this out of admin.site.urls's own path space.
+    path("admin/survey-builder/", include("surveys.manage_urls")),
     path("admin/", admin.site.urls),
     path("oidc/", include("mozilla_django_oidc.urls")),
     path("api/reef/schema/", SpectacularAPIView.as_view(), name="schema"),
@@ -25,7 +30,6 @@ urlpatterns = [
     path("api/reef/", include("subscriptions.urls")),
     path("api/reef/", include("stats.urls")),
     path("api/reef/", include("me.urls")),
-    path("manage/", include("surveys.manage_urls")),
 ]
 
 if settings.DEBUG and "debug_toolbar" in settings.INSTALLED_APPS:

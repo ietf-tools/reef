@@ -7,10 +7,10 @@ CF Worker for `surveys.{env}.rfc-editor.org`. Serves the built Nuxt SPA
 - `/api/v1/*` -- Reef's precomputed API responses, read straight out of the
   `REEF_BUCKET` R2 bucket, falling back to Django (rewritten to the
   equivalent `/api/reef/*` path) on a bucket miss.
-- everything else in that list (`/api/reef/*`, `/admin*`, `/oidc/*`,
-  `/manage*`, `/static/*`, `/health/*`) -- proxied straight to Django, same as
-  the old `client/worker.js` did before the two workers were merged into
-  this one.
+- everything else in that list (`/api/reef/*`, `/admin*` -- which includes the
+  survey builder at `/admin/survey-builder/*` -- `/oidc/*`, `/static/*`,
+  `/health/*`) -- proxied straight to Django, same as the old
+  `client/worker.js` did before the two workers were merged into this one.
 
 Modelled on Red's `worker/` (rfced-worker), stripped down to the one thing
 Reef needs beyond that proxy: no redirects, no request filtering, no edge

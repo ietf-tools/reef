@@ -29,17 +29,7 @@
     //
     // /static/ is Django's STATIC_URL and carries the admin's own CSS and JS.
     // Nuxt's bundle lives under /_nuxt/, so the two never collide.
-    "run_worker_first": [
-      "/api/v1/*",
-      "/api/reef/*",
-      "/admin",
-      "/admin/*",
-      "/oidc/*",
-      "/manage",
-      "/manage/*",
-      "/static/*",
-      "/health/*"
-    ]
+    "run_worker_first": ["/api/v1/*", "/api/reef/*", "/admin", "/admin/*", "/oidc/*", "/static/*", "/health/*"]
   },
   "env": {
     "staging": {

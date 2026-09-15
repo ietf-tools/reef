@@ -25,9 +25,10 @@ router
   )
   /**
    * Everything else this worker is invoked for -- `/api/reef/*` (the rest of the
-   * Reef API: mutations, auth'd reads, schema, docsets, subscriptions...), `/admin*`,
-   * `/oidc/*`, `/manage*`, `/static/*`, `/health/*` (see wrangler.jsonc's
-   * run_worker_first) -- and any `/api/v1/*` route above on a bucket miss, since
+   * Reef API: mutations, auth'd reads, schema, docsets, subscriptions...), `/admin*`
+   * (Django admin, and the survey builder under `/admin/survey-builder/*`),
+   * `/oidc/*`, `/static/*`, `/health/*` (see wrangler.jsonc's run_worker_first) --
+   * and any `/api/v1/*` route above on a bucket miss, since
    * `serveBlob` returns undefined rather than a 404, goes to Django, the only place
    * that can render it live.
    *
