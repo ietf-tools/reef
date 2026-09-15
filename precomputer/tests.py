@@ -14,6 +14,7 @@ from django.core.management import CommandError, call_command
 from django.db import connections, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 
 from popularity.models import PopularEntry
 from precomputer.blobstore import LocalBlobStore, get_blob_store
@@ -870,3 +871,59 @@ class RetiredSubjectOutputTests(PrecomputeTestCase):
         payload = self.read("subjects/secpriv.json")
         self.assertEqual(payload["documents"], [])
         self.assertEqual(payload["document_meta"], {})
+
+
+class PrecomputeAdminViewTests(PrecomputeTestCase):
+    """The staff-only /admin/precompute/ button, for triggering a run without shell
+    access and reading its output straight from the page."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse("admin:precomputer-run")
+
+    def _staff(self):
+        return User.objects.create(username="admin", oidc_sub="s-admin", is_staff=True)
+
+    def test_anonymous_is_sent_to_login(self):
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/admin/login/", resp["Location"])
+
+    def test_non_staff_is_sent_to_login(self):
+        user = User.objects.create(username="plain", oidc_sub="s-plain", is_staff=False)
+        self.client.force_login(user)
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 302)
+
+    def test_staff_get_shows_the_form_and_no_result_yet(self):
+        self.client.force_login(self._staff())
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.context["result"])
+        self.assertContains(resp, "Run precompute now")
+
+    def test_staff_post_runs_every_task_and_reports_success(self):
+        self.client.force_login(self._staff())
+        resp = self.client.post(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context["result"]["ok"])
+        self.assertIn("stats.json", self.written())
+        self.assertContains(resp, "Succeeded")
+
+    def test_a_failing_run_is_shown_rather_than_raised(self):
+        self.client.force_login(self._staff())
+        with mock.patch(
+            "precomputer.admin.call_command", side_effect=CommandError("boom")
+        ):
+            resp = self.client.post(self.url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context["result"]["ok"])
+        self.assertIn("boom", resp.context["result"]["error"])
+
+    def test_a_concurrent_run_is_reported_rather_than_started(self):
+        self.client.force_login(self._staff())
+        with mock.patch("precomputer.admin.advisory_lock") as lock:
+            lock.return_value.__enter__.return_value = False
+            resp = self.client.post(self.url)
+        self.assertTrue(resp.context["result"]["skipped"])
+        self.assertEqual(self.written(), set())
