@@ -26,7 +26,11 @@ export default defineNuxtConfig({
       // Set NUXT_PUBLIC_API_BASE where it answers elsewhere.
       apiBase: "", // NUXT_PUBLIC_API_BASE
       // Authentik OIDC application issuer (discovery is fetched from here).
-      oidcAuthority: "https://account.ietf.org/application/o/reef/", // NUXT_PUBLIC_OIDC_AUTHORITY
+      // Red's own "rfc-editor" application, not a Reef-specific one: a
+      // survey-taker authenticates as the same identity Red already knows,
+      // entirely client-side — Reef's server only ever sees the resulting
+      // access token as an API caller (REEF_API_OIDC_* in reef/settings/base.py).
+      oidcAuthority: "https://account.ietf.org/application/o/rfc-editor/", // NUXT_PUBLIC_OIDC_AUTHORITY
       oidcClientId: "", // NUXT_PUBLIC_OIDC_CLIENT_ID
     },
   },

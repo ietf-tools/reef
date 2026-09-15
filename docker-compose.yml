@@ -29,10 +29,11 @@ services:
       - POSTGRES_HOST=db
       - REEF_BROKER_URL=amqp://mq/
       # OIDC (Authentik at account.ietf.org). Set these in a local .env file.
-      # Reef as a relying party, logging its own staff into the builder site:
-      - REEF_OIDC_APP_SLUG=${REEF_OIDC_APP_SLUG:-reef}
-      - REEF_OIDC_RP_CLIENT_ID=${REEF_OIDC_RP_CLIENT_ID:-}
-      - REEF_OIDC_RP_CLIENT_SECRET=${REEF_OIDC_RP_CLIENT_SECRET:-}
+      # Reef as a relying party, logging its own staff into the admin and
+      # builder/analytics site under the "reef-admin" application:
+      - REEF_ADMIN_OIDC_APP_SLUG=${REEF_ADMIN_OIDC_APP_SLUG:-reef-admin}
+      - REEF_ADMIN_OIDC_RP_CLIENT_ID=${REEF_ADMIN_OIDC_RP_CLIENT_ID:-}
+      - REEF_ADMIN_OIDC_RP_CLIENT_SECRET=${REEF_ADMIN_OIDC_RP_CLIENT_SECRET:-}
       - REEF_OIDC_STAFF_GROUPS=${REEF_OIDC_STAFF_GROUPS:-}
       - REEF_SURVEYJS_LICENSE_KEY=${REEF_SURVEYJS_LICENSE_KEY:-}
       # Reef as a resource server: whose API access tokens it accepts.

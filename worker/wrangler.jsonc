@@ -1,0 +1,68 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "reef-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-16",
+  "observability": {
+    "logs": {
+      "enabled": true
+    },
+    "traces": {
+      "enabled": true,
+      "destinations": ["heimdall-otlp"]
+    }
+  },
+  "assets": {
+    // The Nuxt SPA build (client/), a sibling of this directory in the repo -- and,
+    // once packaged for deploy, in the CI artifact too (see reusable-build.yml).
+    "directory": "../client/dist",
+    "not_found_handling": "single-page-application",
+    // Paths Django (or this worker's own R2 routes) must answer, rather than the
+    // static build: everything else is served straight out of `directory` above
+    // without invoking the worker script at all. Kept in sync with
+    // docker/configs/nginx-proxy.conf, which is where the same split is configured
+    // for dev.
+    //
+    // /static/ is Django's STATIC_URL and carries the admin's own CSS and JS.
+    // Nuxt's bundle lives under /_nuxt/, so the two never collide.
+    "run_worker_first": ["/api/v1/*", "/api/reef/*", "/admin", "/admin/*", "/oidc/*", "/static/*", "/health/*"]
+  },
+  "env": {
+    "staging": {
+      "routes": [{ "pattern": "surveys.staging.rfc-editor.org/*", "zone_name": "rfc-editor.org" }],
+      "r2_buckets": [
+        {
+          "binding": "REEF_BUCKET",
+          // Placeholder: point this at whatever bucket REEF_PRECOMPUTE_S3_BUCKET
+          // names for staging.
+          "bucket_name": "reef-staging",
+          "preview_bucket_name": "reef-staging"
+        }
+      ],
+      "vars": {
+        // Must track Django's REEF_CORS_ALLOWED_ORIGINS for this environment
+        // (reef/settings/production.py) -- these bucket reads bypass Django's own
+        // CORS middleware entirely, so the worker has to enforce the same policy.
+        "ALLOWED_ORIGINS": "https://www.staging.rfc-editor.org"
+      }
+    },
+    "production": {
+      "routes": [{ "pattern": "surveys.rfc-editor.org/*", "zone_name": "rfc-editor.org" }],
+      "r2_buckets": [
+        {
+          "binding": "REEF_BUCKET",
+          // Placeholder: point this at whatever bucket REEF_PRECOMPUTE_S3_BUCKET
+          // names for production.
+          "bucket_name": "reef-prod"
+        }
+      ],
+      "vars": {
+        "ALLOWED_ORIGINS": "https://www.rfc-editor.org"
+      }
+    }
+  }
+}

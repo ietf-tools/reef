@@ -87,24 +87,35 @@ AUTHENTICATION_BACKENDS = (
 # OIDC (Authentik at account.ietf.org). Endpoints are derived from the host and
 # the per-application slug; credentials come from the environment.
 #
-# Two distinct roles, deliberately configured apart (see REEF_API_OIDC_* below):
-# these OIDC_* settings are Reef as a *relying party*, logging its own staff into
-# the builder/analytics site. Validating access tokens from API callers is a
-# separate role with a separate application, because a caller like Red is its own
-# Authentik application and so presents a different issuer, JWKS and client id.
+# These OIDC_* settings are Reef as a *relying party*, logging staff into the
+# Django admin, including the builder/analytics site nested under it at
+# /admin/survey-builder/, under the "reef-admin" application
+# (REEF_ADMIN_OIDC_APP_SLUG, e.g. "reef-admin" in
+# production, "reef-admin-staging" in staging) — the only interactive login
+# Reef performs; anyone else gets the break-glass local superuser. Public
+# survey-taking is never logged into here: it authenticates against Red's own
+# "rfc-editor" application entirely client-side (the Nuxt runner talks to
+# Authentik directly), so Reef only ever sees the resulting access token as an
+# API caller — see REEF_API_OIDC_* below, a separate role with its own issuer,
+# JWKS and client id.
 REEF_OIDC_HOST = os.environ.get("REEF_OIDC_HOST", "https://account.ietf.org")
-REEF_OIDC_APP_SLUG = os.environ.get("REEF_OIDC_APP_SLUG", "reef")
+REEF_ADMIN_OIDC_APP_SLUG = os.environ.get("REEF_ADMIN_OIDC_APP_SLUG", "reef-admin")
 _oidc_app = f"{REEF_OIDC_HOST}/application/o"
-OIDC_OP_ISSUER_ID = f"{_oidc_app}/{REEF_OIDC_APP_SLUG}/"
+OIDC_OP_ISSUER_ID = f"{_oidc_app}/{REEF_ADMIN_OIDC_APP_SLUG}/"
 OIDC_OP_AUTHORIZATION_ENDPOINT = f"{_oidc_app}/authorize/"
 OIDC_OP_TOKEN_ENDPOINT = f"{_oidc_app}/token/"
 OIDC_OP_USER_ENDPOINT = f"{_oidc_app}/userinfo/"
-OIDC_OP_JWKS_ENDPOINT = f"{_oidc_app}/{REEF_OIDC_APP_SLUG}/jwks/"
-OIDC_OP_END_SESSION_ENDPOINT = f"{_oidc_app}/{REEF_OIDC_APP_SLUG}/end-session/"
+OIDC_OP_JWKS_ENDPOINT = f"{_oidc_app}/{REEF_ADMIN_OIDC_APP_SLUG}/jwks/"
+OIDC_OP_END_SESSION_ENDPOINT = f"{_oidc_app}/{REEF_ADMIN_OIDC_APP_SLUG}/end-session/"
 
-OIDC_RP_CLIENT_ID = os.environ.get("REEF_OIDC_RP_CLIENT_ID", "")
-OIDC_RP_CLIENT_SECRET = os.environ.get("REEF_OIDC_RP_CLIENT_SECRET", "")
-OIDC_RP_SIGN_ALGO = "RS256"
+OIDC_RP_CLIENT_ID = os.environ.get("REEF_ADMIN_OIDC_RP_CLIENT_ID", "")
+OIDC_RP_CLIENT_SECRET = os.environ.get("REEF_ADMIN_OIDC_RP_CLIENT_SECRET", "")
+# reef-admin's assigned signing key is EC, same as rfc-editor's (see
+# REEF_API_OIDC_ALGORITHMS below) — this instance's certificates are EC by
+# convention, not RSA.
+OIDC_RP_SIGN_ALGO = "ES256"
+# Group membership rides along in the "profile" scope's claims already — this
+# Authentik instance has no scope actually named "groups" to request.
 OIDC_RP_SCOPES = "openid profile email"
 OIDC_STORE_ID_TOKEN = True  # kept in session for RP-initiated logout
 OIDC_OP_LOGOUT_URL_METHOD = "reefauth.utils.op_logout_url"
@@ -123,26 +134,25 @@ REEF_SURVEY_RUNNER_BASE_URL = os.environ.get("REEF_SURVEY_RUNNER_BASE_URL", "")
 
 # Bearer (resource-server) validation of Authentik access tokens.
 #
-# Independent of the RP login settings above, and list-valued, because more than
-# one Authentik application calls this API: the survey runner lives under
-# REEF_OIDC_APP_SLUG, while Red is the separate "rfc-editor" application. Each
-# application has its own issuer and JWKS, so accepting a caller means naming its
-# slug here; each also mints access tokens whose `aud` is its own client id, so
-# that id has to be listed as an accepted audience.
+# Independent of the RP login settings above. The one caller today is Red's
+# "rfc-editor" application, which is also how public survey-takers authenticate
+# (see above) — Reef never registers its own application for that, it only
+# validates the access token Red/the runner already obtained. Each calling
+# application has its own issuer and JWKS, so accepting a caller means naming
+# its slug here; each also mints access tokens whose `aud` is its own client
+# id, so that id has to be listed as an accepted audience.
 #
-# Both settings fall back with `or` rather than an os.environ.get default,
-# because compose passes them through as empty strings when they are absent from
-# the .env file: an unset variable arrives as "" and a get() default is never
-# reached.
+# REEF_API_OIDC_APP_SLUGS falls back with `or` rather than an os.environ.get
+# default, because compose passes it through as an empty string when absent
+# from the .env file: an unset variable arrives as "" and a get() default is
+# never reached.
 #
 # REEF_API_OIDC_APP_SLUGS: comma-separated Authentik application slugs whose
-# tokens are accepted. Defaults to Reef's own application alone, so an unlisted
-# caller is rejected rather than silently trusted.
+# tokens are accepted. Defaults to "rfc-editor", the one caller Reef expects,
+# so an unlisted caller is rejected rather than silently trusted.
 REEF_API_OIDC_APP_SLUGS = [
     s.strip()
-    for s in (
-        os.environ.get("REEF_API_OIDC_APP_SLUGS", "") or REEF_OIDC_APP_SLUG
-    ).split(",")
+    for s in (os.environ.get("REEF_API_OIDC_APP_SLUGS", "") or "rfc-editor").split(",")
     if s.strip()
 ]
 # Issuer -> JWKS endpoint for those applications. The issuer is what the token
@@ -165,21 +175,33 @@ REEF_API_OIDC_ALGORITHMS = [
     )
     if a.strip()
 ]
-# Accepted `aud` values. Defaults to the RP client id, so a deployment naming none
-# still accepts only Reef's own application. An empty list disables audience
-# verification.
+# Accepted `aud` values. Unlike the slug list above, there is no sensible
+# non-empty default here: a caller's client id is opaque and per-deployment, so
+# naming Reef's own admin RP client (which never calls the API) would be
+# meaningless rather than safe. An empty list disables audience verification —
+# every real deployment must set this explicitly, which is already required in
+# practice (see docs/development.md).
 REEF_API_OIDC_AUDIENCES = [
     a.strip()
     for a in os.environ.get(
         "REEF_API_OIDC_AUDIENCES", os.environ.get("REEF_OIDC_AUDIENCE", "")
     ).split(",")
     if a.strip()
-] or ([OIDC_RP_CLIENT_ID] if OIDC_RP_CLIENT_ID else [])
+]
 
 REEF_OIDC_GROUPS_CLAIM = os.environ.get("REEF_OIDC_GROUPS_CLAIM", "groups")
 REEF_OIDC_STAFF_GROUPS = [
     g.strip()
     for g in os.environ.get("REEF_OIDC_STAFF_GROUPS", "").split(",")
+    if g.strip()
+]
+# Comma-separated Authentik groups granted full superuser access via OIDC —
+# empty by default, so the local break-glass superuser is the only one until
+# an operator opts a group in. A superuser is always staff too, regardless of
+# REEF_OIDC_STAFF_GROUPS; see is_staff_from_claims().
+REEF_OIDC_SUPERUSER_GROUPS = [
+    g.strip()
+    for g in os.environ.get("REEF_OIDC_SUPERUSER_GROUPS", "").split(",")
     if g.strip()
 ]
 

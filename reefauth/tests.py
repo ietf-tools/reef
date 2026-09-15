@@ -4,11 +4,13 @@ import datetime
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
 from rest_framework import exceptions
 from rest_framework.test import APIRequestFactory
 
 from reefauth.authentication import BearerTokenAuthentication
 from reefauth.checks import cors_origins_configured
+from reefauth.models import User
 
 _ISSUER = "https://account.ietf.org/application/o/reef/"
 _AUDIENCE = "reef-client"
@@ -189,6 +191,25 @@ class BearerTokenAuthenticationTests(TestCase):
         user, _ = self.auth.authenticate(request)
         self.assertTrue(user.is_staff)
 
+    @override_settings(REEF_OIDC_SUPERUSER_GROUPS=["team-dev"])
+    def test_superuser_group_grants_superuser_and_staff(self):
+        token = _make_token(self.key, groups=["team-dev"])
+        request = self.factory.get(
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        user, _ = self.auth.authenticate(request)
+        self.assertTrue(user.is_superuser)
+        self.assertTrue(user.is_staff)  # the admin refuses a superuser who isn't
+
+    def test_no_superuser_groups_configured_grants_neither(self):
+        token = _make_token(self.key, groups=["team-dev"])
+        request = self.factory.get(
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        user, _ = self.auth.authenticate(request)
+        self.assertFalse(user.is_superuser)
+        self.assertFalse(user.is_staff)
+
 
 class CorsOriginsCheckTests(SimpleTestCase):
     @override_settings(DEPLOYMENT_MODE="staging", CORS_ALLOWED_ORIGINS=[])
@@ -206,3 +227,36 @@ class CorsOriginsCheckTests(SimpleTestCase):
     @override_settings(DEPLOYMENT_MODE="development", CORS_ALLOWED_ORIGINS=[])
     def test_development_is_not_asked(self):
         self.assertEqual(cors_origins_configured(None), [])
+
+
+class UserDisplayNameTests(SimpleTestCase):
+    """get_username()/__str__ are what the admin login page and the admin's
+    "Welcome, ..." banner show — the opaque authentik-<sub> username is only
+    a fallback when no better claim was available."""
+
+    def test_prefers_name(self):
+        user = User(
+            username="authentik-abc", name="Ada Lovelace", email="ada@example.org"
+        )
+        self.assertEqual(user.get_username(), "Ada Lovelace")
+        self.assertEqual(str(user), "Ada Lovelace")
+
+    def test_falls_back_to_email_without_a_name(self):
+        user = User(username="authentik-abc", email="ada@example.org")
+        self.assertEqual(user.get_username(), "ada@example.org")
+
+    def test_falls_back_to_username_without_name_or_email(self):
+        user = User(username="authentik-abc")
+        self.assertEqual(user.get_username(), "authentik-abc")
+
+
+class AdminLoginPageTests(TestCase):
+    """/admin/login/ must still offer the break-glass username/password form
+    (for when Authentik is unavailable) alongside the Authentik link, since
+    that form is the only way in for the local superuser."""
+
+    def test_login_page_offers_both_authentik_and_the_local_form(self):
+        response = self.client.get("/admin/login/")
+        oidc_url = reverse("oidc_authentication_init")
+        self.assertContains(response, f'href="{oidc_url}')
+        self.assertContains(response, 'name="password"')

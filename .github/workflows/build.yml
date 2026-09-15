@@ -212,10 +212,22 @@ jobs:
         with:
           name: frontend
 
-      - name: Deploy frontend to Cloudflare Workers
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+
+      - name: Install worker dependencies
+        # wrangler bundles src/index.ts itself, but still needs itty-router resolvable
+        # from node_modules to do it -- excluded from the artifact in reusable-build.yml
+        # since shipping it cross-artifact is fragile, so it's installed fresh here.
+        working-directory: worker
+        run: npm ci
+
+      - name: Deploy worker to Cloudflare Workers
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CF_WORKER_DEPLOY_TOKEN }}
           accountId: ${{ secrets.CF_WORKER_DEPLOY_ACCOUNT_ID }}
+          workingDirectory: worker
           command: deploy --env staging
           environment: staging

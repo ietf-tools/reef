@@ -2,7 +2,7 @@
 
 <img src="https://static.ietf.org/logos/icon-surveys.svg" alt="REEF" height="125" />
 
-# REEF
+# Surveys.RFC-Editor.org 
 
 [![Release](https://img.shields.io/github/release/ietf-tools/reef.svg?style=flat&maxAge=300)](https://github.com/ietf-tools/reef/releases)
 [![License](https://img.shields.io/github/license/ietf-tools/reef)](https://github.com/ietf-tools/reef/blob/main/LICENSE)
@@ -11,7 +11,7 @@
 [![Node Version](https://img.shields.io/badge/node.js-26.x-green?logo=node.js&logoColor=white)](#prerequisites)
 [![PostgreSQL Version](https://img.shields.io/badge/postgres-18-blue?logo=postgresql&logoColor=white)](#prerequisites)
 
-##### RFC Editor Engagement Features
+##### RFC Editor Engagement Features (REEF)
 
 </div>
 
@@ -23,7 +23,7 @@ SurveyJS on our own infrastructure and exposes engagement APIs that Red consumes
 
 - Surveys, full stack:
   - A Django-hosted survey builder (SurveyJS Creator) and analytics dashboard
-    (SurveyJS Analytics), under `/manage/`, for staff.
+    (SurveyJS Analytics), under `/admin/survey-builder/`, for staff.
   - A themed Nuxt survey runner (`/s?slug=<slug>`) where visitors fill out surveys.
   - An API that lists open surveys, serves definitions, and stores responses.
     Red queries the open-survey list and links out to the runner.
@@ -76,8 +76,8 @@ docker build -f docker/base.Dockerfile -t ghcr.io/ietf-tools/reef-app-base:lates
 Then browse:
 
 - http://localhost:8088/ - the Nuxt survey runner
-- http://localhost:8088/manage/surveys/ - the survey builder and analytics (login)
-- http://localhost:8088/admin/ - Django admin (break-glass superuser)
+- http://localhost:8088/admin/survey-builder/surveys/ - the survey builder and analytics (login)
+- http://localhost:8088/admin/ - Django admin (login, or break-glass superuser)
 - http://localhost:8088/api/reef/schema/swagger-ui/ - API docs
 - http://localhost:8025/ - mailpit (captured email)
 - http://localhost:8088/pgadmin/ - pgAdmin
@@ -113,7 +113,7 @@ and supplies each environment's values through the `reef-secrets-env` secret; se
 
 - `reef/` - Django project (settings package, celery, urls)
 - `reefauth/` - custom user and OIDC (login backend plus bearer resource-server auth)
-- `surveys/` - survey models, API, and the `/manage/` builder and analytics
+- `surveys/` - survey models, API, and the `/admin/survey-builder/` builder and analytics
 - `ratings/`, `popularity/`, `subscriptions/` - engagement API apps
 - `templates/` - Django templates, currently the notification email bodies
 - `client/` - Nuxt survey runner

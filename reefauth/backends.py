@@ -1,5 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""OIDC login backend for the Django builder and analytics site."""
+"""OIDC login backend for the Django admin and builder/analytics site."""
 
 from mozilla_django_oidc.auth import OIDCAuthenticationBackend
 

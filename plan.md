@@ -116,7 +116,7 @@ tokens.
 
 ```
                          +----------------- Reef -----------------+
-Browser -> NGINX :8088 -+- /manage,/admin,/oidc,/api,/static -> Django + DRF :8001 -> PostgreSQL
+Browser -> NGINX :8088 -+- /admin,/oidc,/api,/static -> Django + DRF :8001 -> PostgreSQL
                         +- /,/s    ------------------------------> Nuxt survey runner :3001
 Red  --------------------  GET /api/reef/... (bearer / anon) ---> Django + DRF
 Red  <-- precomputed JSON <---- blob store <---- manage.py precompute (scheduled)
@@ -127,7 +127,7 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 
 - Django site (builder and analytics): server-rendered template pages that mount the
   vanilla SurveyJS bundles (survey-creator-js, survey-analytics), self-hosted, no CDN.
-  Login uses mozilla_django_oidc. The /manage/ paths require login.
+  Login uses mozilla_django_oidc. The /admin/survey-builder/ paths require login.
 - Nuxt runner (client/, static SPA, no SSR): themed survey pages (survey-vue3-ui plus a
   per-survey theme JSON). Browser OIDC uses oidc-client-ts (PKCE), the same library
   Red uses. Protected surveys require login; open surveys are anonymous.
@@ -172,8 +172,7 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 
 | Surface | Mechanism |
 |---|---|
-| Django /manage builder and analytics | mozilla_django_oidc code flow to a Django session; login required |
-| Django /admin fallback | local superuser (break-glass) |
+| Django /admin, including the builder and analytics nested under it at /admin/survey-builder/ | mozilla_django_oidc code flow to a Django session (the "reef-admin" application); or, when Authentik is unavailable, the local superuser (break-glass) |
 | Nuxt survey runner | oidc-client-ts (Auth Code plus PKCE) to an access token; required only for protected surveys |
 | Reef DRF APIs | resource server: validate Authentik bearer JWT. Optional on the open-survey list (adds user-specific surveys when present), required for rating submit and subscriptions, anonymous for popularity and open surveys |
 
@@ -208,7 +207,7 @@ reef/
     admin.py               break-glass listing and inspection
     audience.py            which documents a survey is offered on, resolved at read time
     serializers.py  api.py DRF endpoints (manage, open list, runner fetch, submit, results)
-    views.py  urls.py      /manage/ builder and analytics template views
+    views.py  urls.py      /admin/survey-builder/ builder and analytics template views
     templates/surveys/{creator,analytics,list}.html
     static/surveys/{init-creator,init-analytics}.js
     rules.py  factories.py  tests.py  migrations/
@@ -930,21 +929,21 @@ Then, for precomputed reads:
   shows Django (:8001), Nuxt (:3001), nginx (:8088), and celery. http://localhost:8088/
   serves the runner; /api/reef/schema/ responds; mailpit catches mail.
 - Auth:
-  - /manage/ redirects to OIDC login at account.ietf.org and returns a session;
-    unauthorized users are blocked; the break-glass superuser works at /admin/ when
-    Authentik is unavailable.
+  - /admin/ (and its nested /admin/survey-builder/) redirects to OIDC login at
+    account.ietf.org and returns a session; unauthorized users are blocked; the
+    local superuser works there too, as break-glass when Authentik is unavailable.
   - Nuxt: an open survey loads anonymously; a survey with visibility authenticated
     triggers oidc-client-ts login before rendering.
   - GET /api/reef/surveys/open/ with no token returns open surveys only; with a user
     bearer it also returns that user's targeted surveys.
 - Core survey flow (author, offer, fill, analyze):
-  1. /manage/surveys/new/ builds and saves a survey in the embedded Creator; publish,
-     set theme and visibility.
+  1. /admin/survey-builder/surveys/new/ builds and saves a survey in the embedded
+     Creator; publish, set theme and visibility.
   2. GET /surveys/open/ returns it; a visitor opens the popover link to the Reef Nuxt
      /s?slug=<slug> runner and submits.
   3. A Response row is stored (POST .../responses/ returns 201) and is visible in
      /admin/.
-  4. /manage/surveys/<id>/analytics/ renders the results.
+  4. /admin/survey-builder/surveys/<id>/analytics/ renders the results.
 - Scaffolds: GET /popularity/ returns the curated list; PUT /ratings/{rfc}/ with a
   bearer stores a rating and the aggregate updates; POST /subscriptions/ stores a
   subscription and enqueues a confirmation caught by mailpit, and a second POST of the
