@@ -41,7 +41,7 @@ from .delivery import (
 )
 from .matching import subscriptions_for_change
 from .messages import CONFIRMATION_SUBJECT, render_confirmation
-from .models import PendingNotification
+from .models import PendingNotification, SubjectNotificationEvent
 
 logger = logging.getLogger("reef")
 
@@ -96,6 +96,17 @@ def queue_notification(user_id, subscription_ids, events, scope=""):
     )
     transaction.on_commit(lambda: deliver_notification.delay(notification.pk))
     return notification
+
+
+def stage_subject_event(user_id, subscription_ids, event_kind, event_key, event):
+    """Hold a subject event for the next consolidated digest."""
+    return SubjectNotificationEvent.objects.create(
+        user_id=user_id,
+        subscription_ids=list(subscription_ids),
+        event_kind=event_kind,
+        event_key=event_key,
+        event=event,
+    )
 
 
 @shared_task(
@@ -269,38 +280,53 @@ def detect_rfc_changes() -> int:
 
 def _detect_and_notify():
     result = detect()
-    if result is None:
-        # Red unreachable. The snapshot deliberately does not move, so the next run
-        # compares against the same reading and nothing is missed.
-        return 0
 
     # Per reader, not per subscription: somebody who follows a document directly and
-    # also holds it in a set hears once. Events are keyed by document so that the two
-    # ways of reaching one collapse into a single line rather than two.
+    # also holds it in a set hears once. RFC events are keyed by document and subject
+    # events by their event identity, so distinct facts about one document remain.
     per_reader = defaultdict(lambda: {"subscriptions": set(), "events": {}})
 
-    for change in result.changes:
-        event = as_event(change, result.index)
-        logger.info("Change: %s %s", change.doc_display, event["change"])
-        for subscription in subscriptions_for_change(change, result.index):
-            reader = per_reader[subscription.user_id]
-            reader["subscriptions"].add(subscription.pk)
-            reader["events"][change.doc] = event
+    if result is not None:
+        for change in result.changes:
+            event = as_event(change, result.index)
+            logger.info("Change: %s %s", change.doc_display, event["change"])
+            for subscription in subscriptions_for_change(change, result.index):
+                reader = per_reader[subscription.user_id]
+                reader["subscriptions"].add(subscription.pk)
+                reader["events"][(change.doc, "rfc")] = event
+    else:
+        # Red is unreachable. The snapshot deliberately remains unchanged, so the
+        # next run compares against the same reading and misses nothing.
+        logger.info("RFC change detection skipped because Red is unavailable")
+
+    subject_events = list(SubjectNotificationEvent.objects.all())
+    for subject_event in subject_events:
+        reader = per_reader[subject_event.user_id]
+        reader["subscriptions"].update(subject_event.subscription_ids)
+        event = subject_event.event
+        reader["events"][(event.get("doc", ""), subject_event.event_key)] = event
 
     with transaction.atomic():
+        # Red's created_on can remain unchanged for several days without a publish;
+        # it is not the day this digest run is processing.
+        scope = f"daily:{timezone.localdate()}"
         for user_id, reader in per_reader.items():
             queue_notification(
                 user_id,
                 sorted(reader["subscriptions"]),
                 list(reader["events"].values()),
-                # The reading these changes came from, so that the same transition
-                # happening again later is a new notification rather than one the
-                # unique index mistakes for a repeat.
-                scope=str(result.created_on),
+                scope=scope,
             )
-        result.save()
+        if result is not None:
+            result.save()
+        SubjectNotificationEvent.objects.filter(
+            pk__in=[subject_event.pk for subject_event in subject_events]
+        ).delete()
 
     logger.info(
-        "%s change(s) notified to %s reader(s)", len(result.changes), len(per_reader)
+        "%s change(s) notified to %s reader(s) (%s subject event(s))",
+        len(result.changes) if result is not None else 0,
+        len(per_reader),
+        len(subject_events),
     )
     return len(per_reader)

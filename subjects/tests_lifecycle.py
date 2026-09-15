@@ -1,8 +1,11 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Retiring and merging: taking a subject out of use without cutting anybody off."""
 
+from unittest import mock
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db import DatabaseError
 from django.test import TestCase
 from rest_framework.test import APITestCase
 
@@ -10,7 +13,7 @@ from reef.testing import stub_rfc_index
 from subjects.merge import MergeError, merge_and_notify, merge_subjects
 from subjects.models import Subject, SubjectAssignment
 from subjects.tests_hierarchy import tree
-from subscriptions.models import PendingNotification, Subscription
+from subscriptions.models import SubjectNotificationEvent, Subscription
 
 User = get_user_model()
 
@@ -116,10 +119,31 @@ class MergeTests(TestCase):
         self.follow(self.source, user=other)
         with self.captureOnCommitCallbacks(execute=True):
             merge_and_notify(self.source, self.target)
-        self.assertEqual(PendingNotification.objects.count(), 2)
-        notification = PendingNotification.objects.first()
-        self.assertIn("Security", notification.events[0]["change"])
-        self.assertIn("Security and privacy", notification.events[0]["change"])
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 2)
+        notification = SubjectNotificationEvent.objects.first()
+        self.assertIn("Security", notification.event["change"])
+        self.assertIn("Security and privacy", notification.event["change"])
+
+    def test_a_merge_whose_followers_cannot_be_told_is_rolled_back(self):
+        """Better an admin error than a subscription that changed meaning with
+        nobody the wiser."""
+        self.follow(self.source)
+        SubjectAssignment.objects.create(subject=self.source, doc="rfc9110")
+        with (
+            mock.patch(
+                "subscriptions.tasks.stage_subject_event",
+                side_effect=DatabaseError("down"),
+            ),
+            self.assertRaises(DatabaseError),
+        ):
+            merge_and_notify(self.source, self.target)
+
+        self.source.refresh_from_db()
+        self.assertFalse(self.source.is_retired)
+        self.assertEqual(self.source.assignments.count(), 1)
+        self.assertEqual(self.target.assignments.count(), 0)
+        self.assertEqual(Subscription.objects.get().subject, self.source)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_somebody_following_both_is_told_once(self):
         """Their subscription changed meaning even though it was not the one that
@@ -128,7 +152,7 @@ class MergeTests(TestCase):
         self.follow(self.target)
         with self.captureOnCommitCallbacks(execute=True):
             merge_and_notify(self.source, self.target)
-        self.assertEqual(PendingNotification.objects.count(), 1)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 1)
 
     def test_the_notice_carries_no_document(self):
         """It is news about the vocabulary rather than about an RFC, which the
@@ -136,7 +160,7 @@ class MergeTests(TestCase):
         self.follow(self.source)
         with self.captureOnCommitCallbacks(execute=True):
             merge_and_notify(self.source, self.target)
-        self.assertEqual(PendingNotification.objects.get().events[0]["doc"], "")
+        self.assertEqual(SubjectNotificationEvent.objects.get().event["doc"], "")
 
 
 class RetiredSubjectApiTests(APITestCase):
