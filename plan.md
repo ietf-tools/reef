@@ -1296,12 +1296,3 @@ Then, for precomputed reads:
   strength of what they subscribe to means the survey list stops being cacheable per
   document and starts being personal, and because the audience field would then hold two
   unrelated kinds of rule.
-- Debug OIDC callback view: temporary, must be removed before a production environment
-  exists. `reefauth/views.py`'s `DebugOIDCAuthenticationCallbackView`, wired into
-  `reef/urls.py` in place of `mozilla_django_oidc`'s stock callback view, exists solely
-  to diagnose a 500 on staging whose logs weren't reachable: it catches any exception
-  from the token exchange and puts the full traceback in the response body, with no
-  environment gate at all, so anyone who completes or replays a login there sees it.
-  Fine for now since only staging exists. Before Reef is ever deployed to production:
-  delete `reefauth/views.py` and restore `path("oidc/", include("mozilla_django_oidc.urls"))`
-  in `reef/urls.py`.

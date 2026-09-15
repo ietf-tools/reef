@@ -15,15 +15,8 @@ class ReefOIDCAuthBackend(OIDCAuthenticationBackend):
             return self.UserModel.objects.none()
         return self.UserModel.objects.filter(oidc_sub=sub)
 
-    def _stash_debug_claims(self, claims):
-        # TEMP: read by reefauth.views.DebugOIDCAuthenticationCallbackView to
-        # show what Authentik actually sent — see that module's docstring.
-        self.request.oidc_debug_claims = claims
-
     def create_user(self, claims):
-        self._stash_debug_claims(claims)
         return sync_user_from_claims(claims)
 
     def update_user(self, user, claims):
-        self._stash_debug_claims(claims)
         return sync_user_from_claims(claims)
