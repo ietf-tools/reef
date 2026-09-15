@@ -24,9 +24,18 @@ router
     serveBlob(req, env, `ratings/${req.params.rfc}.json`, `/api/reef/ratings/${req.params.rfc}/`)
   )
   /**
-   * Everything else -- and any of the routes above on a bucket miss, since
-   * `serveBlob` returns undefined rather than a 404 -- goes to Django, the
-   * only place that can render it live.
+   * Everything else this worker is invoked for -- `/api/reef/*` (the rest of the
+   * Reef API: mutations, auth'd reads, schema, docsets, subscriptions...), `/admin*`,
+   * `/oidc/*`, `/manage*`, `/static/*`, `/health/*` (see wrangler.jsonc's
+   * run_worker_first) -- and any `/api/v1/*` route above on a bucket miss, since
+   * `serveBlob` returns undefined rather than a 404, goes to Django, the only place
+   * that can render it live.
+   *
+   * A same-zone fetch() cannot re-enter a Worker route, so this reaches the zone
+   * origin (the Cloudflare Tunnel) rather than looping back into this worker. That
+   * holds as long as the `global_fetch_strictly_public` compatibility flag stays
+   * off, which is the default. Everything not listed in run_worker_first never
+   * reaches here at all -- it's served straight from the Nuxt build in `dist/`.
    */
   .all('*', (request: IRequest) => fetch(request))
 

@@ -58,23 +58,24 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
         BROWSERSLIST_IGNORE_OLD_DATA: 1
-      working-directory: client
       run: |
         echo "Installing node packages..."
-        npm ci
+        (cd client && npm ci)
         echo "Generating SPA build..."
-        npm run generate
+        (cd client && npm run generate)
         echo "Packaging build..."
-        mkdir -p package/dist
-        cp -r .output/public/. package/dist/
-        cp worker.js package/worker.js
-        cp wrangler.jsonc package/wrangler.jsonc
+        # worker/wrangler.jsonc's assets.directory is ../client/dist, so the two
+        # are packaged as siblings here, same as they are in the repo.
+        mkdir -p package/client/dist package/worker
+        cp -r client/.output/public/. package/client/dist/
+        cp -r worker/. package/worker/
+        rm -rf package/worker/node_modules package/worker/.wrangler
 
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v7
       with:
         name: frontend
-        path: client/package/
+        path: package/
         if-no-files-found: error
 
     - name: Augment dockerignore for docker image build

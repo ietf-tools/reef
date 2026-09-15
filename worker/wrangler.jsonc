@@ -16,13 +16,34 @@
       "destinations": ["heimdall-otlp"]
     }
   },
+  "assets": {
+    // The Nuxt SPA build (client/), a sibling of this directory in the repo -- and,
+    // once packaged for deploy, in the CI artifact too (see reusable-build.yml).
+    "directory": "../client/dist",
+    "not_found_handling": "single-page-application",
+    // Paths Django (or this worker's own R2 routes) must answer, rather than the
+    // static build: everything else is served straight out of `directory` above
+    // without invoking the worker script at all. Kept in sync with
+    // docker/configs/nginx-proxy.conf, which is where the same split is configured
+    // for dev.
+    //
+    // /static/ is Django's STATIC_URL and carries the admin's own CSS and JS.
+    // Nuxt's bundle lives under /_nuxt/, so the two never collide.
+    "run_worker_first": [
+      "/api/v1/*",
+      "/api/reef/*",
+      "/admin",
+      "/admin/*",
+      "/oidc/*",
+      "/manage",
+      "/manage/*",
+      "/static/*",
+      "/health/*"
+    ]
+  },
   "env": {
     "staging": {
-      // More specific than reef-frontend's `surveys.staging.rfc-editor.org/*` route
-      // (client/wrangler.jsonc), so Cloudflare sends these paths here first. Django
-      // itself only knows these same endpoints under /api/reef/*, not /api/v1/*; each
-      // route's originPath (src/index.ts) rewrites to the real path on a bucket miss.
-      "routes": [{ "pattern": "surveys.staging.rfc-editor.org/api/v1/*", "zone_name": "rfc-editor.org" }],
+      "routes": [{ "pattern": "surveys.staging.rfc-editor.org/*", "zone_name": "rfc-editor.org" }],
       "r2_buckets": [
         {
           "binding": "REEF_BUCKET",
@@ -40,7 +61,7 @@
       }
     },
     "production": {
-      "routes": [{ "pattern": "surveys.rfc-editor.org/api/v1/*", "zone_name": "rfc-editor.org" }],
+      "routes": [{ "pattern": "surveys.rfc-editor.org/*", "zone_name": "rfc-editor.org" }],
       "r2_buckets": [
         {
           "binding": "REEF_BUCKET",
