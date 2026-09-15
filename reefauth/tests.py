@@ -10,6 +10,7 @@ from rest_framework.test import APIRequestFactory
 
 from reefauth.authentication import BearerTokenAuthentication
 from reefauth.checks import cors_origins_configured
+from reefauth.models import User
 
 _ISSUER = "https://account.ietf.org/application/o/reef/"
 _AUDIENCE = "reef-client"
@@ -207,6 +208,27 @@ class CorsOriginsCheckTests(SimpleTestCase):
     @override_settings(DEPLOYMENT_MODE="development", CORS_ALLOWED_ORIGINS=[])
     def test_development_is_not_asked(self):
         self.assertEqual(cors_origins_configured(None), [])
+
+
+class UserDisplayNameTests(SimpleTestCase):
+    """get_username()/__str__ are what the admin login page and the admin's
+    "Welcome, ..." banner show — the opaque authentik-<sub> username is only
+    a fallback when no better claim was available."""
+
+    def test_prefers_name(self):
+        user = User(
+            username="authentik-abc", name="Ada Lovelace", email="ada@example.org"
+        )
+        self.assertEqual(user.get_username(), "Ada Lovelace")
+        self.assertEqual(str(user), "Ada Lovelace")
+
+    def test_falls_back_to_email_without_a_name(self):
+        user = User(username="authentik-abc", email="ada@example.org")
+        self.assertEqual(user.get_username(), "ada@example.org")
+
+    def test_falls_back_to_username_without_name_or_email(self):
+        user = User(username="authentik-abc")
+        self.assertEqual(user.get_username(), "authentik-abc")
 
 
 class AdminLoginPageTests(TestCase):

@@ -26,3 +26,16 @@ class User(AbstractUser):
     # Unbounded: Authentik's `picture` claim can be a data: URI embedding a
     # generated avatar image, easily running to several KB — not just a link.
     avatar = models.TextField(blank=True)
+
+    def get_username(self):
+        """Prefer a human-readable identifier for display.
+
+        `username` itself stays the opaque `authentik-<sub>` value (see
+        sync_user_from_claims) so it's stable even if a claim changes; this is
+        only what shows up in messages like the admin login page's "you are
+        authenticated as ...".
+        """
+        return self.name or self.email or super().get_username()
+
+    def __str__(self):
+        return self.get_username()

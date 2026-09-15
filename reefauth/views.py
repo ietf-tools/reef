@@ -18,8 +18,15 @@ REEF_DEPLOYMENT_MODE is actually set to "staging" rather than defaulting to
 unverifiable from here), which silently swallowed the debug output. This
 always shows it, which does mean anyone who completes (or replays) a login
 here sees a traceback until this is reverted.
+
+Also shows the raw claims Authentik returned on a *successful* login, stashed
+onto the request by ReefOIDCAuthBackend (see reefauth/backends.py) — needed to
+find out what Authentik actually calls its group-membership claim, since
+none of this Authentik instance's available scope mappings are literally
+named "groups".
 """
 
+import json
 import logging
 import traceback
 
@@ -32,7 +39,7 @@ logger = logging.getLogger("reef")
 class DebugOIDCAuthenticationCallbackView(OIDCAuthenticationCallbackView):
     def get(self, request):
         try:
-            return super().get(request)
+            response = super().get(request)
         except Exception:
             logger.exception("OIDC callback failed")
             return HttpResponse(
@@ -40,3 +47,15 @@ class DebugOIDCAuthenticationCallbackView(OIDCAuthenticationCallbackView):
                 status=500,
                 content_type="text/plain",
             )
+
+        claims = getattr(request, "oidc_debug_claims", None)
+        if claims is None:
+            return response
+
+        return HttpResponse(
+            "OIDC login succeeded. Claims Authentik returned:\n\n"
+            + json.dumps(claims, indent=2, default=str)
+            + f"\n\nResulting is_staff: {request.user.is_staff}"
+            + f"\nWould have redirected to: {response.get('Location', '?')}",
+            content_type="text/plain",
+        )

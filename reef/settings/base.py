@@ -113,6 +113,8 @@ OIDC_RP_CLIENT_SECRET = os.environ.get("REEF_ADMIN_OIDC_RP_CLIENT_SECRET", "")
 # REEF_API_OIDC_ALGORITHMS below) — this instance's certificates are EC by
 # convention, not RSA.
 OIDC_RP_SIGN_ALGO = "ES256"
+# Group membership rides along in the "profile" scope's claims already — this
+# Authentik instance has no scope actually named "groups" to request.
 OIDC_RP_SCOPES = "openid profile email"
 OIDC_STORE_ID_TOKEN = True  # kept in session for RP-initiated logout
 OIDC_OP_LOGOUT_URL_METHOD = "reefauth.utils.op_logout_url"
