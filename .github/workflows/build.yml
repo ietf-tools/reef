@@ -214,7 +214,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "26"
 
       - name: Install worker dependencies
         # wrangler bundles src/index.ts itself, but still needs itty-router resolvable
