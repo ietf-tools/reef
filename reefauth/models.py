@@ -23,4 +23,6 @@ class User(AbstractUser):
         help_text="Authentik subject identifier (the OIDC 'sub' claim)",
     )
 
-    avatar = models.URLField(blank=True)
+    # Longer than URLField's default 200: Authentik's `picture` claim can be a
+    # generated-avatar URL (e.g. a Gravatar/initials fallback) well past that.
+    avatar = models.URLField(max_length=500, blank=True)
