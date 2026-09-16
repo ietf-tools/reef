@@ -125,8 +125,7 @@ class MergeTests(TestCase):
         self.assertIn("Security and privacy", notification.event["change"])
 
     def test_a_merge_whose_followers_cannot_be_told_is_rolled_back(self):
-        """Better an admin error than a subscription that changed meaning with
-        nobody the wiser."""
+        """Better an admin error than a subscription that quietly changed meaning."""
         self.follow(self.source)
         SubjectAssignment.objects.create(subject=self.source, doc="rfc9110")
         with (

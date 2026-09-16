@@ -81,9 +81,8 @@ class NewAssignmentNotificationTests(TestCase):
         self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_a_reader_following_both_the_subject_and_its_ancestor_is_told_once(self):
-        """Two matching subscriptions for one reader must not collide on the
-        dedupe key, which is hashed over the reader and the event rather than
-        the subscription."""
+        """Two matching subscriptions for one reader are one staged row carrying
+        both, because a second row would trip the (user, kind, key) constraint."""
         parent = Subject.objects.create(name="Messaging", slug="messaging")
         child = Subject.objects.create(name="Email", slug="email", parent=parent)
         first = self.follow(parent)
@@ -97,9 +96,8 @@ class NewAssignmentNotificationTests(TestCase):
         )
 
     def test_a_bulk_assignment_notifies_nobody(self):
-        """import_assignments and import_subjects both write this way, which is
-        what keeps a back-catalogue backfill from mailing every subscriber about
-        years-old documents newly categorized."""
+        """import_assignments and import_subjects write this way; a backfill must
+        not mail everyone about years-old documents."""
         self.follow(self.subject)
         with self.captureOnCommitCallbacks(execute=True):
             SubjectAssignment.objects.bulk_create(
@@ -109,8 +107,7 @@ class NewAssignmentNotificationTests(TestCase):
         self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_a_fixture_load_notifies_nobody(self):
-        """loaddata saves each row with raw=True and created=True for a fresh
-        table; replaying a dump is not staff tagging anything."""
+        """loaddata saves with raw=True; replaying a dump is not staff tagging."""
         self.follow(self.subject)
         assignment = SubjectAssignment(subject=self.subject, doc="rfc9110")
         with self.captureOnCommitCallbacks(execute=True):
@@ -121,9 +118,8 @@ class NewAssignmentNotificationTests(TestCase):
         self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_a_tag_removed_and_re_added_before_the_digest_is_one_line(self):
-        """The key names the fact, not the row, so the second stage hits the
-        unique constraint and is dropped rather than duplicating the line. That
-        is routine, not a warning."""
+        """The key names the fact, not the row: the second stage trips the
+        constraint and is dropped, without a warning."""
         self.follow(self.subject)
         with self.captureOnCommitCallbacks(execute=True):
             SubjectAssignment.objects.create(subject=self.subject, doc="rfc9110")
