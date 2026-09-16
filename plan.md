@@ -1606,6 +1606,12 @@ retired, or an assignment already present, simply isn't in the diff again. This 
 also what makes losing the suggestions page harmless: re-running the sync recomputes
 the same suggestions for anything still retired and unmerged.
 
+### Deployment dependency: egress to GitHub
+
+The `celery` pod needs outbound HTTPS to
+* `raw.githubusercontent.com` and
+* `rfc-editor.github.io`
+
 ### Verification
 
 Unit tests for `suggest_merges` against fabricated `old_docs`/`new_docs` sets, asserting
