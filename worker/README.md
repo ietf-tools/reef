@@ -20,8 +20,8 @@ fallback for everything else.
 `/api/v1/*` routes are matched by hand against `precomputer/registry.py`'s
 task keys; see `src/index.ts`. Django itself only serves these under
 `/api/reef/*`, not `/api/v1/*`, so each route (bar the unrouted
-`precomputed/subjects/*` ones) carries an `originPath` that a bucket miss is
-rewritten to before falling back.
+`subjects/*` ones) carries an `originPath` that a bucket miss is rewritten to
+before falling back.
 
 `ALLOWED_ORIGINS` (per environment, in `wrangler.jsonc`) must track Django's
 `REEF_CORS_ALLOWED_ORIGINS`, since a bucket hit here never reaches Django's
