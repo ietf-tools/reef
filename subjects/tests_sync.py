@@ -16,6 +16,7 @@ from subscriptions.models import Subscription
 
 from .models import Subject, SubjectAssignment, SubjectSyncRun
 from .sync import (
+    SyncResult,
     diff_assignments,
     diff_vocabulary,
     run_sync,
@@ -444,15 +445,8 @@ class RunSubjectSyncTaskTests(TestCase):
 
     def _run(self, **result_kwargs):
         run = SubjectSyncRun.objects.create()
-        defaults = dict(
-            skipped=False,
-            validation_problems=[],
-            needs_confirmation=False,
-            written=True,
-        )
-        defaults.update(result_kwargs)
         with mock.patch(
-            "subjects.tasks.run_sync", return_value=mock.Mock(**defaults)
+            "subjects.tasks.run_sync", return_value=SyncResult(**result_kwargs)
         ) as run_sync_mock:
             run_subject_sync(run.pk)
         run.refresh_from_db()
@@ -500,12 +494,7 @@ class RunSubjectSyncTaskTests(TestCase):
 
         def fake_run_sync(**kwargs):
             logging.getLogger("reef").info("subject sync: created 3/542: dnssec")
-            return mock.Mock(
-                skipped=False,
-                validation_problems=[],
-                needs_confirmation=False,
-                written=True,
-            )
+            return SyncResult(written=True)
 
         with mock.patch("subjects.tasks.run_sync", side_effect=fake_run_sync):
             run_subject_sync(run.pk)
@@ -517,12 +506,7 @@ class RunSubjectSyncTaskTests(TestCase):
 
         def fake_run_sync(**kwargs):
             logging.getLogger("reef").info("something unrelated entirely")
-            return mock.Mock(
-                skipped=False,
-                validation_problems=[],
-                needs_confirmation=False,
-                written=True,
-            )
+            return SyncResult(written=True)
 
         with mock.patch("subjects.tasks.run_sync", side_effect=fake_run_sync):
             run_subject_sync(run.pk)
@@ -534,13 +518,7 @@ class RunSubjectSyncTaskTests(TestCase):
         every earlier run's row too, since addHandler is cumulative."""
         run = SubjectSyncRun.objects.create()
         with mock.patch(
-            "subjects.tasks.run_sync",
-            return_value=mock.Mock(
-                skipped=False,
-                validation_problems=[],
-                needs_confirmation=False,
-                written=True,
-            ),
+            "subjects.tasks.run_sync", return_value=SyncResult(written=True)
         ):
             run_subject_sync(run.pk)
         logging.getLogger("reef").info("subject sync: after the run entirely")
