@@ -21,6 +21,7 @@ a curation error rather than something the database can catch, exactly as a
 rating or a set entry naming a nonexistent RFC already is.
 """
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -533,3 +534,67 @@ class SubjectAssignment(models.Model):
         # written out as rfc14 or bcp14.
         self.doc = normalize_doc_id(self.doc)
         super().save(*args, **kwargs)
+
+
+class SubjectSyncRun(models.Model):
+    """One invocation of the "Sync subject tags" admin button.
+
+    A full sync (fetch both files, diff, write, score merge suggestions) is too
+    slow to run inside the request that triggers it -- see subjects/tasks.py --
+    so the admin view creates one of these, hands its id to a Celery task, and
+    redirects to a page that reads it back. That page is a browser polling this
+    row, not the task: nothing here talks to Celery's own result backend, which
+    this project doesn't keep (CELERY_TASK_IGNORE_RESULT).
+
+    `result` is subjects.sync.SyncResult, serialised whole with
+    dataclasses.asdict(): nothing here ever queries into it, so there is no
+    reason to spread it across columns, and every field on it is already a
+    plain str/int/float/list/dict, so the round trip through JSON is lossless.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Queued"
+        RUNNING = "running", "Running"
+        SUCCEEDED = "succeeded", "Succeeded"
+        NEEDS_CONFIRMATION = "needs_confirmation", "Needs confirmation"
+        SKIPPED = "skipped", "Skipped"
+        FAILED = "failed", "Failed"
+
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+    # Set on the confirmation retry: a fresh row rather than mutating the run
+    # that reported needs_confirmation, so the original stays a true record of
+    # what was seen before anyone acted on it.
+    confirm_large_change = models.BooleanField(default=False)
+    triggered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="subject_sync_runs",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    # A one-line "what's happening right now", written at the same checkpoints
+    # subjects/sync.py already logs at (each fetch, every 50 subjects created
+    # or updated, each major phase) -- see subjects/tasks.py. What a browser
+    # polling this row while it's still running actually has to show; the
+    # fuller phase-by-phase detail stays in the logs.
+    progress_message = models.CharField(max_length=255, blank=True)
+    result = models.JSONField(null=True, blank=True)
+    # Only for a run that raised -- everything else the sync itself reports
+    # (validation problems, a skipped lock, a needs-confirmation stop) is
+    # already in `result`, not an exception at all.
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_status_display()} ({self.created_at:%Y-%m-%d %H:%M})"
+
+    @property
+    def is_finished(self):
+        return self.status not in (self.Status.PENDING, self.Status.RUNNING)

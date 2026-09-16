@@ -15,8 +15,14 @@ from django.views.decorators.http import require_POST
 from reef.admin_documents import DocumentTitleMixin
 
 from .merge import MergeError, merge_and_notify
-from .models import PATH_SEPARATOR, Subject, SubjectAlias, SubjectAssignment
-from .sync import run_sync
+from .models import (
+    PATH_SEPARATOR,
+    Subject,
+    SubjectAlias,
+    SubjectAssignment,
+    SubjectSyncRun,
+)
+from .tasks import run_subject_sync
 from .tree import rollup
 
 
@@ -208,6 +214,11 @@ class SubjectAdmin(admin.ModelAdmin):
                 name="subjects_subject_sync",
             ),
             path(
+                "sync/runs/<int:run_id>/",
+                self.admin_site.admin_view(self.sync_run_view),
+                name="subjects_subject_sync_run",
+            ),
+            path(
                 "sync/merge/<int:source_id>/<int:target_id>/",
                 # require_POST wraps the bound method here, not the method
                 # definition below: decorating the unbound function would make
@@ -261,41 +272,81 @@ class SubjectAdmin(admin.ModelAdmin):
         return render(request, "admin/subjects/subject/merge.html", context)
 
     def sync_view(self, request):
-        """Mirror the vocabulary and assignments from rfc-editor/rfc-subject-tags.
+        """Start a mirror of the vocabulary and assignments from
+        rfc-editor/rfc-subject-tags.
 
-        See subjects/sync.py for the design. Manual only -- this is the only
-        thing that ever calls run_sync with write=True.
+        See subjects/sync.py for the sync itself and plan.md for why this
+        can't just run inline: a real first sync against an empty vocabulary
+        once outran the gunicorn worker timeout, taking minutes and leaving
+        the request with nothing to show for it. So this only ever creates a
+        SubjectSyncRun and hands it to Celery (subjects/tasks.py); the actual
+        run happens off the request, and sync_run_view is what a browser polls
+        for its outcome.
         """
-        result = None
-        retired = None
         if request.method == "POST":
-            result = run_sync(
-                confirm_large_change=bool(request.POST.get("confirm_large_change"))
+            run = SubjectSyncRun.objects.create(
+                confirm_large_change=bool(request.POST.get("confirm_large_change")),
+                triggered_by=request.user,
             )
-            if result.written:
-                # Joined here rather than in the template, which has no way to
-                # look a dict up by a loop variable's value.
-                pks = dict(
-                    Subject.all_objects.filter(slug__in=result.retired).values_list(
-                        "slug", "pk"
-                    )
-                )
-                retired = [
-                    {
-                        "slug": slug,
-                        "pk": pks.get(slug),
-                        "suggestions": result.suggestions.get(slug, []),
-                    }
-                    for slug in result.retired
-                ]
+            run_subject_sync.delay(run.pk)
+            return HttpResponseRedirect(
+                reverse("admin:subjects_subject_sync_run", args=[run.pk])
+            )
         context = {
             **self.admin_site.each_context(request),
             "title": "Sync subject tags",
+            "recent_runs": SubjectSyncRun.objects.select_related("triggered_by")[:10],
+            "changelist_url": reverse("admin:subjects_subject_changelist"),
+        }
+        return render(request, "admin/subjects/subject/sync.html", context)
+
+    def sync_run_view(self, request, run_id):
+        """One sync run's status -- a browser polls this while it's in
+        progress, via the plain <meta refresh> in the template, and it renders
+        the full result once it's finished.
+
+        A POST here is the "apply anyway" resubmission from a
+        needs_confirmation result: a fresh run, not a mutation of this one, so
+        that this row stays a true record of what the safety threshold saw
+        before anyone acted on it.
+        """
+        run = get_object_or_404(SubjectSyncRun, pk=run_id)
+        if request.method == "POST":
+            confirmed = SubjectSyncRun.objects.create(
+                confirm_large_change=True, triggered_by=request.user
+            )
+            run_subject_sync.delay(confirmed.pk)
+            return HttpResponseRedirect(
+                reverse("admin:subjects_subject_sync_run", args=[confirmed.pk])
+            )
+
+        result = run.result
+        retired = None
+        if result and result.get("written"):
+            # Joined here rather than in the template, which has no way to
+            # look a dict up by a loop variable's value.
+            pks = dict(
+                Subject.all_objects.filter(slug__in=result["retired"]).values_list(
+                    "slug", "pk"
+                )
+            )
+            retired = [
+                {
+                    "slug": slug,
+                    "pk": pks.get(slug),
+                    "suggestions": result.get("suggestions", {}).get(slug, []),
+                }
+                for slug in result["retired"]
+            ]
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Sync subject tags",
+            "run": run,
             "result": result,
             "retired": retired,
             "changelist_url": reverse("admin:subjects_subject_changelist"),
         }
-        return render(request, "admin/subjects/subject/sync.html", context)
+        return render(request, "admin/subjects/subject/sync_run.html", context)
 
     def sync_merge_view(self, request, source_id, target_id):
         """Act on a sync result's suggested successor for a retired subject.
@@ -423,3 +474,45 @@ class SubjectAssignmentAdmin(DocumentTitleMixin, admin.ModelAdmin):
         pop3 does not.
         """
         return obj.subject.path
+
+
+@admin.register(SubjectSyncRun)
+class SubjectSyncRunAdmin(admin.ModelAdmin):
+    """History of "Sync subject tags" runs. Read-only -- a run is a record of
+    what subjects.tasks.run_subject_sync did, not something curated here.
+
+    The changelist is a second way to reach a run beside the list on the sync
+    page itself (subjects/subject/sync/), useful once that page's own
+    "recent runs" window has scrolled a run out of it.
+    """
+
+    list_display = [
+        "__str__",
+        "confirm_large_change",
+        "triggered_by",
+        "started_at",
+        "finished_at",
+    ]
+    list_filter = ["status"]
+    readonly_fields = [
+        "status",
+        "confirm_large_change",
+        "triggered_by",
+        "created_at",
+        "started_at",
+        "finished_at",
+        "progress_message",
+        "result",
+        "error",
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # Runs are a small, slow-growing audit trail (one per button click),
+        # not something that needs pruning by hand.
+        return False

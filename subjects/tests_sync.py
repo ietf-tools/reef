@@ -5,6 +5,7 @@ Fetches are always stubbed -- see RunSyncTestCase.run -- so nothing here touches
 the network, matching precomputer/tests.py's own PrecomputeTestCase pattern.
 """
 
+import logging
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -13,7 +14,7 @@ from django.urls import reverse
 
 from subscriptions.models import Subscription
 
-from .models import Subject, SubjectAssignment
+from .models import Subject, SubjectAssignment, SubjectSyncRun
 from .sync import (
     diff_assignments,
     diff_vocabulary,
@@ -21,6 +22,7 @@ from .sync import (
     suggest_merges,
     validate_taxonomy,
 )
+from .tasks import run_subject_sync
 from .tests_hierarchy import tree
 
 User = get_user_model()
@@ -294,6 +296,9 @@ class ConcurrentRunTests(RunSyncTestCase):
 
 
 class SyncAdminViewTests(TestCase):
+    """The button only ever creates a SubjectSyncRun and hands it to Celery --
+    see plan.md for why a request-bound sync isn't safe."""
+
     def setUp(self):
         self.url = reverse("admin:subjects_subject_sync")
         self.staff = User.objects.create_superuser(
@@ -311,38 +316,238 @@ class SyncAdminViewTests(TestCase):
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 302)
 
-    def test_staff_get_shows_the_form_and_no_result(self):
+    def test_staff_get_shows_the_form_and_recent_runs(self):
         self.client.force_login(self.staff)
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 200)
-        self.assertIsNone(resp.context["result"])
+        self.assertContains(resp, "Sync now")
 
-    def test_staff_post_runs_the_sync(self):
+    def test_staff_post_creates_a_run_and_enqueues_it_without_blocking(self):
         self.client.force_login(self.staff)
-        with (
-            mock.patch(
-                "subjects.admin.run_sync",
-                return_value=mock.Mock(
-                    skipped=False,
-                    validation_problems=[],
-                    needs_confirmation=False,
-                    written=True,
-                    created=["security"],
-                    updated=[],
-                    unretired=[],
-                    retired=[],
-                    assignments_created=0,
-                    assignments_deleted=0,
-                    unresolved_assignments=[],
-                    top_deltas=[],
-                    suggestions={},
-                ),
-            ) as run,
-        ):
+        with mock.patch("subjects.admin.run_subject_sync.delay") as delay:
             resp = self.client.post(self.url)
+        run = SubjectSyncRun.objects.get()
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(f"/sync/runs/{run.pk}/", resp["Location"])
+        self.assertEqual(run.status, SubjectSyncRun.Status.PENDING)
+        self.assertEqual(run.triggered_by, self.staff)
+        delay.assert_called_once_with(run.pk)
+
+    def test_confirm_large_change_is_recorded_on_the_run(self):
+        self.client.force_login(self.staff)
+        with mock.patch("subjects.admin.run_subject_sync.delay"):
+            self.client.post(self.url, {"confirm_large_change": "1"})
+        run = SubjectSyncRun.objects.get()
+        self.assertTrue(run.confirm_large_change)
+
+
+class SyncRunViewTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_superuser(
+            username="staff", oidc_sub="staff", password="x"
+        )
+        self.client.force_login(self.staff)
+
+    def url(self, run):
+        return reverse("admin:subjects_subject_sync_run", kwargs={"run_id": run.pk})
+
+    def test_a_pending_run_shows_the_polling_page(self):
+        run = SubjectSyncRun.objects.create()
+        resp = self.client.get(self.url(run))
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(run.called)
+        self.assertContains(resp, "refresh")
+
+    def test_a_succeeded_run_shows_its_result(self):
+        run = SubjectSyncRun.objects.create(
+            status=SubjectSyncRun.Status.SUCCEEDED,
+            result={
+                "written": True,
+                "created": ["security"],
+                "updated": [],
+                "unretired": [],
+                "retired": [],
+                "assignments_created": 0,
+                "assignments_deleted": 0,
+                "unresolved_assignments": [],
+                "top_deltas": [],
+                "suggestions": {},
+                "validation_problems": [],
+            },
+        )
+        resp = self.client.get(self.url(run))
+        self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "security")
+
+    def test_a_retired_subject_in_the_result_offers_its_merge_suggestion(self):
+        target = Subject.objects.create(slug="new-tag", name="New Tag")
+        run = SubjectSyncRun.objects.create(
+            status=SubjectSyncRun.Status.SUCCEEDED,
+            result={
+                "written": True,
+                "created": [],
+                "updated": [],
+                "unretired": [],
+                "retired": ["old-tag"],
+                "assignments_created": 0,
+                "assignments_deleted": 0,
+                "unresolved_assignments": [],
+                "top_deltas": [],
+                "suggestions": {
+                    "old-tag": [
+                        {
+                            "target_slug": "new-tag",
+                            "target_name": "New Tag",
+                            "target_pk": target.pk,
+                            "score": 0.8,
+                            "jaccard": 0.7,
+                            "shared_count": 8,
+                            "old_count": 10,
+                            "description_ratio": 0.5,
+                        }
+                    ]
+                },
+                "validation_problems": [],
+            },
+        )
+        source = Subject.objects.create(slug="old-tag", name="Old Tag")
+        source.retire()
+        resp = self.client.get(self.url(run))
+        self.assertContains(resp, "Merge into this")
+        self.assertContains(resp, f"/sync/merge/{source.pk}/{target.pk}/")
+
+    def test_confirming_a_needs_confirmation_run_creates_a_fresh_confirmed_run(self):
+        run = SubjectSyncRun.objects.create(
+            status=SubjectSyncRun.Status.NEEDS_CONFIRMATION,
+            result={
+                "retire_count": 9,
+                "live_count_before": 10,
+                "assignment_total_before": 100,
+                "assignment_total_after": 40,
+                "validation_problems": [],
+            },
+        )
+        with mock.patch("subjects.admin.run_subject_sync.delay") as delay:
+            resp = self.client.post(self.url(run))
+        self.assertEqual(SubjectSyncRun.objects.count(), 2)
+        confirmed = SubjectSyncRun.objects.exclude(pk=run.pk).get()
+        self.assertTrue(confirmed.confirm_large_change)
+        self.assertIn(f"/sync/runs/{confirmed.pk}/", resp["Location"])
+        delay.assert_called_once_with(confirmed.pk)
+        # The original stays exactly what the safety threshold saw.
+        run.refresh_from_db()
+        self.assertEqual(run.status, SubjectSyncRun.Status.NEEDS_CONFIRMATION)
+
+
+class RunSubjectSyncTaskTests(TestCase):
+    """subjects.tasks.run_subject_sync, with subjects.sync.run_sync itself
+    stubbed -- its own behaviour is RunSyncTestCase's job."""
+
+    def _run(self, **result_kwargs):
+        run = SubjectSyncRun.objects.create()
+        defaults = dict(
+            skipped=False,
+            validation_problems=[],
+            needs_confirmation=False,
+            written=True,
+        )
+        defaults.update(result_kwargs)
+        with mock.patch(
+            "subjects.tasks.run_sync", return_value=mock.Mock(**defaults)
+        ) as run_sync_mock:
+            run_subject_sync(run.pk)
+        run.refresh_from_db()
+        return run, run_sync_mock
+
+    def test_a_missing_run_is_logged_not_raised(self):
+        run_subject_sync(999999)  # must not raise
+
+    def test_a_successful_run_is_marked_succeeded_with_its_result_stored(self):
+        run, _ = self._run(created=["security"])
+        self.assertEqual(run.status, SubjectSyncRun.Status.SUCCEEDED)
+        self.assertEqual(run.result["created"], ["security"])
+        self.assertIsNotNone(run.started_at)
+        self.assertIsNotNone(run.finished_at)
+
+    def test_a_skipped_run_is_marked_skipped(self):
+        run, _ = self._run(skipped=True, written=False)
+        self.assertEqual(run.status, SubjectSyncRun.Status.SKIPPED)
+
+    def test_validation_problems_mark_the_run_failed(self):
+        run, _ = self._run(validation_problems=["bad"], written=False)
+        self.assertEqual(run.status, SubjectSyncRun.Status.FAILED)
+
+    def test_needing_confirmation_is_its_own_status(self):
+        run, _ = self._run(needs_confirmation=True, written=False)
+        self.assertEqual(run.status, SubjectSyncRun.Status.NEEDS_CONFIRMATION)
+
+    def test_an_exception_marks_the_run_failed_with_its_traceback_recorded(self):
+        run = SubjectSyncRun.objects.create()
+        with mock.patch("subjects.tasks.run_sync", side_effect=RuntimeError("boom")):
+            run_subject_sync(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, SubjectSyncRun.Status.FAILED)
+        self.assertIn("RuntimeError: boom", run.error)
+        # The traceback, not just the message -- this is a staff-only page,
+        # so there's no reason debugging a failure should need log access.
+        self.assertIn("Traceback (most recent call last)", run.error)
+        self.assertIsNone(run.result)
+
+    def test_a_subject_sync_log_line_is_mirrored_onto_progress_message(self):
+        """The handler reuses subjects/sync.py's own checkpoint logging --
+        see _ProgressHandler's docstring -- rather than a second reporting
+        path, so this simulates one of those checkpoints firing mid-run."""
+        run = SubjectSyncRun.objects.create()
+
+        def fake_run_sync(**kwargs):
+            logging.getLogger("reef").info("subject sync: created 3/542: dnssec")
+            return mock.Mock(
+                skipped=False,
+                validation_problems=[],
+                needs_confirmation=False,
+                written=True,
+            )
+
+        with mock.patch("subjects.tasks.run_sync", side_effect=fake_run_sync):
+            run_subject_sync(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.progress_message, "subject sync: created 3/542: dnssec")
+
+    def test_an_unrelated_log_line_is_not_mirrored(self):
+        run = SubjectSyncRun.objects.create()
+
+        def fake_run_sync(**kwargs):
+            logging.getLogger("reef").info("something unrelated entirely")
+            return mock.Mock(
+                skipped=False,
+                validation_problems=[],
+                needs_confirmation=False,
+                written=True,
+            )
+
+        with mock.patch("subjects.tasks.run_sync", side_effect=fake_run_sync):
+            run_subject_sync(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.progress_message, "")
+
+    def test_the_handler_is_removed_after_the_run(self):
+        """Otherwise a second run's progress would keep being written onto
+        every earlier run's row too, since addHandler is cumulative."""
+        run = SubjectSyncRun.objects.create()
+        with mock.patch(
+            "subjects.tasks.run_sync",
+            return_value=mock.Mock(
+                skipped=False,
+                validation_problems=[],
+                needs_confirmation=False,
+                written=True,
+            ),
+        ):
+            run_subject_sync(run.pk)
+        logging.getLogger("reef").info("subject sync: after the run entirely")
+        run.refresh_from_db()
+        self.assertNotEqual(
+            run.progress_message, "subject sync: after the run entirely"
+        )
 
 
 class SyncMergeViewTests(TestCase):

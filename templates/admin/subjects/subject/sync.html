@@ -8,6 +8,10 @@
   This overwrites local edits to match the source, and retires (never deletes) any
   subject no longer in it. Manual only -- nothing runs this automatically.
 </p>
+<p>
+  Runs in the background: this starts it and takes you to a page that shows its
+  progress, rather than waiting here for it to finish.
+</p>
 
 <form method="post">
   {% csrf_token %}
@@ -17,124 +21,25 @@
   </div>
 </form>
 
-{% if result %}
-  <h2>Result</h2>
-
-  {% if result.skipped %}
-    <p class="errornote">{{ result.skip_reason }}</p>
-
-  {% elif result.validation_problems %}
-    <p class="errornote">
-      {{ result.validation_problems|length }} problem(s) in the fetched taxonomy.
-      Nothing was written.
-    </p>
-    <ul>
-      {% for problem in result.validation_problems %}
-        <li>{{ problem }}</li>
+{% if recent_runs %}
+  <h2>Recent runs</h2>
+  <table>
+    <thead>
+      <tr><th>Started</th><th>Status</th><th>Triggered by</th></tr>
+    </thead>
+    <tbody>
+      {% for run in recent_runs %}
+        <tr>
+          <td>
+            <a href="{% url 'admin:subjects_subject_sync_run' run_id=run.pk %}">
+              {{ run.created_at }}
+            </a>
+          </td>
+          <td>{{ run.get_status_display }}</td>
+          <td>{{ run.triggered_by|default:"(unknown)" }}</td>
+        </tr>
       {% endfor %}
-    </ul>
-
-  {% elif result.needs_confirmation %}
-    <p class="errornote">
-      This would retire {{ result.retire_count }} of {{ result.live_count_before }}
-      live subject(s), and change total assignments from
-      {{ result.assignment_total_before }} to {{ result.assignment_total_after }}.
-      That's large enough to be worth a second look before it's applied -- nothing
-      has been written yet.
-    </p>
-    <form method="post">
-      {% csrf_token %}
-      <input type="hidden" name="confirm_large_change" value="1">
-      <div class="submit-row">
-        <input type="submit" value="Yes, apply this anyway" class="default">
-        <a href="{{ changelist_url }}" class="closelink">Cancel</a>
-      </div>
-    </form>
-
-  {% else %}
-    <p>
-      {{ result.created|length }} created, {{ result.updated|length }} updated,
-      {{ result.unretired|length }} unretired, {{ result.retired|length }} retired.
-      {{ result.assignments_created }} assignment(s) created,
-      {{ result.assignments_deleted }} deleted.
-    </p>
-
-    {% if result.created %}
-      <h3>Created</h3>
-      <ul>{% for slug in result.created %}<li>{{ slug }}</li>{% endfor %}</ul>
-    {% endif %}
-
-    {% if result.updated %}
-      <h3>Updated</h3>
-      <ul>
-        {% for change in result.updated %}
-          <li>
-            <strong>{{ change.slug }}</strong>:
-            {% for field, values in change.changes.items %}
-              {{ field }}: {{ values.0|default:"(none)" }} &rarr; {{ values.1|default:"(none)" }}{% if not forloop.last %}; {% endif %}
-            {% endfor %}
-          </li>
-        {% endfor %}
-      </ul>
-    {% endif %}
-
-    {% if result.unretired %}
-      <h3>Unretired</h3>
-      <p>Back in the taxonomy, so brought back rather than created a second time.</p>
-      <ul>{% for slug in result.unretired %}<li>{{ slug }}</li>{% endfor %}</ul>
-    {% endif %}
-
-    {% if retired %}
-      <h3>Retired</h3>
-      <p>No longer in the taxonomy. Never deleted -- a subject with subscribers is
-        protected, and a retired subject's existing subscribers keep matching.</p>
-      {% for item in retired %}
-        <p><strong>{{ item.slug }}</strong></p>
-        {% if item.suggestions %}
-          <ul>
-            {% for candidate in item.suggestions %}
-              <li>
-                Possible match: <strong>{{ candidate.target_slug }}</strong> ({{ candidate.target_name }}) --
-                {{ candidate.shared_count }}/{{ candidate.old_count }} of its documents
-                are now filed there ({{ candidate.jaccard|floatformat:2 }} overlap;
-                {{ candidate.description_ratio|floatformat:2 }} description similarity).
-                <form method="post"
-                      action="{% url 'admin:subjects_subject_sync_merge' source_id=item.pk target_id=candidate.target_pk %}"
-                      style="display:inline">
-                  {% csrf_token %}
-                  <input type="submit" value="Merge into this">
-                </form>
-              </li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p>No likely successor found.</p>
-        {% endif %}
-      {% endfor %}
-    {% endif %}
-
-    {% if result.unresolved_assignments %}
-      <h3>Unresolved</h3>
-      <p>Named in rfc-tags.json but matched to no known subject or document --
-        should be unreachable, since the vocabulary was just synced from the same
-        taxonomy. Logged and skipped rather than raised.</p>
-      <ul>
-        {% for slug, doc in result.unresolved_assignments %}
-          <li>{{ slug }}: {{ doc }}</li>
-        {% endfor %}
-      </ul>
-    {% endif %}
-
-    {% if result.top_deltas %}
-      <h3>Largest assignment changes</h3>
-      <p>Whether or not the subject was retired -- worth a look even where nothing
-        here calls it an error.</p>
-      <ul>
-        {% for slug, old_count, new_count in result.top_deltas %}
-          <li>{{ slug }}: {{ old_count }} &rarr; {{ new_count }}</li>
-        {% endfor %}
-      </ul>
-    {% endif %}
-  {% endif %}
+    </tbody>
+  </table>
 {% endif %}
 {% endblock %}

@@ -145,14 +145,34 @@ class SyncResult:
 
 
 def _fetch(url, timeout=30):
+    """GET url, logging how long it actually took.
+
+    timeout bounds each individual socket operation (connect, and each read),
+    not the transfer as a whole -- a connection that keeps dribbling bytes
+    without ever going fully idle for `timeout` seconds can still run long
+    overall. The elapsed-time log below is what would show that happening,
+    since a per-operation timeout wouldn't catch it.
+    """
+    started = time.monotonic()
     request = urllib.request.Request(url, headers={"Accept": "*/*"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             data = response.read(MAX_FETCH_BYTES + 1)
     except (urllib.error.URLError, OSError, ValueError) as exc:
+        logger.error(
+            "subject sync: fetching %s failed after %.1fs: %s",
+            url,
+            time.monotonic() - started,
+            exc,
+        )
         raise CommandError(f"Could not fetch {url}: {exc}") from exc
+    elapsed = time.monotonic() - started
     if len(data) > MAX_FETCH_BYTES:
+        logger.error(
+            "subject sync: %s exceeded the fetch cap after %.1fs", url, elapsed
+        )
         raise CommandError(f"{url} exceeded the {MAX_FETCH_BYTES}-byte fetch cap")
+    logger.info("subject sync: fetched %s (%d bytes) in %.1fs", url, len(data), elapsed)
     return data
 
 
@@ -294,6 +314,16 @@ def diff_vocabulary(taxonomy):
     return VocabularyDiff(to_create, to_update, to_unretire, to_retire)
 
 
+#  A subject's save() is not cheap -- validate_tree() walks ancestors, and
+#  HistoricalRecords() writes a second row per save -- and to_create/to_update
+#  go through it one at a time, in a loop, because path/depth and history both
+#  depend on it. bulk_create would skip all of that. This checkpoint interval
+#  is what makes a slow run visible in the logs while it's happening, rather
+#  than only at the end: if this is where a hang lives, the last logged index
+#  and its timestamp says how far it got and how long each batch took.
+PROGRESS_LOG_INTERVAL = 50
+
+
 def apply_vocabulary(diff):
     """Write a VocabularyDiff. Creates and reparents before retiring, so a
     subject moving out of a vanishing branch is safely out of it first."""
@@ -306,7 +336,9 @@ def apply_vocabulary(diff):
             return created_by_slug[parent_slug]
         return Subject.all_objects.get(slug=parent_slug)
 
-    for item in diff.to_create:
+    started = time.monotonic()
+    total = len(diff.to_create)
+    for index, item in enumerate(diff.to_create, start=1):
         subject = Subject.objects.create(
             slug=item["slug"],
             name=title_case(item["slug"]),
@@ -314,9 +346,18 @@ def apply_vocabulary(diff):
             parent=resolve_parent(item["parent_slug"]),
         )
         created_by_slug[item["slug"]] = subject
-        logger.info("subject sync: created %s", item["slug"])
+        logger.info("subject sync: created %d/%d: %s", index, total, item["slug"])
+        if index % PROGRESS_LOG_INTERVAL == 0 or index == total:
+            logger.info(
+                "subject sync: %d/%d subject(s) created, %.1fs elapsed",
+                index,
+                total,
+                time.monotonic() - started,
+            )
 
-    for change in diff.to_update:
+    started = time.monotonic()
+    total = len(diff.to_update)
+    for index, change in enumerate(diff.to_update, start=1):
         subject = Subject.all_objects.get(slug=change.slug)
         if "parent" in change.changes:
             _, new_parent_slug = change.changes["parent"]
@@ -326,8 +367,19 @@ def apply_vocabulary(diff):
             subject.description = new_description
         subject.save()
         logger.info(
-            "subject sync: updated %s (%s)", change.slug, ", ".join(change.changes)
+            "subject sync: updated %d/%d: %s (%s)",
+            index,
+            total,
+            change.slug,
+            ", ".join(change.changes),
         )
+        if index % PROGRESS_LOG_INTERVAL == 0 or index == total:
+            logger.info(
+                "subject sync: %d/%d subject(s) updated, %.1fs elapsed",
+                index,
+                total,
+                time.monotonic() - started,
+            )
 
     for slug in diff.to_unretire:
         subject = Subject.all_objects.get(slug=slug)
@@ -338,13 +390,20 @@ def apply_vocabulary(diff):
     # Only the topmost vanished subject in each branch is retired directly;
     # retire(subtree=True) cascades to its own vanished descendants, so a
     # child would otherwise be asked to retire twice.
+    started = time.monotonic()
     retiring_slugs = {subject.slug for subject in diff.to_retire}
     for subject in diff.to_retire:
         parent_slug = subject.parent.slug if subject.parent_id else None
         if parent_slug in retiring_slugs:
             continue
         subject.retire(subtree=True)
-        logger.info("subject sync: retired %s", subject.slug)
+        logger.info("subject sync: retired %s (and any live descendants)", subject.slug)
+    if diff.to_retire:
+        logger.info(
+            "subject sync: %d subject(s) marked for retirement, %.1fs elapsed",
+            len(diff.to_retire),
+            time.monotonic() - started,
+        )
 
 
 def diff_assignments(rfc_tags):
@@ -422,10 +481,23 @@ def suggest_merges(retiring_slugs, old_docs, old_parent_slug, old_description):
     are the pre-sync snapshot (captured before anything was written), and the
     candidates' own document sets are read fresh, post-sync.
     """
+    if not retiring_slugs:
+        # The common case, including every steady-state run: nothing retired,
+        # so skip building a full assignment index nothing would use.
+        return {}
+
+    started = time.monotonic()
     candidates = list(Subject.objects.select_related("parent"))
     new_docs = defaultdict(set)
     for subject_id, doc in SubjectAssignment.objects.values_list("subject_id", "doc"):
         new_docs[subject_id].add(doc)
+    logger.info(
+        "subject sync: suggestion index built (%d candidate(s), %d "
+        "assignment(s)), %.1fs elapsed",
+        len(candidates),
+        sum(len(docs) for docs in new_docs.values()),
+        time.monotonic() - started,
+    )
 
     suggestions = {}
     for slug in retiring_slugs:
@@ -466,6 +538,11 @@ def suggest_merges(retiring_slugs, old_docs, old_parent_slug, old_description):
                 )
         scored.sort(key=lambda suggestion: suggestion.score, reverse=True)
         suggestions[slug] = scored[:SUGGESTION_MAX_PER_SUBJECT]
+    logger.info(
+        "subject sync: suggestions scored for %d retired subject(s), %.1fs elapsed",
+        len(retiring_slugs),
+        time.monotonic() - started,
+    )
     return suggestions
 
 
@@ -494,16 +571,21 @@ def run_sync(
 
 
 def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
-    started = time.monotonic()
-    logger.info("subject sync: fetching %s", vocabulary_url)
+    run_started = time.monotonic()
+    logger.info("subject sync: starting (write=%s)", write)
+
+    # _fetch() itself logs each URL's own elapsed time; this line is the total
+    # for both, which is what matters against the request's own time budget
+    # (a gunicorn worker will be killed at REEF_GUNICORN_TIMEOUT, 180s by
+    # default -- see dev/build/backend-start.sh).
+    fetch_started = time.monotonic()
     taxonomy = fetch_taxonomy(vocabulary_url)
-    logger.info("subject sync: fetching %s", assignments_url)
     rfc_tags = fetch_assignments(assignments_url)
     logger.info(
-        "subject sync: fetched %d tag(s), %d RFC record(s) in %.1fs",
+        "subject sync: fetched %d tag(s), %d RFC record(s) in %.1fs total",
         len(taxonomy.get("tags") or []),
         len(rfc_tags),
-        time.monotonic() - started,
+        time.monotonic() - fetch_started,
     )
 
     problems = validate_taxonomy(taxonomy)
@@ -513,7 +595,17 @@ def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
         )
         return SyncResult(validation_problems=problems)
 
+    diff_started = time.monotonic()
     vocab_diff = diff_vocabulary(taxonomy)
+    logger.info(
+        "subject sync: vocabulary diff: %d to create, %d to update, %d to "
+        "unretire, %d to retire, %.1fs elapsed",
+        len(vocab_diff.to_create),
+        len(vocab_diff.to_update),
+        len(vocab_diff.to_unretire),
+        len(vocab_diff.to_retire),
+        time.monotonic() - diff_started,
+    )
     live_count_before = Subject.objects.count()
     assignment_total_before = SubjectAssignment.objects.count()
     retire_count = len(vocab_diff.to_retire)
@@ -546,8 +638,23 @@ def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
     }
 
     with transaction.atomic():
+        apply_started = time.monotonic()
         apply_vocabulary(vocab_diff)
+        logger.info(
+            "subject sync: vocabulary written, %.1fs elapsed",
+            time.monotonic() - apply_started,
+        )
+
+        diff_started = time.monotonic()
         assignment_diff = diff_assignments(rfc_tags)
+        logger.info(
+            "subject sync: assignment diff: %d to create, %d to delete, %d "
+            "unresolved, %.1fs elapsed",
+            assignment_diff.create_count,
+            assignment_diff.delete_count,
+            len(assignment_diff.unresolved),
+            time.monotonic() - diff_started,
+        )
         new_total = (
             assignment_total_before
             - assignment_diff.delete_count
@@ -586,7 +693,12 @@ def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
                 unresolved_assignments=assignment_diff.unresolved,
             )
 
+        write_started = time.monotonic()
         apply_assignments(assignment_diff)
+        logger.info(
+            "subject sync: assignments written, %.1fs elapsed",
+            time.monotonic() - write_started,
+        )
 
     # Post-write: suggestions and the delta report both read the now-committed
     # state, and are informational only -- nothing here writes anything.
@@ -611,11 +723,15 @@ def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
     deltas.sort(key=lambda item: abs(item[2] - item[1]), reverse=True)
 
     logger.info(
-        "subject sync: %d created, %d updated, %d unretired, %d retired",
+        "subject sync: done -- %d created, %d updated, %d unretired, %d "
+        "retired, %d assignment(s) created, %d deleted, %.1fs total",
         len(vocab_diff.to_create),
         len(vocab_diff.to_update),
         len(vocab_diff.to_unretire),
         len(vocab_diff.to_retire),
+        assignment_diff.create_count,
+        assignment_diff.delete_count,
+        time.monotonic() - run_started,
     )
 
     return SyncResult(
