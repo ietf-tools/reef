@@ -209,7 +209,11 @@ class SubjectAdmin(admin.ModelAdmin):
             ),
             path(
                 "sync/merge/<int:source_id>/<int:target_id>/",
-                self.admin_site.admin_view(self.sync_merge_view),
+                # require_POST wraps the bound method here, not the method
+                # definition below: decorating the unbound function would make
+                # its request_method_list check run against `self` (the
+                # instance Python binds first), not the actual request.
+                self.admin_site.admin_view(require_POST(self.sync_merge_view)),
                 name="subjects_subject_sync_merge",
             ),
         ]
@@ -293,7 +297,6 @@ class SubjectAdmin(admin.ModelAdmin):
         }
         return render(request, "admin/subjects/subject/sync.html", context)
 
-    @require_POST
     def sync_merge_view(self, request, source_id, target_id):
         """Act on a sync result's suggested successor for a retired subject.
 
