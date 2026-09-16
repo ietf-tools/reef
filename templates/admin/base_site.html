@@ -16,6 +16,7 @@
 {% if has_permission %}
   <a href="{% url 'manage-survey-list' %}">{% translate "Survey builder" %}</a> /
   <a href="{% url 'admin:precomputer-run' %}">{% translate "Precompute" %}</a> /
+  <a href="{% url 'admin:subjects_subject_sync' %}">{% translate "Sync subject tags" %}</a> /
 {% endif %}
 {{ block.super }}
 {% endblock %}

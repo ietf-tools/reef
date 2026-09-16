@@ -3,17 +3,20 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.views.main import ChangeList
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Count, Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from django.views.decorators.http import require_POST
 
 from reef.admin_documents import DocumentTitleMixin
 
 from .merge import MergeError, merge_and_notify
 from .models import PATH_SEPARATOR, Subject, SubjectAlias, SubjectAssignment
+from .sync import run_sync
 from .tree import rollup
 
 
@@ -199,6 +202,16 @@ class SubjectAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.merge_view),
                 name="subjects_subject_merge",
             ),
+            path(
+                "sync/",
+                self.admin_site.admin_view(self.sync_view),
+                name="subjects_subject_sync",
+            ),
+            path(
+                "sync/merge/<int:source_id>/<int:target_id>/",
+                self.admin_site.admin_view(self.sync_merge_view),
+                name="subjects_subject_sync_merge",
+            ),
         ]
         return custom_urls + urls
 
@@ -242,6 +255,72 @@ class SubjectAdmin(admin.ModelAdmin):
             "changelist_url": reverse("admin:subjects_subject_changelist"),
         }
         return render(request, "admin/subjects/subject/merge.html", context)
+
+    def sync_view(self, request):
+        """Mirror the vocabulary and assignments from rfc-editor/rfc-subject-tags.
+
+        See subjects/sync.py for the design. Manual only -- this is the only
+        thing that ever calls run_sync with write=True.
+        """
+        result = None
+        retired = None
+        if request.method == "POST":
+            result = run_sync(
+                confirm_large_change=bool(request.POST.get("confirm_large_change"))
+            )
+            if result.written:
+                # Joined here rather than in the template, which has no way to
+                # look a dict up by a loop variable's value.
+                pks = dict(
+                    Subject.all_objects.filter(slug__in=result.retired).values_list(
+                        "slug", "pk"
+                    )
+                )
+                retired = [
+                    {
+                        "slug": slug,
+                        "pk": pks.get(slug),
+                        "suggestions": result.suggestions.get(slug, []),
+                    }
+                    for slug in result.retired
+                ]
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Sync subject tags",
+            "result": result,
+            "retired": retired,
+            "changelist_url": reverse("admin:subjects_subject_changelist"),
+        }
+        return render(request, "admin/subjects/subject/sync.html", context)
+
+    @require_POST
+    def sync_merge_view(self, request, source_id, target_id):
+        """Act on a sync result's suggested successor for a retired subject.
+
+        merge_subjects() refuses an already-retired source (see subjects/merge.py
+        and plan.md), so this unretires first -- from the subject's own history
+        this looks like "somebody unretired it and merged it a moment later",
+        because that is exactly what happened, just in one click. A second click
+        after the source has already been merged elsewhere finds nothing left to
+        move and notifies nobody a second time, so it is harmless rather than an
+        error.
+        """
+        source = get_object_or_404(Subject.all_objects, pk=source_id)
+        target = get_object_or_404(Subject.all_objects, pk=target_id)
+        try:
+            with transaction.atomic():
+                if source.is_retired:
+                    source.unretire()
+                affected = merge_and_notify(source, target)
+        except MergeError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+        else:
+            self.message_user(
+                request,
+                f"Merged {source} into {target}; {len(affected)} "
+                f"subscriber(s) will be told in the next daily digest.",
+            )
+        return HttpResponseRedirect(reverse("admin:subjects_subject_changelist"))
 
     @admin.display(description="Subject", ordering="path")
     def indented_name(self, obj):

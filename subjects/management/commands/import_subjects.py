@@ -29,19 +29,9 @@ from subjects.models import (
     Subject,
     SubjectAssignment,
 )
+from subjects.sync import title_case
 
 PATH_DELIMITER = "|"
-
-
-def title_case(slug):
-    """A first name for a subject, to be edited by whoever curates it next.
-
-    Deliberately mechanical. The sheet carries slugs rather than names, and a
-    guessed expansion of an initialism would be worse than an obvious placeholder:
-    "Dkim" reads as something nobody has got to yet, while "Domain Keys" reads as
-    a decision.
-    """
-    return slug.replace("-", " ").title()
 
 
 class Command(BaseCommand):
