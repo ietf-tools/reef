@@ -36,6 +36,7 @@ import re
 from popularity.api import PopularityList
 from ratings.api import RatingDetail
 from ratings.models import Rating
+from reef import rfcmeta
 from stats.api import DocumentStatsList
 from subjects.models import Subject, SubjectAlias
 from subjects.precompute import PrecomputedSubjectDetail, SubjectIndex
@@ -146,7 +147,16 @@ def subjects(docs=None, index=None):
 
     `index` is unused. The views read `rfcmeta.cached_mapping()`, which the run
     has already warmed by loading the index before the first task.
+
+    A fresh fetch of its own, though, for `abstract` specifically: it is
+    deliberately never part of the shared, cross-process index cache (see
+    `reef.rfcmeta._abstracts`), because it alone would push that cache over
+    memcached's per-item cap. So nothing before this line guarantees this
+    process has a warm one, only calling load_index() here does -- the
+    reduced mapping the views still read for everything else stays whatever
+    the run already warmed.
     """
+    rfcmeta.load_index()
     yield (
         "subjects.json",
         render_anonymous(SubjectIndex.as_view(), "/api/reef/precomputed/subjects/"),

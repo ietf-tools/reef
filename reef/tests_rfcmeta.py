@@ -22,7 +22,7 @@ BASE_URL = "https://red.example.org"
 
 
 def entry(**overrides):
-    """One mini-index entry carrying every field Red's schema requires."""
+    """One index entry carrying every field Red's schema requires."""
     return {
         "number": 9110,
         "title": "HTTP Semantics",
@@ -38,7 +38,7 @@ def entry(**overrides):
 def index_payload(entries=None, created_on="2026-08-31"):
     return {
         "createdOn": created_on,
-        "miniIndex": [entry()] if entries is None else entries,
+        "index": [entry()] if entries is None else entries,
     }
 
 
@@ -65,9 +65,19 @@ class LoadIndexTests(SimpleTestCase):
                 "subseries": ["std97"],
                 "status": "std",
                 "status_name": "internet standard",
+                "stream": "IETF",
+                "stream_name": "IETF",
+                "obsoletes": [],
                 "obsoleted_by": [],
                 "updates": [],
                 "updated_by": [],
+                "authors": ["R. Fielding"],
+                "published": None,
+                "identifiers": [],
+                "area": None,
+                "group": None,
+                "keywords": [],
+                "pages": None,
             },
         )
 
@@ -87,9 +97,7 @@ class LoadIndexTests(SimpleTestCase):
             "urllib.request.urlopen", return_value=_response(index_payload())
         ) as urlopen:
             rfcmeta.load_index()
-        self.assertEqual(
-            urlopen.call_args.args[0], f"{BASE_URL}/api/v1/rfc-mini-index.json"
-        )
+        self.assertEqual(urlopen.call_args.args[0], f"{BASE_URL}/api/v1/rfc-index.json")
 
     def test_a_trailing_slash_on_the_origin_does_not_double_up(self):
         with override_settings(REEF_RFC_DATA_BASE_URL=f"{BASE_URL}/"):
@@ -97,9 +105,7 @@ class LoadIndexTests(SimpleTestCase):
                 "urllib.request.urlopen", return_value=_response(index_payload())
             ) as urlopen:
                 rfcmeta.load_index()
-        self.assertEqual(
-            urlopen.call_args.args[0], f"{BASE_URL}/api/v1/rfc-mini-index.json"
-        )
+        self.assertEqual(urlopen.call_args.args[0], f"{BASE_URL}/api/v1/rfc-index.json")
 
     def test_a_field_red_adds_is_accepted(self):
         """The asymmetry this whole arrangement exists for. Red has undertaken to
@@ -124,7 +130,7 @@ class LoadIndexTests(SimpleTestCase):
         the log has to say which field and where."""
         with self.assertLogs("reef", level="ERROR") as logs:
             self.load(index_payload([entry(title=42)]))
-        self.assertIn("miniIndex/0/title", "\n".join(logs.output))
+        self.assertIn("index/0/title", "\n".join(logs.output))
 
     def test_a_retyped_field_is_refused(self):
         with self.assertLogs("reef", level="ERROR"):
@@ -164,7 +170,7 @@ class LoadIndexTests(SimpleTestCase):
         """DocumentIndex also skips such an entry, but it never gets that far: number
         is required, so validation refuses the whole index first."""
         payload = index_payload([entry(), entry(number=2119, title="Key words")])
-        del payload["miniIndex"][0]["number"]
+        del payload["index"][0]["number"]
         with self.assertLogs("reef", level="ERROR"):
             self.assertIsNone(self.load(payload))
 
@@ -191,6 +197,68 @@ class MetaFromEntryTests(SimpleTestCase):
             meta = rfcmeta._meta_from_entry(entry(subseries=[{"type": "nonsense"}]))
         self.assertEqual(meta["title"], "HTTP Semantics")
         self.assertEqual(meta["subseries"], [])
+
+    def test_authors_keeps_only_the_titlepage_name(self):
+        """The same narrowing Red's own mini index applies to the same field: an
+        email address or a datatracker person id is not something Reef publishes."""
+        meta = rfcmeta._meta_from_entry(
+            entry(
+                authors=[
+                    {"titlepage_name": "R. Fielding", "email": "fielding@gbiv.com"},
+                    {"titlepage_name": "M. Nottingham", "person": 103881},
+                ]
+            )
+        )
+        self.assertEqual(meta["authors"], ["R. Fielding", "M. Nottingham"])
+
+    def test_an_author_with_no_titlepage_name_is_dropped(self):
+        meta = rfcmeta._meta_from_entry(entry(authors=[{"email": "x@example.org"}]))
+        self.assertEqual(meta["authors"], [])
+
+    def test_area_and_group_keep_only_acronym_and_name(self):
+        meta = rfcmeta._meta_from_entry(
+            entry(
+                area={"acronym": "wit", "name": "Web and Internet Transport"},
+                group={"acronym": "httpbis", "name": "HTTP", "type": "wg"},
+            )
+        )
+        self.assertEqual(
+            meta["area"], {"acronym": "wit", "name": "Web and Internet Transport"}
+        )
+        self.assertEqual(meta["group"], {"acronym": "httpbis", "name": "HTTP"})
+
+    def test_a_missing_area_and_group_are_null(self):
+        meta = rfcmeta._meta_from_entry(entry())
+        self.assertIsNone(meta["area"])
+        self.assertIsNone(meta["group"])
+
+    def test_obsoletes_is_a_fourth_relation_reduced_to_bare_numbers(self):
+        meta = rfcmeta._meta_from_entry(
+            entry(obsoletes=[{"id": 1, "number": 2818, "title": "HTTP Over TLS"}])
+        )
+        self.assertEqual(meta["obsoletes"], [2818])
+
+    def test_keywords_published_and_pages_pass_through(self):
+        meta = rfcmeta._meta_from_entry(
+            entry(keywords=["HTTP", "semantics"], published="2022-06-06", pages=194)
+        )
+        self.assertEqual(meta["keywords"], ["HTTP", "semantics"])
+        self.assertEqual(meta["published"], "2022-06-06")
+        self.assertEqual(meta["pages"], 194)
+
+    def test_identifiers_pass_through_whole(self):
+        meta = rfcmeta._meta_from_entry(
+            entry(identifiers=[{"type": "doi", "value": "10.17487/RFC9110"}])
+        )
+        self.assertEqual(
+            meta["identifiers"], [{"type": "doi", "value": "10.17487/RFC9110"}]
+        )
+
+    def test_abstract_is_not_in_the_reduced_entry(self):
+        """Deliberately: see reef.rfcmeta._abstracts. It would blow memcached's
+        per-item cap if it were reduced in here alongside everything else."""
+        meta = rfcmeta._meta_from_entry(entry(abstract="A long description."))
+        self.assertNotIn("abstract", meta)
 
 
 class DocumentIndexTests(SimpleTestCase):
@@ -331,14 +399,15 @@ class SyncedSchemaTests(SimpleTestCase):
         jsonschema.Draft202012Validator.check_schema(rfcmeta._schema())
 
     def test_it_requires_the_fields_reef_reads(self):
-        item = rfcmeta._schema()["properties"]["miniIndex"]["items"]
+        item = rfcmeta._schema()["properties"]["index"]["items"]
         self.assertIn("number", item["required"])
         self.assertIn("title", item["required"])
 
     def test_it_does_not_forbid_unknown_properties(self):
-        """Exported from Zod with io='input' for exactly this reason. If this ever
-        becomes False, every field Red adds breaks Reef."""
-        item = rfcmeta._schema()["properties"]["miniIndex"]["items"]
+        """Mirrors Zod's io='input' export, which carries no additionalProperties:
+        false, for exactly this reason. If this ever becomes False, every field Red
+        adds breaks Reef."""
+        item = rfcmeta._schema()["properties"]["index"]["items"]
         self.assertNotIn("additionalProperties", item)
 
 
@@ -379,8 +448,10 @@ class SharedCacheTests(SimpleTestCase):
         self.assertEqual(urlopen.call_count, 1)
 
     def test_the_cached_entry_is_compressed(self):
-        """784 KiB pickled against memcached's 1 MiB item cap, and a store over the
-        cap fails silently. Compressed it is 209 KiB."""
+        """About 0.8 MB compressed against the real index -- comfortably under
+        memcached's 1 MiB item cap, and a store over the cap fails silently. That
+        margin is exactly what abstract would erase were it in here too; see
+        reef.rfcmeta._abstracts."""
         from django.core.cache import cache
 
         with self.urlopen():
@@ -419,7 +490,7 @@ class SharedCacheTests(SimpleTestCase):
         self.assertEqual(second.misses, set())
 
     def test_cached_mapping_never_fetches(self):
-        """A page render must not wait on a 6.8 MB download, and a test that touches
+        """A page render must not wait on a 16.8 MB download, and a test that touches
         an admin page must not reach the network at all."""
         with mock.patch("urllib.request.urlopen") as urlopen:
             self.assertIsNone(rfcmeta.cached_mapping())
@@ -440,3 +511,33 @@ class SharedCacheTests(SimpleTestCase):
         with mock.patch("urllib.request.urlopen") as urlopen:
             self.assertIsNone(rfcmeta.cached_mapping())
         urlopen.assert_not_called()
+
+    def test_load_index_populates_abstracts(self):
+        with self.urlopen(index_payload([entry(abstract="A long description.")])):
+            rfcmeta.load_index()
+        self.assertEqual(rfcmeta.cached_abstract("rfc9110"), "A long description.")
+
+    def test_cached_abstract_is_none_when_nothing_has_been_loaded(self):
+        self.assertIsNone(rfcmeta.cached_abstract("rfc9110"))
+
+    def test_a_warm_shared_cache_does_not_carry_abstracts_to_a_fresh_process(self):
+        """The scenario _abstracts exists for: a process that only reads an
+        already-warm shared cache never itself fetches, so it never learns any
+        abstracts -- only a real fetch, via load_index(), does. This is why
+        precomputer/registry.py's subjects task calls load_index() itself rather
+        than trusting the run's own get_index() to have refetched."""
+        with self.urlopen(index_payload([entry(abstract="A long description.")])):
+            rfcmeta.get_index()
+        rfcmeta._memo["value"] = None  # as a freshly started process would find it
+        rfcmeta._abstracts.clear()
+        with mock.patch("urllib.request.urlopen") as urlopen:
+            index = rfcmeta.get_index()
+        self.assertEqual(index.get("rfc9110")["title"], "HTTP Semantics")
+        self.assertIsNone(rfcmeta.cached_abstract("rfc9110"))
+        urlopen.assert_not_called()
+
+    def test_clear_cache_drops_abstracts_too(self):
+        with self.urlopen(index_payload([entry(abstract="A long description.")])):
+            rfcmeta.load_index()
+        rfcmeta.clear_cache()
+        self.assertIsNone(rfcmeta.cached_abstract("rfc9110"))

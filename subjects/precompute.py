@@ -42,6 +42,51 @@ from .serializers import (
 )
 from .tree import rollup
 
+#: Everything rfcmeta resolves about a document except abstract, which is not in
+#: the reduced mapping at all -- see reef.rfcmeta._abstracts -- and is fetched
+#: separately below. Adding a field to rfcmeta's reduction does not publish it
+#: here on its own; this is the one place that has to learn about it too.
+_DOCUMENT_METADATA_FIELDS = (
+    "title",
+    "subseries",
+    "status",
+    "status_name",
+    "stream",
+    "stream_name",
+    "obsoletes",
+    "obsoleted_by",
+    "updates",
+    "updated_by",
+    "authors",
+    "published",
+    "identifiers",
+    "area",
+    "group",
+    "keywords",
+    "pages",
+)
+
+_NULL_DOCUMENT_METADATA = {
+    "title": None,
+    "subseries": [],
+    "status": None,
+    "status_name": None,
+    "stream": None,
+    "stream_name": None,
+    "obsoletes": [],
+    "obsoleted_by": [],
+    "updates": [],
+    "updated_by": [],
+    "authors": [],
+    "published": None,
+    "identifiers": [],
+    "area": None,
+    "group": None,
+    "keywords": [],
+    "pages": None,
+    "abstract": None,
+}
+
 
 def _document_metadata(mapping, doc):
     """What a document contributes to a published file, null when unresolved.
@@ -51,8 +96,11 @@ def _document_metadata(mapping, doc):
     """
     resolved = mapping.get(doc) if mapping is not None else None
     if resolved is None:
-        return {"title": None, "subseries": []}
-    return {"title": resolved["title"], "subseries": list(resolved["subseries"])}
+        return dict(_NULL_DOCUMENT_METADATA)
+    return {
+        **{field: resolved[field] for field in _DOCUMENT_METADATA_FIELDS},
+        "abstract": rfcmeta.cached_abstract(doc),
+    }
 
 
 def _mapping():
@@ -68,11 +116,41 @@ def _mapping():
     return rfcmeta.cached_mapping()
 
 
+class DocumentAreaOrGroupSerializer(serializers.Serializer):
+    """The area or group a document belongs to, narrowed to what a page names."""
+
+    acronym = serializers.CharField()
+    name = serializers.CharField()
+
+
+class DocumentIdentifierSerializer(serializers.Serializer):
+    """One persistent identifier -- a DOI or an ISSN -- Red records for a document."""
+
+    type = serializers.CharField()
+    value = serializers.CharField()
+
+
 class DocumentMetadataSerializer(serializers.Serializer):
     """A document as a published file names it: what Red's index says about it."""
 
     title = serializers.CharField(allow_null=True)
     subseries = serializers.ListField(child=serializers.CharField())
+    status = serializers.CharField(allow_null=True)
+    status_name = serializers.CharField(allow_null=True)
+    stream = serializers.CharField(allow_null=True)
+    stream_name = serializers.CharField(allow_null=True)
+    obsoletes = serializers.ListField(child=serializers.IntegerField())
+    obsoleted_by = serializers.ListField(child=serializers.IntegerField())
+    updates = serializers.ListField(child=serializers.IntegerField())
+    updated_by = serializers.ListField(child=serializers.IntegerField())
+    authors = serializers.ListField(child=serializers.CharField())
+    published = serializers.CharField(allow_null=True)
+    identifiers = DocumentIdentifierSerializer(many=True)
+    area = DocumentAreaOrGroupSerializer(allow_null=True)
+    group = DocumentAreaOrGroupSerializer(allow_null=True)
+    keywords = serializers.ListField(child=serializers.CharField())
+    pages = serializers.IntegerField(allow_null=True)
+    abstract = serializers.CharField(allow_null=True)
 
 
 class SubjectMetadataSerializer(serializers.Serializer):
@@ -178,11 +256,12 @@ def build_index():
             "Not a served endpoint. This describes the payload the precomputer "
             "publishes to `subjects.json` in the blob store, which is where Red "
             "reads it from; no deployment routes this path.\n\n"
-            "It is the vocabulary as a tree with every assignment and every document "
-            "title, in one file, so that a caller renders the subject listing from a "
-            "single fetch. Two keyed maps: `subjects` by slug in tree order, and "
-            "`documents` by identifier, referenced from the entries rather than "
-            "repeated beside each subject that covers the document.\n\n"
+            "It is the vocabulary as a tree with every assignment and Red's own "
+            "metadata for every document, in one file, so that a caller renders the "
+            "subject listing from a single fetch. Two keyed maps: `subjects` by slug "
+            "in tree order, and `documents` by identifier, referenced from the "
+            "entries rather than repeated beside each subject that covers the "
+            "document.\n\n"
             "Retired subjects and aliases are absent: they are not offered, and the "
             "per-subject files are what answer for them."
         ),
@@ -261,7 +340,8 @@ class PrecomputedSubjectDetailSerializer(SubjectDetailSerializer):
             "routes this path.\n\n"
             "One file per subject, which is what lets a subject page in Red be a "
             "single fetch. It is the served `/api/reef/subjects/{slug}/` response "
-            "plus `document_meta`, the title of each document assigned here, and "
+            "plus `document_meta`, Red's own metadata for each document assigned "
+            "here, and "
             "`subject_meta`, the curated names of this subject's ancestors and "
             "children so that a breadcrumb need not read the whole vocabulary.\n\n"
             "A retired subject and an alias are published here too, as the same "

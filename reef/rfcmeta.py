@@ -6,21 +6,21 @@ copied into a column here would drift from the one Red publishes. Reading a titl
 a different act from storing one: nothing below writes to the database, and every
 value is replaced wholesale on the next read.
 
-One file, anonymous, on Red's public origin: /api/v1/rfc-mini-index.json, the whole
-series. Red also publishes rfc-common per document and info-subseries per container;
-the index carries the title and the subseries membership Reef needs, and one shared
-copy of it beats a request per document. Those are where to look if something ever
-needs a field the index does not carry, such as an abstract.
+One file, anonymous, on Red's public origin: /api/v1/rfc-index.json, the whole
+series -- every field Red's own RfcCommon carries, not the "mini" subset Red also
+publishes for lighter callers. One shared copy of it beats a request per document.
 
-The index is validated against reef/schemas/rfc-mini-index.schema.json, generated
-from Red's Zod definition and synced by hand. The asymmetry that matters is JSON
-Schema's own: a field Red adds validates fine, a required field Red removes does not.
-Nothing here rejects unknown keys, and it must stay that way, or every field Red adds
-becomes a Reef outage.
+The index is validated against reef/schemas/rfc-index.schema.json, generated from
+Red's Zod definition (RfcCommonSchema, in rfc-validators.ts) and synced by hand. The
+asymmetry that matters is JSON Schema's own: a field Red adds validates fine, a
+required field Red removes does not. Nothing here rejects unknown keys, and it must
+stay that way, or every field Red adds becomes a Reef outage.
 
-Every entry point degrades rather than raises. Red being slow, down or malformed
-means Reef renders a document without its title, which is worse than with one and far
-better than a failed precomputer run: Reef's own numbers do not depend on Red.
+`abstract` is deliberately not in the reduced, shared mapping below -- see
+`cached_abstract()`. Every other entry point degrades rather than raises. Red being
+slow, down or malformed means Reef renders a document without its title, which is
+worse than with one and far better than a failed precomputer run: Reef's own numbers
+do not depend on Red.
 """
 
 import datetime
@@ -43,10 +43,10 @@ from reef.docids import normalize_doc_id
 
 logger = logging.getLogger("reef")
 
-SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "rfc-mini-index.schema.json"
+SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "rfc-index.schema.json"
 
-INDEX_PATH = "/api/v1/rfc-mini-index.json"
-CACHE_KEY = "rfcmeta.mini-index"
+INDEX_PATH = "/api/v1/rfc-index.json"
+CACHE_KEY = "rfcmeta.index"
 
 # How long a process reuses its own copy before going back to the shared cache. Short,
 # because it exists only to keep an admin listing from paying the decode once per row;
@@ -55,6 +55,17 @@ PROCESS_MEMO_SECONDS = 60
 
 _memo = {"value": None, "expires": 0.0}
 _memo_lock = threading.Lock()
+
+# Every document's abstract, from the last real fetch in this process -- never the
+# shared cache. Measured against the real index: the reduced mapping below, with
+# every other new field, compresses to about 0.8 MB; adding abstract for all ~9,800
+# documents brings that to about 2 MB, over memcached's 1 MB per-item cap, and a
+# store that exceeds the cap fails without saying so (see _from_cache). So abstract
+# lives here instead: process memory has no such cap, and the one caller that reads
+# it (subjects/precompute.py, from a precompute run) always calls get_index() in the
+# same process moments before it needs one. A process that never fetched has none,
+# which degrades the same way every other field here does -- to null.
+_abstracts = {}
 
 
 @lru_cache(maxsize=1)
@@ -87,16 +98,22 @@ def _related_numbers(entries):
 
 
 def _meta_from_entry(entry):
-    """One mini-index entry reduced to what Reef uses.
+    """One index entry reduced to what Reef uses.
 
-    Two audiences, one reduction, because both want the same fetch. title and
-    subseries are what the precomputer publishes and the admin displays; status and
-    the three relation fields are what change detection compares. Adding a field here
-    does not add it to anything Reef publishes: the precomputer projects down to the
-    fields it means to carry.
+    Several audiences, one reduction, because all of them want the same fetch. title
+    and subseries are what most of the precomputer publishes and the admin displays;
+    status and the four relation fields are what change detection compares; the rest
+    (authors, published, area, group, keywords, pages, identifiers, stream) is what
+    subjects/precompute.py additionally publishes per document. Adding a field here
+    does not add it to anything Reef publishes on its own: each precomputer task
+    still projects down to the fields it means to carry.
 
     Subseries membership is canonicalised to Reef's own identifier form, so that a
     document set holding "std97" and a title resolved from Red agree on the spelling.
+
+    authors keeps only titlepage_name, the same narrowing Red's own mini index
+    applies to the same field, for the same reason: an email address or a
+    datatracker person id is not something Reef has decided it publishes.
     """
     subseries = []
     for item in entry.get("subseries") or []:
@@ -109,14 +126,33 @@ def _meta_from_entry(entry):
                 "Unparseable subseries on rfc%s: %r", entry.get("number"), item
             )
     status = entry.get("status") or {}
+    stream = entry.get("stream") or {}
+    area = entry.get("area") or {}
+    group = entry.get("group") or {}
     return {
         "title": entry.get("title"),
         "subseries": subseries,
         "status": status.get("slug"),
         "status_name": status.get("name"),
+        "stream": stream.get("slug"),
+        "stream_name": stream.get("name"),
+        "obsoletes": _related_numbers(entry.get("obsoletes")),
         "obsoleted_by": _related_numbers(entry.get("obsoleted_by")),
         "updates": _related_numbers(entry.get("updates")),
         "updated_by": _related_numbers(entry.get("updated_by")),
+        "authors": [
+            name
+            for author in (entry.get("authors") or [])
+            if (name := author.get("titlepage_name"))
+        ],
+        "published": entry.get("published"),
+        "identifiers": [dict(item) for item in (entry.get("identifiers") or [])],
+        "area": {"acronym": area["acronym"], "name": area["name"]} if area else None,
+        "group": (
+            {"acronym": group["acronym"], "name": group["name"]} if group else None
+        ),
+        "keywords": list(entry.get("keywords") or []),
+        "pages": entry.get("pages"),
     }
 
 
@@ -124,7 +160,9 @@ def _reduce(entries):
     """Every entry reduced to what Reef uses, keyed by identifier.
 
     Reducing before caching rather than after is what keeps the cached form small:
-    Red's index is 6.8 MB, and this is 209 KiB compressed.
+    Red's index is 16.8 MB, and this is about 0.8 MB compressed -- comfortably under
+    memcached's 1 MB per-item cap, which is exactly the margin abstract would erase
+    (see _abstracts above) were it reduced in here alongside everything else.
     """
     mapping = {}
     for entry in entries:
@@ -133,6 +171,17 @@ def _reduce(entries):
             continue
         mapping[f"rfc{number}"] = _meta_from_entry(entry)
     return mapping
+
+
+def _reduce_abstracts(entries):
+    """Every entry's abstract, keyed by identifier. Process-local only -- see
+    _abstracts -- so this is never part of what _reduce() returns or the shared
+    cache stores."""
+    return {
+        f"rfc{entry['number']}": entry.get("abstract")
+        for entry in entries
+        if entry.get("number") is not None
+    }
 
 
 class DocumentIndex:
@@ -223,7 +272,7 @@ def _fetch_and_reduce():
         # The shape Reef depends on has changed. Say which field and where, because
         # the fix is in Red or in the synced schema, neither of which is here.
         logger.error(
-            "Red's index no longer matches reef/schemas/rfc-mini-index.schema.json "
+            "Red's index no longer matches reef/schemas/rfc-index.schema.json "
             "at %s: %s",
             "/".join(str(p) for p in exc.absolute_path) or "(root)",
             exc.message,
@@ -236,7 +285,12 @@ def _fetch_and_reduce():
     except (KeyError, TypeError, ValueError):
         logger.warning("Red's index has no usable createdOn; age is unknown")
 
-    return _reduce(payload["miniIndex"]), created_on
+    # Process-local, and refreshed on every real fetch regardless of whether this
+    # one is served from the shared cache below -- see _abstracts.
+    _abstracts.clear()
+    _abstracts.update(_reduce_abstracts(payload["index"]))
+
+    return _reduce(payload["index"]), created_on
 
 
 def load_index():
@@ -353,6 +407,17 @@ def cached_mapping():
     return shared[0] if shared else None
 
 
+def cached_abstract(doc_id):
+    """One document's abstract, from this process's own last real fetch, or None.
+
+    Unlike cached_mapping(), this never falls back to a cross-process shared
+    cache -- there isn't one for abstract, on purpose (see _abstracts). A caller
+    that needs this warm has to have called load_index() itself first, in this
+    same process; precomputer/registry.py's subjects task is the one that does.
+    """
+    return _abstracts.get(doc_id)
+
+
 def containing_subseries(doc_id):
     """The subseries a document belongs to: rfc2119 -> ["bcp14"].
 
@@ -382,8 +447,10 @@ def containing_subseries(doc_id):
 
 
 def clear_cache():
-    """Drop both the shared entry and this process's copy. For tests and the admin."""
+    """Drop the shared entry, this process's copy, and its abstracts. For tests and
+    the admin."""
     cache.delete(CACHE_KEY)
     with _memo_lock:
         _memo["value"] = None
         _memo["expires"] = 0.0
+    _abstracts.clear()

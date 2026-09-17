@@ -38,6 +38,7 @@ FAKE_INDEX_ENTRIES = [
         "number": 9110,
         "title": "HTTP Semantics",
         "subseries": [{"type": "std", "number": 97}],
+        "abstract": "What HTTP means by semantics.",
     },
     {
         "number": 2119,
@@ -58,7 +59,7 @@ class PrecomputeTestCase(TestCase):
     """Runs the command against a temporary output directory.
 
     Red's index is stubbed for every test in here. Letting it through would put a
-    6.8 MB fetch and a schema validation in front of each one, and make the suite
+    16.8 MB fetch and a schema validation in front of each one, and make the suite
     fail when somebody runs it on a train.
     """
 
@@ -86,6 +87,23 @@ class PrecomputeTestCase(TestCase):
         )
         self.cached_mapping = cached.start()
         self.addCleanup(cached.stop)
+
+        # subjects() calls load_index() itself, deliberately real-fetching every
+        # run so _abstracts is warm regardless of the rest of the run's cache
+        # state; here that must not reach the network, so it is faked the same
+        # way as get_index above, and repopulates _abstracts from the same fake
+        # entries every call rather than once in setUp.
+        def _load_index():
+            rfcmeta._abstracts.clear()
+            rfcmeta._abstracts.update(rfcmeta._reduce_abstracts(FAKE_INDEX_ENTRIES))
+            return self.index
+
+        load_index_patcher = mock.patch(
+            "reef.rfcmeta.load_index", side_effect=_load_index
+        )
+        self.load_index = load_index_patcher.start()
+        self.addCleanup(load_index_patcher.stop)
+        self.addCleanup(rfcmeta._abstracts.clear)
 
     def precompute(self, *args, **options):
         out, err = StringIO(), StringIO()
@@ -249,7 +267,26 @@ class SubjectIndexTests(PrecomputeTestCase):
         payload = self.published()
         self.assertEqual(
             payload["documents"]["rfc9110"],
-            {"title": "HTTP Semantics", "subseries": ["std97"]},
+            {
+                "title": "HTTP Semantics",
+                "subseries": ["std97"],
+                "status": None,
+                "status_name": None,
+                "stream": None,
+                "stream_name": None,
+                "obsoletes": [],
+                "obsoleted_by": [],
+                "updates": [],
+                "updated_by": [],
+                "authors": [],
+                "published": None,
+                "identifiers": [],
+                "area": None,
+                "group": None,
+                "keywords": [],
+                "pages": None,
+                "abstract": "What HTTP means by semantics.",
+            },
         )
         # Not beside each subject that covers the document, which at this
         # vocabulary's depth would repeat every title about three times over.
