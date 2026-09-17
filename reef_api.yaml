@@ -63,7 +63,7 @@ paths:
       description: |-
         Not a served endpoint. This describes the payload the precomputer publishes to `subjects.json` in the blob store, which is where Red reads it from; no deployment routes this path.
 
-        It is the vocabulary as a tree with every assignment and Red's own metadata for every document, in one file, so that a caller renders the subject listing from a single fetch. Two keyed maps: `subjects` by slug in tree order, and `documents` by identifier, referenced from the entries rather than repeated beside each subject that covers the document.
+        It is the vocabulary as a tree with every assignment and every document title, in one file, so that a caller renders the subject listing from a single fetch. Two keyed maps: `subjects` by slug in tree order, and `documents` by identifier, referenced from the entries rather than repeated beside each subject that covers the document. A document's fuller metadata -- status, authors, abstract and the rest -- is on its own subject's file, not repeated here for every subject that covers it.
 
         Retired subjects and aliases are absent: they are not offered, and the per-subject files are what answer for them.
       summary: The published subject index
@@ -1079,8 +1079,104 @@ components:
       - value
     DocumentMetadata:
       type: object
-      description: 'A document as a published file names it: what Red''s index says
-        about it.'
+      description: 'A document as the index file names it: just enough to render a
+        row.'
+      properties:
+        title:
+          type: string
+          nullable: true
+        subseries:
+          type: array
+          items:
+            type: string
+      required:
+      - subseries
+      - title
+    DocumentSet:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentSetEntry'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - documents
+      - id
+      - title
+      - updated_at
+    DocumentSetEntry:
+      type: object
+      properties:
+        doc:
+          type: string
+          readOnly: true
+        rank:
+          type: integer
+          readOnly: true
+          description: Lower sorts first
+        added_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - added_at
+      - doc
+      - rank
+    DocumentSetOrder:
+      type: object
+      description: The set's documents, in the order they should be shown.
+      properties:
+        documents:
+          type: array
+          items:
+            type: string
+      required:
+      - documents
+    DocumentStats:
+      type: object
+      description: Public engagement numbers for one document.
+      properties:
+        doc:
+          type: string
+        rating_average:
+          type: number
+          format: double
+          nullable: true
+        rating_count:
+          type: integer
+        subscriber_count:
+          type: integer
+        set_count:
+          type: integer
+      required:
+      - doc
+      - rating_average
+      - rating_count
+      - set_count
+      - subscriber_count
+    FullDocumentMetadata:
+      type: object
+      description: 'A document as its own subject''s file names it: everything Red''s
+        index says.'
       properties:
         title:
           type: string
@@ -1165,87 +1261,6 @@ components:
       - title
       - updated_by
       - updates
-    DocumentSet:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        title:
-          type: string
-          maxLength: 200
-        description:
-          type: string
-        documents:
-          type: array
-          items:
-            $ref: '#/components/schemas/DocumentSetEntry'
-          readOnly: true
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        updated_at:
-          type: string
-          format: date-time
-          readOnly: true
-      required:
-      - created_at
-      - documents
-      - id
-      - title
-      - updated_at
-    DocumentSetEntry:
-      type: object
-      properties:
-        doc:
-          type: string
-          readOnly: true
-        rank:
-          type: integer
-          readOnly: true
-          description: Lower sorts first
-        added_at:
-          type: string
-          format: date-time
-          readOnly: true
-      required:
-      - added_at
-      - doc
-      - rank
-    DocumentSetOrder:
-      type: object
-      description: The set's documents, in the order they should be shown.
-      properties:
-        documents:
-          type: array
-          items:
-            type: string
-      required:
-      - documents
-    DocumentStats:
-      type: object
-      description: Public engagement numbers for one document.
-      properties:
-        doc:
-          type: string
-        rating_average:
-          type: number
-          format: double
-          nullable: true
-        rating_count:
-          type: integer
-        subscriber_count:
-          type: integer
-        set_count:
-          type: integer
-      required:
-      - doc
-      - rating_average
-      - rating_count
-      - set_count
-      - subscriber_count
     KindEnum:
       enum:
       - new_rfc
@@ -1523,7 +1538,7 @@ components:
         document_meta:
           type: object
           additionalProperties:
-            $ref: '#/components/schemas/DocumentMetadata'
+            $ref: '#/components/schemas/FullDocumentMetadata'
           readOnly: true
         subject_meta:
           type: object

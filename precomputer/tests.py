@@ -267,26 +267,7 @@ class SubjectIndexTests(PrecomputeTestCase):
         payload = self.published()
         self.assertEqual(
             payload["documents"]["rfc9110"],
-            {
-                "title": "HTTP Semantics",
-                "subseries": ["std97"],
-                "status": None,
-                "status_name": None,
-                "stream": None,
-                "stream_name": None,
-                "obsoletes": [],
-                "obsoleted_by": [],
-                "updates": [],
-                "updated_by": [],
-                "authors": [],
-                "published": None,
-                "identifiers": [],
-                "area": None,
-                "group": None,
-                "keywords": [],
-                "pages": None,
-                "abstract": "What HTTP means by semantics.",
-            },
+            {"title": "HTTP Semantics", "subseries": ["std97"]},
         )
         # Not beside each subject that covers the document, which at this
         # vocabulary's depth would repeat every title about three times over.
@@ -389,6 +370,21 @@ class DocumentMetadataTests(PrecomputeTestCase):
         payload = self.read("subjects/security.json")
         self.assertEqual(payload["documents"], ["rfc9110"])
         self.assertEqual(payload["document_meta"]["rfc9110"]["title"], "HTTP Semantics")
+
+    def test_only_the_subject_file_carries_the_fuller_metadata(self):
+        """The index lists every document a subject covers, and repeating the full
+        set there once per subject would bloat a file most readers never need it
+        from; only a document's own subject file is worth that cost."""
+        subject = Subject.objects.create(name="Security", slug="security")
+        SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
+        self.precompute("subjects")
+        self.assertEqual(
+            self.read("subjects.json")["documents"]["rfc9110"],
+            {"title": "HTTP Semantics", "subseries": ["std97"]},
+        )
+        detail = self.read("subjects/security.json")["document_meta"]["rfc9110"]
+        self.assertEqual(detail["abstract"], "What HTTP means by semantics.")
+        self.assertIn("status", detail)
 
     def test_an_unresolvable_document_gets_null_metadata_not_omission(self):
         """Null, so a reader can tell "no such document" from "not looked up"."""

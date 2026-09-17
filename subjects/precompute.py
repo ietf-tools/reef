@@ -42,11 +42,26 @@ from .serializers import (
 )
 from .tree import rollup
 
+
+def _document_metadata(mapping, doc):
+    """What a document contributes to the index file, null when unresolved.
+
+    Null rather than omitted or echoed back as the identifier, so a reader can
+    tell "no such document" from "not looked up". Only what a subject listing
+    needs to render a row -- the fuller set a subject's own file carries is
+    ``_full_document_metadata`` below.
+    """
+    resolved = mapping.get(doc) if mapping is not None else None
+    if resolved is None:
+        return {"title": None, "subseries": []}
+    return {"title": resolved["title"], "subseries": list(resolved["subseries"])}
+
+
 #: Everything rfcmeta resolves about a document except abstract, which is not in
 #: the reduced mapping at all -- see reef.rfcmeta._abstracts -- and is fetched
 #: separately below. Adding a field to rfcmeta's reduction does not publish it
 #: here on its own; this is the one place that has to learn about it too.
-_DOCUMENT_METADATA_FIELDS = (
+_FULL_DOCUMENT_METADATA_FIELDS = (
     "title",
     "subseries",
     "status",
@@ -66,7 +81,7 @@ _DOCUMENT_METADATA_FIELDS = (
     "pages",
 )
 
-_NULL_DOCUMENT_METADATA = {
+_NULL_FULL_DOCUMENT_METADATA = {
     "title": None,
     "subseries": [],
     "status": None,
@@ -88,17 +103,18 @@ _NULL_DOCUMENT_METADATA = {
 }
 
 
-def _document_metadata(mapping, doc):
-    """What a document contributes to a published file, null when unresolved.
+def _full_document_metadata(mapping, doc):
+    """What a document contributes to its own subject's file, null when unresolved.
 
-    Null rather than omitted or echoed back as the identifier, so a reader can
-    tell "no such document" from "not looked up".
+    Only a subject's own file carries this much: the index lists every document
+    a subject covers, and repeating the full set there once per subject would
+    bloat a file most readers never need it from.
     """
     resolved = mapping.get(doc) if mapping is not None else None
     if resolved is None:
-        return dict(_NULL_DOCUMENT_METADATA)
+        return dict(_NULL_FULL_DOCUMENT_METADATA)
     return {
-        **{field: resolved[field] for field in _DOCUMENT_METADATA_FIELDS},
+        **{field: resolved[field] for field in _FULL_DOCUMENT_METADATA_FIELDS},
         "abstract": rfcmeta.cached_abstract(doc),
     }
 
@@ -116,6 +132,13 @@ def _mapping():
     return rfcmeta.cached_mapping()
 
 
+class DocumentMetadataSerializer(serializers.Serializer):
+    """A document as the index file names it: just enough to render a row."""
+
+    title = serializers.CharField(allow_null=True)
+    subseries = serializers.ListField(child=serializers.CharField())
+
+
 class DocumentAreaOrGroupSerializer(serializers.Serializer):
     """The area or group a document belongs to, narrowed to what a page names."""
 
@@ -130,8 +153,8 @@ class DocumentIdentifierSerializer(serializers.Serializer):
     value = serializers.CharField()
 
 
-class DocumentMetadataSerializer(serializers.Serializer):
-    """A document as a published file names it: what Red's index says about it."""
+class FullDocumentMetadataSerializer(serializers.Serializer):
+    """A document as its own subject's file names it: everything Red's index says."""
 
     title = serializers.CharField(allow_null=True)
     subseries = serializers.ListField(child=serializers.CharField())
@@ -256,12 +279,14 @@ def build_index():
             "Not a served endpoint. This describes the payload the precomputer "
             "publishes to `subjects.json` in the blob store, which is where Red "
             "reads it from; no deployment routes this path.\n\n"
-            "It is the vocabulary as a tree with every assignment and Red's own "
-            "metadata for every document, in one file, so that a caller renders the "
-            "subject listing from a single fetch. Two keyed maps: `subjects` by slug "
-            "in tree order, and `documents` by identifier, referenced from the "
-            "entries rather than repeated beside each subject that covers the "
-            "document.\n\n"
+            "It is the vocabulary as a tree with every assignment and every document "
+            "title, in one file, so that a caller renders the subject listing from a "
+            "single fetch. Two keyed maps: `subjects` by slug in tree order, and "
+            "`documents` by identifier, referenced from the entries rather than "
+            "repeated beside each subject that covers the document. A document's "
+            "fuller metadata -- status, authors, abstract and the rest -- is on its "
+            "own subject's file, not repeated here for every subject that covers "
+            "it.\n\n"
             "Retired subjects and aliases are absent: they are not offered, and the "
             "per-subject files are what answer for them."
         ),
@@ -297,11 +322,11 @@ class PrecomputedSubjectDetailSerializer(SubjectDetailSerializer):
         ]
         read_only_fields = fields
 
-    @extend_schema_field(serializers.DictField(child=DocumentMetadataSerializer()))
+    @extend_schema_field(serializers.DictField(child=FullDocumentMetadataSerializer()))
     def get_document_meta(self, obj):
         mapping = self.context.get("rfc_index", _mapping())
         return {
-            assignment.doc: _document_metadata(mapping, assignment.doc)
+            assignment.doc: _full_document_metadata(mapping, assignment.doc)
             for assignment in obj.assignments.all()
         }
 
@@ -341,9 +366,9 @@ class PrecomputedSubjectDetailSerializer(SubjectDetailSerializer):
             "One file per subject, which is what lets a subject page in Red be a "
             "single fetch. It is the served `/api/reef/subjects/{slug}/` response "
             "plus `document_meta`, Red's own metadata for each document assigned "
-            "here, and "
-            "`subject_meta`, the curated names of this subject's ancestors and "
-            "children so that a breadcrumb need not read the whole vocabulary.\n\n"
+            "here, and `subject_meta`, the curated names of this subject's "
+            "ancestors and children so that a breadcrumb need not read the whole "
+            "vocabulary.\n\n"
             "A retired subject and an alias are published here too, as the same "
             "redirect stubs the served read returns, because a blob store cannot "
             "answer with a 301. Neither carries `documents`, so neither gains the "
