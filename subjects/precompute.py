@@ -40,7 +40,13 @@ from .serializers import (
     SubjectAliasSerializer,
     SubjectDetailSerializer,
 )
-from .tree import rollup
+from .tree import (
+    documents_under,
+    rollup,
+    subject_tree,
+    tree_ancestors,
+    tree_descendants,
+)
 
 
 def _document_metadata(mapping, doc):
@@ -179,12 +185,17 @@ class FullDocumentMetadataSerializer(serializers.Serializer):
 class SubjectMetadataSerializer(serializers.Serializer):
     """A subject named by another subject's file, so a page can render it.
 
-    Only the curated name. ``children`` and ``path`` carry slugs, and a page
-    showing "Email" rather than ``email`` would otherwise have to read the whole
-    vocabulary to find one word.
+    The same fields ``Subject``/``SubjectIndexEntrySerializer`` already carry,
+    minus what only makes sense on a subject's own file (``children``, ``path``,
+    the slug is the key). A tree of these is what lets a page build a listing
+    straight from ``subject_meta``, with no second fetch for the counts and
+    description a heading also wants to show.
     """
 
     name = serializers.CharField()
+    description = serializers.CharField()
+    document_count = serializers.IntegerField()
+    document_count_deep = serializers.IntegerField()
 
 
 class SubjectIndexEntrySerializer(serializers.Serializer):
@@ -224,47 +235,32 @@ class SubjectIndexSerializer(serializers.Serializer):
     subjects = serializers.DictField(child=SubjectIndexEntrySerializer())
 
 
-def build_index():
+def build_index(direct=None, covered=None, tree=None):
     """The index payload, in the order it is published in.
 
     Subjects in tree order, so a caller rendering top to bottom gets children
     under their parents. Documents sorted, so a run that found the same data
     writes the same bytes.
+
+    direct and covered are rollup()'s own return value and tree is
+    subject_tree()'s, each accepted rather than always recomputed so that a
+    caller already holding one -- the precompute run also snapping every
+    subject's own file's ancestors and descendants off the same tree -- does
+    not pay for it twice.
     """
-    direct, covered = rollup()
-    rows = list(Subject.objects.order_by("path"))
-
-    children = {}
-    for subject in rows:
-        ancestors = subject.ancestor_slugs
-        if ancestors:
-            children.setdefault(ancestors[-1], []).append(subject.slug)
-
-    subjects = {}
-    for subject in rows:
-        ancestors = subject.ancestor_slugs
-        subjects[subject.slug] = {
-            "id": subject.pk,
-            "name": subject.name,
-            "description": subject.description,
-            "parent": ancestors[-1] if ancestors else None,
-            "path": subject.path,
-            "children": children.get(subject.slug, []),
-            "documents": direct.get(subject.path, []),
-            "document_count": len(direct.get(subject.path, [])),
-            "document_count_deep": len(covered.get(subject.path, [])),
-        }
+    if direct is None or covered is None:
+        direct, covered = rollup()
+    if tree is None:
+        tree = subject_tree(direct, covered)
 
     # Every identifier the file mentions and only those: the union of the direct
     # assignments is exactly what the entries reference, because the subtrees are
     # not written out.
-    mentioned = sorted(
-        {doc for entry in subjects.values() for doc in entry["documents"]}
-    )
+    mentioned = sorted({doc for entry in tree.values() for doc in entry["documents"]})
     mapping = _mapping()
     return {
         "documents": {doc: _document_metadata(mapping, doc) for doc in mentioned},
-        "subjects": subjects,
+        "subjects": tree,
     }
 
 
@@ -299,7 +295,13 @@ class SubjectIndex(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        return Response(SubjectIndexSerializer(build_index()).data)
+        precomputed = getattr(request, "precomputed_context", None) or {}
+        index = build_index(
+            precomputed.get("direct"),
+            precomputed.get("covered"),
+            precomputed.get("subject_tree"),
+        )
+        return Response(SubjectIndexSerializer(index).data)
 
 
 class PrecomputedSubjectDetailSerializer(SubjectDetailSerializer):
@@ -332,26 +334,51 @@ class PrecomputedSubjectDetailSerializer(SubjectDetailSerializer):
 
     @extend_schema_field(serializers.DictField(child=SubjectMetadataSerializer()))
     def get_subject_meta(self, obj):
-        """The curated names of the subjects this file names, and no others.
+        """Every subject this file names, and no others, in full enough to draw a row.
 
-        Its ancestors, from the prefixes of `path`, and its live children. Not
-        the subject itself, which carries its own `name`, and not the whole
-        vocabulary, which is the index file's business.
+        Every ancestor up to the root, and every descendant through the whole
+        branch beneath it -- not siblings, and not the subject itself, which
+        carries these same fields at the top level already.
 
-        One query for the ancestors on exact paths, and the children rows are
-        already loaded to produce `children`.
+        tree, when in context, is subject_tree()'s slug-keyed structure: the
+        precompute run builds it once for subjects.json and hands the same
+        object to every subject's own file, so this walks parent/children
+        pointers already in memory instead of a query per ancestor and a query
+        for the whole subtree. A caller with no tree in context -- outside a
+        precompute run -- gets the same answer from queries instead.
         """
+        tree = self.context.get("subject_tree")
+        if tree is not None:
+            return {
+                slug: {
+                    "name": tree[slug]["name"],
+                    "description": tree[slug]["description"],
+                    "document_count": tree[slug]["document_count"],
+                    "document_count_deep": tree[slug]["document_count_deep"],
+                }
+                for slug in tree_ancestors(tree, obj.slug)
+                + tree_descendants(tree, obj.slug)
+            }
+
+        direct_counts = self.context.get("direct_counts", {})
+        covered_counts = self.context.get("covered_counts", {})
+
+        def describe(row):
+            return {
+                "name": row.name,
+                "description": row.description,
+                "document_count": direct_counts.get(row.path, row.assignments.count()),
+                "document_count_deep": covered_counts.get(
+                    row.path, len(documents_under(row))
+                ),
+            }
+
         ancestors = ancestor_paths(obj.path)
         named = {}
         if ancestors:
             rows = Subject.all_objects.filter(path__in=ancestors).order_by("path")
-            named.update({row.slug: {"name": row.name} for row in rows})
-        named.update(
-            {
-                child.slug: {"name": child.name}
-                for child in obj.live_children.order_by("path")
-            }
-        )
+            named.update({row.slug: describe(row) for row in rows})
+        named.update({row.slug: describe(row) for row in Subject.objects.under(obj)})
         return named
 
 
@@ -366,9 +393,10 @@ class PrecomputedSubjectDetailSerializer(SubjectDetailSerializer):
             "One file per subject, which is what lets a subject page in Red be a "
             "single fetch. It is the served `/api/reef/subjects/{slug}/` response "
             "plus `document_meta`, Red's own metadata for each document assigned "
-            "here, and `subject_meta`, the curated names of this subject's "
-            "ancestors and children so that a breadcrumb need not read the whole "
-            "vocabulary.\n\n"
+            "here, and `subject_meta`, every ancestor up to the root and every "
+            "descendant through this subject's whole branch -- not siblings -- so "
+            "that a page can draw a breadcrumb or a nested listing without a "
+            "second fetch for the rest of the vocabulary.\n\n"
             "A retired subject and an alias are published here too, as the same "
             "redirect stubs the served read returns, because a blob store cannot "
             "answer with a 301. Neither carries `documents`, so neither gains the "
@@ -395,3 +423,24 @@ class PrecomputedSubjectDetail(SubjectDetail):
         if served is SubjectDetailSerializer:
             return PrecomputedSubjectDetailSerializer
         return served
+
+    def get_serializer_context(self):
+        """Folds in what render_anonymous's caller precomputed for the whole run.
+
+        Absent when nothing was passed -- a retired subject or an alias never
+        reaches get_subject_meta, and a caller outside the precompute run has
+        nothing to hand over -- in which case get_subject_meta and
+        get_document_count/get_document_count_deep fall back to queries
+        instead, same as an uncached SubjectSerializer would.
+        """
+        context = super().get_serializer_context()
+        extra = getattr(self.request, "precomputed_context", None)
+        if extra:
+            context.update(
+                {
+                    k: v
+                    for k, v in extra.items()
+                    if k in ("direct_counts", "covered_counts", "subject_tree")
+                }
+            )
+        return context

@@ -27,6 +27,9 @@ __all__ = [
     "covering_subject_ids",
     "documents_under",
     "rollup",
+    "subject_tree",
+    "tree_ancestors",
+    "tree_descendants",
 ]
 
 
@@ -104,6 +107,63 @@ def rollup():
         {path: sorted(docs, key=order) for path, docs in direct.items()},
         {path: sorted(docs, key=order) for path, docs in covered.items()},
     )
+
+
+def subject_tree(direct, covered):
+    """Every live subject's own entry, keyed by slug, with parent/children pointers.
+
+    One query for the rows -- rollup() already cost the other two, for direct and
+    covered -- built once per precompute run and then walked in memory rather than
+    queried again: a subject's own file needs every ancestor up to the root and
+    every descendant through its whole branch, and a query per ancestor and a
+    query for the subtree is exactly the per-subject cost rollup() exists to
+    spare the vocabulary-wide callers. tree_ancestors() and tree_descendants()
+    below are how a caller snaps a slice of this off for one subject.
+    """
+    rows = list(Subject.objects.order_by("path"))
+    children = {}
+    for subject in rows:
+        ancestors = subject.ancestor_slugs
+        if ancestors:
+            children.setdefault(ancestors[-1], []).append(subject.slug)
+
+    tree = {}
+    for subject in rows:
+        ancestors = subject.ancestor_slugs
+        tree[subject.slug] = {
+            "id": subject.pk,
+            "name": subject.name,
+            "description": subject.description,
+            "parent": ancestors[-1] if ancestors else None,
+            "path": subject.path,
+            "children": children.get(subject.slug, []),
+            "documents": direct.get(subject.path, []),
+            "document_count": len(direct.get(subject.path, [])),
+            "document_count_deep": len(covered.get(subject.path, [])),
+        }
+    return tree
+
+
+def tree_ancestors(tree, slug):
+    """Every ancestor of slug in tree, root first, by following `parent` up."""
+    ancestors = []
+    parent = tree[slug]["parent"]
+    while parent is not None:
+        ancestors.append(parent)
+        parent = tree[parent]["parent"]
+    return list(reversed(ancestors))
+
+
+def tree_descendants(tree, slug):
+    """Every descendant of slug in tree -- its whole branch, not just direct
+    children -- by following `children` down. Not siblings, and not slug itself."""
+    descendants = []
+    stack = list(tree[slug]["children"])
+    while stack:
+        child = stack.pop()
+        descendants.append(child)
+        stack.extend(tree[child]["children"])
+    return descendants
 
 
 def _doc_sort_key(doc):

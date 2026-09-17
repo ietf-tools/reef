@@ -30,12 +30,19 @@ class RenderError(Exception):
         super().__init__(f"{path} returned HTTP {status}: {body[:200]!r}")
 
 
-def render_anonymous(view, path, *, query=None, **kwargs):
+def render_anonymous(view, path, *, query=None, context=None, **kwargs):
     """Return the JSON bytes the API serves an anonymous GET of path.
 
     view is the callable from ``SomeView.as_view()``; kwargs are the URL
     captures the router would have supplied. query is a mapping, whose values
     may be lists for a repeatable parameter.
+
+    context, if given, is stashed on the request as ``precomputed_context``
+    for a view or its ``get_serializer_context()`` to read back. It exists for
+    data one precompute run computes once and hundreds of these calls each
+    need -- a roll-up over the whole vocabulary, say -- which a request built
+    fresh per call has no other way to receive without recomputing it itself
+    every time.
     """
     request = _factory.get(
         path,
@@ -50,6 +57,8 @@ def render_anonymous(view, path, *, query=None, **kwargs):
     # for any view or permission that reaches past DRF to the underlying
     # HttpRequest.
     request.user = AnonymousUser()
+    if context is not None:
+        request.precomputed_context = context
 
     response = view(request, **kwargs)
     if hasattr(response, "render"):

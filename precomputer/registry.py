@@ -40,6 +40,7 @@ from reef import rfcmeta
 from stats.api import DocumentStatsList
 from subjects.models import Subject, SubjectAlias
 from subjects.precompute import PrecomputedSubjectDetail, SubjectIndex
+from subjects.tree import rollup, subject_tree
 from surveys.api import OpenSurveyList, SurveyDefinition
 from surveys.models import Survey
 
@@ -155,11 +156,32 @@ def subjects(docs=None, index=None):
     process has a warm one, only calling load_index() here does -- the
     reduced mapping the views still read for everything else stays whatever
     the run already warmed.
+
+    rollup() and subject_tree() run once here too, for the same reason: every
+    one of the several hundred per-subject files below carries its own
+    ancestors' and descendants' names, descriptions and document counts, in
+    `subject_meta`, and letting each file recompute either for that would turn
+    one whole-vocabulary pass into one per file. render_anonymous's `context`
+    is how the result reaches a request built fresh per call, and subjects.json
+    is built from the very same tree rather than a second one.
     """
     rfcmeta.load_index()
+    direct, covered = rollup()
+    tree = subject_tree(direct, covered)
+    rollup_context = {
+        "direct": direct,
+        "covered": covered,
+        "direct_counts": {path: len(docs) for path, docs in direct.items()},
+        "covered_counts": {path: len(docs) for path, docs in covered.items()},
+        "subject_tree": tree,
+    }
     yield (
         "subjects.json",
-        render_anonymous(SubjectIndex.as_view(), "/api/reef/precomputed/subjects/"),
+        render_anonymous(
+            SubjectIndex.as_view(),
+            "/api/reef/precomputed/subjects/",
+            context=rollup_context,
+        ),
     )
     detail = PrecomputedSubjectDetail.as_view()
     # all_objects, so a retired subject still gets a file. subjects.json above does
@@ -170,7 +192,10 @@ def subjects(docs=None, index=None):
         yield (
             f"subjects/{slug}.json",
             render_anonymous(
-                detail, f"/api/reef/precomputed/subjects/{slug}/", slug=slug
+                detail,
+                f"/api/reef/precomputed/subjects/{slug}/",
+                slug=slug,
+                context=rollup_context,
             ),
         )
 
@@ -185,7 +210,10 @@ def subjects(docs=None, index=None):
         yield (
             f"subjects/{slug}.json",
             render_anonymous(
-                detail, f"/api/reef/precomputed/subjects/{slug}/", slug=slug
+                detail,
+                f"/api/reef/precomputed/subjects/{slug}/",
+                slug=slug,
+                context=rollup_context,
             ),
         )
 

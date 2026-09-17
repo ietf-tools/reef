@@ -10,6 +10,9 @@ from .tree import (
     covering_subject_ids,
     documents_under,
     rollup,
+    subject_tree,
+    tree_ancestors,
+    tree_descendants,
 )
 
 BRANCH = (
@@ -142,3 +145,59 @@ class RollupTests(TestCase):
                 documents_under(subject),
                 subject.path,
             )
+
+
+class SubjectTreeTests(TestCase):
+    """subject_tree() and the two walks a subject's own file snaps off it.
+
+    Built from the same BRANCH as rollup() above, so an entry's document_count
+    and document_count_deep can be checked against numbers already known to be
+    right rather than recomputed by hand here.
+    """
+
+    def setUp(self):
+        self.made = tree(*BRANCH)
+        SubjectAssignment.objects.create(subject=self.made["dkim"], doc="rfc6376")
+        SubjectAssignment.objects.create(subject=self.made["smtp"], doc="rfc5321")
+        SubjectAssignment.objects.create(subject=self.made["email"], doc="rfc5322")
+        direct, covered = rollup()
+        self.tree = subject_tree(direct, covered)
+
+    def test_every_live_subject_gets_an_entry(self):
+        self.assertEqual(set(self.tree), set(self.made))
+
+    def test_an_entry_carries_the_same_counts_rollup_does(self):
+        entry = self.tree["email"]
+        self.assertEqual(entry["document_count"], 1)
+        self.assertEqual(entry["document_count_deep"], 3)
+
+    def test_ancestors_go_root_first(self):
+        self.assertEqual(
+            tree_ancestors(self.tree, "dkim"),
+            ["messaging", "email", "email-authentication"],
+        )
+
+    def test_a_root_has_no_ancestors_in_the_tree(self):
+        self.assertEqual(tree_ancestors(self.tree, "messaging"), [])
+
+    def test_descendants_reach_every_depth_not_just_direct_children(self):
+        # smtp and email-authentication are email's direct children; dkim is
+        # email's grandchild, through email-authentication.
+        self.assertEqual(
+            sorted(tree_descendants(self.tree, "email")),
+            ["dkim", "email-authentication", "smtp"],
+        )
+
+    def test_descendants_do_not_include_a_sibling_branch(self):
+        self.assertNotIn("security", tree_descendants(self.tree, "messaging"))
+        self.assertNotIn("tls", tree_descendants(self.tree, "messaging"))
+
+    def test_a_leaf_has_no_descendants(self):
+        self.assertEqual(tree_descendants(self.tree, "dkim"), [])
+
+    def test_a_retired_subject_is_not_in_the_tree(self):
+        self.made["dkim"].retire()
+        direct, covered = rollup()
+        retired_tree = subject_tree(direct, covered)
+        self.assertNotIn("dkim", retired_tree)
+        self.assertNotIn("dkim", tree_descendants(retired_tree, "email-authentication"))
