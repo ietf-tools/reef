@@ -45,7 +45,7 @@ from .tree import (
     rollup,
     subject_tree,
     tree_ancestors,
-    tree_descendants,
+    tree_branch,
 )
 
 
@@ -182,20 +182,55 @@ class FullDocumentMetadataSerializer(serializers.Serializer):
     abstract = serializers.CharField(allow_null=True)
 
 
-class SubjectMetadataSerializer(serializers.Serializer):
-    """A subject named by another subject's file, so a page can render it.
+class SubjectAncestorSerializer(serializers.Serializer):
+    """One ancestor on the way up to the root, root first.
 
     The same fields ``Subject``/``SubjectIndexEntrySerializer`` already carry,
-    minus what only makes sense on a subject's own file (``children``, ``path``,
-    the slug is the key). A tree of these is what lets a page build a listing
-    straight from ``subject_meta``, with no second fetch for the counts and
-    description a heading also wants to show.
+    minus what only makes sense on a subject's own file (``children``,
+    ``path``). No nested children of its own: the ancestor chain is a single
+    line up to the root, so there is nothing to nest.
     """
 
+    slug = serializers.CharField()
     name = serializers.CharField()
     description = serializers.CharField()
     document_count = serializers.IntegerField()
     document_count_deep = serializers.IntegerField()
+
+
+class SubjectBranchNodeSerializer(serializers.Serializer):
+    """One subject in a descendant branch, with its own children nested beneath it.
+
+    A tree, not a flat map keyed by slug: a page rendering a nested listing
+    needs to know which subject is whose child, and a flat map throws that
+    relationship away.
+    """
+
+    slug = serializers.CharField()
+    name = serializers.CharField()
+    description = serializers.CharField()
+    document_count = serializers.IntegerField()
+    document_count_deep = serializers.IntegerField()
+
+
+# children is more branch nodes, added after the class body because it cannot
+# name itself while still being defined -- DRF's own pattern for a recursive
+# serializer.
+SubjectBranchNodeSerializer._declared_fields["children"] = SubjectBranchNodeSerializer(
+    many=True
+)
+
+
+class SubjectMetaSerializer(serializers.Serializer):
+    """A subject's branch of the vocabulary: its ancestors and its whole
+    descendant subtree, so that a page renders both without a second fetch.
+
+    Not siblings, and not the subject itself, which carries its own name and
+    description at the top level of this same file already.
+    """
+
+    ancestors = SubjectAncestorSerializer(many=True)
+    descendants = SubjectBranchNodeSerializer(many=True)
 
 
 class SubjectIndexEntrySerializer(serializers.Serializer):
@@ -332,32 +367,43 @@ class PrecomputedSubjectDetailSerializer(SubjectDetailSerializer):
             for assignment in obj.assignments.all()
         }
 
-    @extend_schema_field(serializers.DictField(child=SubjectMetadataSerializer()))
+    @extend_schema_field(SubjectMetaSerializer())
     def get_subject_meta(self, obj):
-        """Every subject this file names, and no others, in full enough to draw a row.
+        """This subject's branch of the vocabulary: ancestors and descendants.
 
-        Every ancestor up to the root, and every descendant through the whole
-        branch beneath it -- not siblings, and not the subject itself, which
-        carries these same fields at the top level already.
+        `ancestors` is the line up to the root, root first. `descendants` is
+        the whole subtree beneath this subject, nested -- not siblings, and
+        not the subject itself, which carries its own name and description at
+        the top level of this same file already.
+
+        `descendants` nests real parent/child structure rather than a flat map
+        keyed by slug: a page rendering a nested listing needs to know which
+        subject is whose child, and a flat map throws that relationship away.
 
         tree, when in context, is subject_tree()'s slug-keyed structure: the
         precompute run builds it once for subjects.json and hands the same
         object to every subject's own file, so this walks parent/children
         pointers already in memory instead of a query per ancestor and a query
-        for the whole subtree. A caller with no tree in context -- outside a
-        precompute run -- gets the same answer from queries instead.
+        per descendant. A caller with no tree in context -- outside a
+        precompute run -- gets the same shape from queries instead: one for
+        the ancestors, one for the whole subtree, nested afterwards from each
+        row's own path rather than a query per level.
         """
         tree = self.context.get("subject_tree")
         if tree is not None:
-            return {
-                slug: {
+
+            def node(slug):
+                return {
+                    "slug": slug,
                     "name": tree[slug]["name"],
                     "description": tree[slug]["description"],
                     "document_count": tree[slug]["document_count"],
                     "document_count_deep": tree[slug]["document_count_deep"],
                 }
-                for slug in tree_ancestors(tree, obj.slug)
-                + tree_descendants(tree, obj.slug)
+
+            return {
+                "ancestors": [node(slug) for slug in tree_ancestors(tree, obj.slug)],
+                "descendants": tree_branch(tree, obj.slug),
             }
 
         direct_counts = self.context.get("direct_counts", {})
@@ -365,6 +411,7 @@ class PrecomputedSubjectDetailSerializer(SubjectDetailSerializer):
 
         def describe(row):
             return {
+                "slug": row.slug,
                 "name": row.name,
                 "description": row.description,
                 "document_count": direct_counts.get(row.path, row.assignments.count()),
@@ -373,13 +420,30 @@ class PrecomputedSubjectDetailSerializer(SubjectDetailSerializer):
                 ),
             }
 
-        ancestors = ancestor_paths(obj.path)
-        named = {}
-        if ancestors:
-            rows = Subject.all_objects.filter(path__in=ancestors).order_by("path")
-            named.update({row.slug: describe(row) for row in rows})
-        named.update({row.slug: describe(row) for row in Subject.objects.under(obj)})
-        return named
+        ancestor_rows = []
+        paths = ancestor_paths(obj.path)
+        if paths:
+            ancestor_rows = Subject.all_objects.filter(path__in=paths).order_by("path")
+        ancestors = [describe(row) for row in ancestor_rows]
+
+        # One query for the whole subtree, however deep, then nested in Python
+        # from each row's own ancestor_slugs -- read off its path, no query --
+        # rather than a query per level.
+        by_slug = {row.slug: row for row in Subject.objects.under(obj)}
+        children_of = {}
+        for row in by_slug.values():
+            row_ancestors = row.ancestor_slugs
+            parent_slug = row_ancestors[-1] if row_ancestors else None
+            if parent_slug is not None:
+                children_of.setdefault(parent_slug, []).append(row.slug)
+
+        def branch(slug):
+            return [
+                {**describe(by_slug[child]), "children": branch(child)}
+                for child in children_of.get(slug, [])
+            ]
+
+        return {"ancestors": ancestors, "descendants": branch(obj.slug)}
 
 
 @extend_schema_view(

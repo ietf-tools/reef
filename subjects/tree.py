@@ -29,7 +29,7 @@ __all__ = [
     "rollup",
     "subject_tree",
     "tree_ancestors",
-    "tree_descendants",
+    "tree_branch",
 ]
 
 
@@ -117,7 +117,7 @@ def subject_tree(direct, covered):
     queried again: a subject's own file needs every ancestor up to the root and
     every descendant through its whole branch, and a query per ancestor and a
     query for the subtree is exactly the per-subject cost rollup() exists to
-    spare the vocabulary-wide callers. tree_ancestors() and tree_descendants()
+    spare the vocabulary-wide callers. tree_ancestors() and tree_branch()
     below are how a caller snaps a slice of this off for one subject.
     """
     rows = list(Subject.objects.order_by("path"))
@@ -154,16 +154,25 @@ def tree_ancestors(tree, slug):
     return list(reversed(ancestors))
 
 
-def tree_descendants(tree, slug):
-    """Every descendant of slug in tree -- its whole branch, not just direct
-    children -- by following `children` down. Not siblings, and not slug itself."""
-    descendants = []
-    stack = list(tree[slug]["children"])
-    while stack:
-        child = stack.pop()
-        descendants.append(child)
-        stack.extend(tree[child]["children"])
-    return descendants
+def tree_branch(tree, slug):
+    """slug's whole descendant branch, nested -- not a flat list.
+
+    Each node is {slug, name, description, document_count, document_count_deep,
+    children}, with children the same shape recursively. A page rendering a
+    nested listing needs to know which subject is whose child; a flat list of
+    everything beneath slug would throw that relationship away.
+    """
+    return [
+        {
+            "slug": child,
+            "name": tree[child]["name"],
+            "description": tree[child]["description"],
+            "document_count": tree[child]["document_count"],
+            "document_count_deep": tree[child]["document_count_deep"],
+            "children": tree_branch(tree, child),
+        }
+        for child in tree[slug]["children"]
+    ]
 
 
 def _doc_sort_key(doc):

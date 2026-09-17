@@ -12,7 +12,7 @@ from .tree import (
     rollup,
     subject_tree,
     tree_ancestors,
-    tree_descendants,
+    tree_branch,
 )
 
 BRANCH = (
@@ -147,6 +147,15 @@ class RollupTests(TestCase):
             )
 
 
+def _flatten(branch):
+    """Every slug in a tree_branch() result, at any depth, for a membership check."""
+    slugs = []
+    for node in branch:
+        slugs.append(node["slug"])
+        slugs.extend(_flatten(node["children"]))
+    return slugs
+
+
 class SubjectTreeTests(TestCase):
     """subject_tree() and the two walks a subject's own file snaps off it.
 
@@ -180,24 +189,46 @@ class SubjectTreeTests(TestCase):
     def test_a_root_has_no_ancestors_in_the_tree(self):
         self.assertEqual(tree_ancestors(self.tree, "messaging"), [])
 
-    def test_descendants_reach_every_depth_not_just_direct_children(self):
+    def test_branch_reaches_every_depth_not_just_direct_children(self):
         # smtp and email-authentication are email's direct children; dkim is
         # email's grandchild, through email-authentication.
         self.assertEqual(
-            sorted(tree_descendants(self.tree, "email")),
+            sorted(_flatten(tree_branch(self.tree, "email"))),
             ["dkim", "email-authentication", "smtp"],
         )
 
-    def test_descendants_do_not_include_a_sibling_branch(self):
-        self.assertNotIn("security", tree_descendants(self.tree, "messaging"))
-        self.assertNotIn("tls", tree_descendants(self.tree, "messaging"))
+    def test_branch_nests_a_grandchild_under_its_own_parent_not_flat(self):
+        by_slug = {node["slug"]: node for node in tree_branch(self.tree, "email")}
+        self.assertEqual(by_slug["smtp"]["children"], [])
+        self.assertEqual(
+            [child["slug"] for child in by_slug["email-authentication"]["children"]],
+            ["dkim"],
+        )
 
-    def test_a_leaf_has_no_descendants(self):
-        self.assertEqual(tree_descendants(self.tree, "dkim"), [])
+    def test_a_branch_node_carries_its_own_stats(self):
+        by_slug = {node["slug"]: node for node in tree_branch(self.tree, "email")}
+        self.assertEqual(
+            by_slug["smtp"],
+            {
+                "slug": "smtp",
+                "name": "Smtp",
+                "description": "",
+                "document_count": 1,
+                "document_count_deep": 1,
+                "children": [],
+            },
+        )
+
+    def test_branch_does_not_include_a_sibling_branch(self):
+        self.assertNotIn("security", _flatten(tree_branch(self.tree, "messaging")))
+        self.assertNotIn("tls", _flatten(tree_branch(self.tree, "messaging")))
+
+    def test_a_leaf_has_no_branch(self):
+        self.assertEqual(tree_branch(self.tree, "dkim"), [])
 
     def test_a_retired_subject_is_not_in_the_tree(self):
         self.made["dkim"].retire()
         direct, covered = rollup()
         retired_tree = subject_tree(direct, covered)
         self.assertNotIn("dkim", retired_tree)
-        self.assertNotIn("dkim", tree_descendants(retired_tree, "email-authentication"))
+        self.assertEqual(tree_branch(retired_tree, "email-authentication"), [])

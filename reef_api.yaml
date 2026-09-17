@@ -1541,9 +1541,8 @@ components:
             $ref: '#/components/schemas/FullDocumentMetadata'
           readOnly: true
         subject_meta:
-          type: object
-          additionalProperties:
-            $ref: '#/components/schemas/SubjectMetadata'
+          allOf:
+          - $ref: '#/components/schemas/SubjectMeta'
           readOnly: true
       required:
       - aliases
@@ -1722,6 +1721,62 @@ components:
       required:
       - alias_of
       - slug
+    SubjectAncestor:
+      type: object
+      description: |-
+        One ancestor on the way up to the root, root first.
+
+        The same fields ``Subject``/``SubjectIndexEntrySerializer`` already carry,
+        minus what only makes sense on a subject's own file (``children``,
+        ``path``). No nested children of its own: the ancestor chain is a single
+        line up to the root, so there is nothing to nest.
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        document_count:
+          type: integer
+        document_count_deep:
+          type: integer
+      required:
+      - description
+      - document_count
+      - document_count_deep
+      - name
+      - slug
+    SubjectBranchNode:
+      type: object
+      description: |-
+        One subject in a descendant branch, with its own children nested beneath it.
+
+        A tree, not a flat map keyed by slug: a page rendering a nested listing
+        needs to know which subject is whose child, and a flat map throws that
+        relationship away.
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        document_count:
+          type: integer
+        document_count_deep:
+          type: integer
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubjectBranchNode'
+      required:
+      - children
+      - description
+      - document_count
+      - document_count_deep
+      - name
+      - slug
     SubjectDetail:
       type: object
       description: |-
@@ -1878,30 +1933,26 @@ components:
       - name
       - parent
       - path
-    SubjectMetadata:
+    SubjectMeta:
       type: object
       description: |-
-        A subject named by another subject's file, so a page can render it.
+        A subject's branch of the vocabulary: its ancestors and its whole
+        descendant subtree, so that a page renders both without a second fetch.
 
-        The same fields ``Subject``/``SubjectIndexEntrySerializer`` already carry,
-        minus what only makes sense on a subject's own file (``children``, ``path``,
-        the slug is the key). A tree of these is what lets a page build a listing
-        straight from ``subject_meta``, with no second fetch for the counts and
-        description a heading also wants to show.
+        Not siblings, and not the subject itself, which carries its own name and
+        description at the top level of this same file already.
       properties:
-        name:
-          type: string
-        description:
-          type: string
-        document_count:
-          type: integer
-        document_count_deep:
-          type: integer
+        ancestors:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubjectAncestor'
+        descendants:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubjectBranchNode'
       required:
-      - description
-      - document_count
-      - document_count_deep
-      - name
+      - ancestors
+      - descendants
     Subscription:
       type: object
       properties:

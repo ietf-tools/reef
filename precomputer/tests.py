@@ -432,15 +432,18 @@ class DocumentMetadataTests(PrecomputeTestCase):
 
 
 class SubjectNameTests(PrecomputeTestCase):
-    """A subject's file carries the curated names of the subjects it mentions.
+    """A subject's file carries its branch of the vocabulary: ancestors and
+    descendants, with names, so a page drawing a breadcrumb or a nested listing
+    does not have to fetch the whole vocabulary to turn `email` into "Email".
 
-    `children` and `path` are slugs, so without this a page drawing a breadcrumb
-    or a child list shows `email` where a reader should see "Email", and the only
-    way to turn one into the other is to fetch the whole vocabulary -- which is
-    the second fetch one file per route exists to avoid. The same entries also
-    carry description and both document counts, the same fields a listing reads
-    off `Subject`/`SubjectIndexEntry` elsewhere, so a page can draw a heading for
-    an ancestor or a child from `subject_meta` alone.
+    `subject_meta` is `{ancestors, descendants}`. `ancestors` is a flat,
+    root-first list -- the chain up is a single line, nothing to nest.
+    `descendants` is a real tree: each node carries its own `children`, the
+    same shape recursively, so a page can render the whole subtree beneath
+    this subject without flattening it back into slugs and path segments
+    itself. Both list the same fields a listing reads off
+    `Subject`/`SubjectIndexEntry` elsewhere: name, description, and both
+    document counts.
     """
 
     def setUp(self):
@@ -457,46 +460,57 @@ class SubjectNameTests(PrecomputeTestCase):
         self.precompute("subjects")
         return self.read(f"subjects/{slug}.json")
 
-    def test_it_names_the_ancestors_and_the_children(self):
+    def test_it_names_the_ancestors_and_the_descendants(self):
         payload = self.published("email")
         self.assertEqual(
             payload["subject_meta"],
             {
-                "messaging": {
-                    "name": "Messaging",
-                    "description": "Messaging protocols",
-                    "document_count": 0,
-                    "document_count_deep": 0,
-                },
-                "dkim": {
-                    "name": "DKIM",
-                    "description": "",
-                    "document_count": 0,
-                    "document_count_deep": 0,
-                },
+                "ancestors": [
+                    {
+                        "slug": "messaging",
+                        "name": "Messaging",
+                        "description": "Messaging protocols",
+                        "document_count": 0,
+                        "document_count_deep": 0,
+                    },
+                ],
+                "descendants": [
+                    {
+                        "slug": "dkim",
+                        "name": "DKIM",
+                        "description": "",
+                        "document_count": 0,
+                        "document_count_deep": 0,
+                        "children": [],
+                    },
+                ],
             },
         )
 
     def test_it_does_not_name_the_subject_itself(self):
         # The subject carries its own `name` already, and repeating it would be a
         # second place for a rename to have to reach.
-        self.assertNotIn("email", self.published("email")["subject_meta"])
+        payload = self.published("email")
+        slugs = [entry["slug"] for entry in payload["subject_meta"]["ancestors"]]
+        slugs += [entry["slug"] for entry in payload["subject_meta"]["descendants"]]
+        self.assertNotIn("email", slugs)
 
-    def test_it_reaches_every_ancestor_not_just_the_parent(self):
+    def test_ancestors_go_root_first(self):
         payload = self.published("dkim")
         self.assertEqual(
-            sorted(payload["subject_meta"]),
-            ["email", "messaging"],
+            [entry["slug"] for entry in payload["subject_meta"]["ancestors"]],
+            ["messaging", "email"],
         )
 
-    def test_it_reaches_every_descendant_not_just_the_children(self):
-        """dkim is messaging's grandchild, not its child, so a one-level lookup
-        would miss it -- the case a nested listing built from subject_meta
-        alone needs covered."""
+    def test_descendants_reach_every_depth_nested_under_its_own_parent(self):
+        """dkim is messaging's grandchild, not its child, so a flat or a
+        one-level lookup would either miss it or misplace it -- nested under
+        email is what a page needs to render the whole subtree correctly."""
         payload = self.published("messaging")
+        descendants = payload["subject_meta"]["descendants"]
+        self.assertEqual([entry["slug"] for entry in descendants], ["email"])
         self.assertEqual(
-            sorted(payload["subject_meta"]),
-            ["dkim", "email"],
+            [entry["slug"] for entry in descendants[0]["children"]], ["dkim"]
         )
 
     def test_it_does_not_reach_a_sibling(self):
@@ -504,22 +518,25 @@ class SubjectNameTests(PrecomputeTestCase):
             name="Chat", slug="chat", parent=self.messaging, description="Chat"
         )
         payload = self.published("email")
-        self.assertNotIn("chat", payload["subject_meta"])
+        slugs = [entry["slug"] for entry in payload["subject_meta"]["ancestors"]]
+        slugs += [entry["slug"] for entry in payload["subject_meta"]["descendants"]]
+        self.assertNotIn("chat", slugs)
 
     def test_counts_are_the_roll_up_direct_and_covered_by_path(self):
         """Not queried per row: the same roll-up subjects.json's own counts come
         from, which is what keeps a wide subtree from costing a query per
-        ancestor and per child."""
+        ancestor and per descendant."""
         SubjectAssignment.objects.create(subject=self.email, doc="rfc9110")
         SubjectAssignment.objects.create(subject=self.dkim, doc="rfc2119")
         payload = self.published("dkim")
-        messaging = payload["subject_meta"]["messaging"]
-        self.assertEqual(messaging["document_count"], 0)
+        ancestors = {
+            entry["slug"]: entry for entry in payload["subject_meta"]["ancestors"]
+        }
+        self.assertEqual(ancestors["messaging"]["document_count"], 0)
         # Covers both rfc9110 (on email, its child) and rfc2119 (on dkim itself).
-        self.assertEqual(messaging["document_count_deep"], 2)
-        email = payload["subject_meta"]["email"]
-        self.assertEqual(email["document_count"], 1)
-        self.assertEqual(email["document_count_deep"], 2)
+        self.assertEqual(ancestors["messaging"]["document_count_deep"], 2)
+        self.assertEqual(ancestors["email"]["document_count"], 1)
+        self.assertEqual(ancestors["email"]["document_count_deep"], 2)
 
     def test_a_retired_child_is_not_offered(self):
         # subject_meta describes what the file points at, and `children` is live
@@ -530,18 +547,25 @@ class SubjectNameTests(PrecomputeTestCase):
         self.assertEqual(
             payload["subject_meta"],
             {
-                "messaging": {
-                    "name": "Messaging",
-                    "description": "Messaging protocols",
-                    "document_count": 0,
-                    "document_count_deep": 0,
-                }
+                "ancestors": [
+                    {
+                        "slug": "messaging",
+                        "name": "Messaging",
+                        "description": "Messaging protocols",
+                        "document_count": 0,
+                        "document_count_deep": 0,
+                    }
+                ],
+                "descendants": [],
             },
         )
 
-    def test_a_root_with_no_children_carries_an_empty_map(self):
+    def test_a_root_with_no_children_carries_empty_lists(self):
         Subject.objects.create(name="Routing", slug="routing")
-        self.assertEqual(self.published("routing")["subject_meta"], {})
+        self.assertEqual(
+            self.published("routing")["subject_meta"],
+            {"ancestors": [], "descendants": []},
+        )
 
     def test_a_redirect_stub_carries_neither_map(self):
         # A retired subject's payload is a redirect and nothing else, so there is
@@ -569,12 +593,16 @@ class SubjectNameTests(PrecomputeTestCase):
     def test_a_caller_with_no_precomputed_tree_still_gets_the_whole_branch(self):
         """The fallback a caller outside a precompute run takes -- no
         subject_tree in context, so this queries instead -- has to answer the
-        same question a warm tree does: every descendant, not just the direct
-        children under()'s name might suggest."""
+        same question a warm tree does: every descendant nested under its own
+        parent, not just direct children, and not flattened."""
         from subjects.precompute import PrecomputedSubjectDetailSerializer
 
         payload = PrecomputedSubjectDetailSerializer(self.messaging).data
-        self.assertEqual(sorted(payload["subject_meta"]), ["dkim", "email"])
+        descendants = payload["subject_meta"]["descendants"]
+        self.assertEqual([entry["slug"] for entry in descendants], ["email"])
+        self.assertEqual(
+            [entry["slug"] for entry in descendants[0]["children"]], ["dkim"]
+        )
 
 
 class StaleIndexTests(PrecomputeTestCase):
