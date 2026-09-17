@@ -16,6 +16,6 @@ psycopg2>=2.9.7
 pymemcache>=4.0
 PyJWT[crypto]>=2.8
 python-json-logger>=2.0.7
-PyYAML>=6.0
+PyYAML>=6.0.3
 rules>=3.5
 whitenoise>=6.9
