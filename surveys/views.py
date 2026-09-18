@@ -6,6 +6,7 @@ staff-only; login goes through Authentik (LOGIN_URL).
 """
 
 from django.conf import settings
+from django.contrib import admin
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404, redirect, render
@@ -23,11 +24,13 @@ def staff_required(view):
 @staff_required
 def survey_list(request):
     surveys = Survey.objects.all()
-    return render(
-        request,
-        "surveys/list.html",
-        {"surveys": surveys, "statuses": Survey.Status.choices},
-    )
+    context = {
+        **admin.site.each_context(request),
+        "title": "Surveys",
+        "surveys": surveys,
+        "statuses": Survey.Status.choices,
+    }
+    return render(request, "surveys/list.html", context)
 
 
 @staff_required
@@ -69,7 +72,13 @@ def survey_edit(request, pk):
         "csrfToken": get_token(request),
         "licenseKey": settings.REEF_SURVEYJS_LICENSE_KEY,
     }
-    return render(request, "surveys/creator.html", {"survey": survey, "config": config})
+    context = {
+        **admin.site.each_context(request),
+        "title": f"Edit: {survey.title}",
+        "survey": survey,
+        "config": config,
+    }
+    return render(request, "surveys/creator.html", context)
 
 
 @staff_required
@@ -79,6 +88,10 @@ def survey_analytics(request, pk):
         "resultsUrl": f"/api/reef/surveys/{survey.pk}/results/",
         "licenseKey": settings.REEF_SURVEYJS_LICENSE_KEY,
     }
-    return render(
-        request, "surveys/analytics.html", {"survey": survey, "config": config}
-    )
+    context = {
+        **admin.site.each_context(request),
+        "title": f"Results: {survey.title}",
+        "survey": survey,
+        "config": config,
+    }
+    return render(request, "surveys/analytics.html", context)
