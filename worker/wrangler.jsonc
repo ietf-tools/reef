@@ -33,6 +33,11 @@
   },
   "env": {
     "staging": {
+      // This origin fronts the whole of Reef, not just this worker's own R2 routes --
+      // everything else is proxied straight through to Django/Nuxt (see
+      // run_worker_first above). That makes this same string Django's own
+      // REEF_SITE_URL (reef/settings/production.py) for this environment:
+      // https://surveys.staging.rfc-editor.org
       "routes": [{ "pattern": "surveys.staging.rfc-editor.org/*", "zone_name": "rfc-editor.org" }],
       "r2_buckets": [
         {
@@ -58,6 +63,8 @@
       }
     },
     "production": {
+      // Also Django's REEF_SITE_URL for this environment -- see the staging entry
+      // above: https://surveys.rfc-editor.org
       "routes": [{ "pattern": "surveys.rfc-editor.org/*", "zone_name": "rfc-editor.org" }],
       "r2_buckets": [
         {

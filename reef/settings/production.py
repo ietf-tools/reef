@@ -25,7 +25,9 @@ DEBUG = False
 ALLOWED_HOSTS = _multiline_to_list(os.environ["REEF_ALLOWED_HOSTS"])
 
 # No default: see REEF_SITE_URL's comment in base.py. A survey toast linking
-# nowhere useful is not a thing to discover after it has gone out.
+# nowhere useful is not a thing to discover after it has gone out. Same value as
+# the route this environment's worker fronts everything with -- see the "routes"
+# comment for each env in worker/wrangler.jsonc.
 REEF_SITE_URL = os.environ["REEF_SITE_URL"]
 
 # The kubelet addresses its probes to the pod's own IP, which Django then sees as the
