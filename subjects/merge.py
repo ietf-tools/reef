@@ -90,9 +90,8 @@ def _move_children(source, target):
 def _move_assignments(source, target):
     """Give the target every document the source had, without duplicating.
 
-    bulk_create fires no post_save, so the target's followers are not told about
-    the arrivals (see subscriptions/signals.py): the documents are re-filed, not
-    newly categorized.
+    bulk_create fires no post_save, so the target's followers are not told: the
+    documents are re-filed, not newly categorized.
     """
     already = set(target.assignments.values_list("doc", flat=True))
     SubjectAssignment.objects.bulk_create(
@@ -183,8 +182,7 @@ def notify_merge(source, target, subscription_ids):
 def merge_and_notify(source, target):
     """The whole operation, which is the only way it should be performed.
 
-    One transaction: a merge whose followers could not be told is rolled back
-    rather than left done with nobody the wiser.
+    One transaction, so a merge whose followers cannot be told is rolled back.
     """
     affected = merge_subjects(source, target)
     notify_merge(source, target, affected)
