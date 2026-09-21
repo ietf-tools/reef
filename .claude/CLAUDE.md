@@ -18,6 +18,18 @@ Deliverables belong in the repository or in the terminal:
 Ask before creating an external link, rather than offering one and then
 undoing it.
 
+## Don't commit
+
+Never run `git commit`, and never push, tag or merge. Leave finished work in the
+working tree and say what changed; committing it is the user's to do, always.
+
+This is not an approval that can be granted mid-task: do not offer to commit,
+and do not ask whether to. If a commit is genuinely wanted the user will run it
+themselves, or say so unprompted.
+
+Staging is part of committing — leave `git add` alone too. Reading the repository
+is fine: `status`, `diff`, `log` and `show` are how you check your own work.
+
 # Coding conventions
 
 ## Comments

@@ -47,7 +47,14 @@
         // Must track Django's REEF_CORS_ALLOWED_ORIGINS for this environment
         // (reef/settings/production.py) -- these bucket reads bypass Django's own
         // CORS middleware entirely, so the worker has to enforce the same policy.
-        "ALLOWED_ORIGINS": "https://www.staging.rfc-editor.org"
+        //
+        // Plus localhost:3000, which Django's staging config does not allow: it is
+        // Red's dev server, and letting it read staging's precomputed files saves a
+        // Red developer from running Reef and a precompute run of their own. Staging
+        // only -- production's list below stays exactly Django's. The origin reaches
+        // no further than a bucket read, since this list is consulted in serveBlob
+        // and nowhere else, and those payloads are public anyway.
+        "ALLOWED_ORIGINS": "https://www.staging.rfc-editor.org, http://localhost:3000"
       }
     },
     "production": {
@@ -61,6 +68,8 @@
         }
       ],
       "vars": {
+        // Exactly Django's REEF_CORS_ALLOWED_ORIGINS, with no dev origin: the
+        // staging entry above carries one, and production must not copy it.
         "ALLOWED_ORIGINS": "https://www.rfc-editor.org"
       }
     }
