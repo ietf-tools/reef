@@ -7,6 +7,14 @@
   <style>#surveyCreator { height: calc(100vh - 8rem); }</style>
 {% endblock %}
 
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Home</a>
+    &rsaquo; <a href="{% url 'manage-survey-list' %}">Surveys</a>
+    &rsaquo; Edit: {{ survey.title }}
+  </div>
+{% endblock %}
+
 {% block content_title %}{% endblock %}
 
 {% block content %}

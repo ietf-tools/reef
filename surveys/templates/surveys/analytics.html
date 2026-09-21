@@ -7,6 +7,14 @@
   <style>#surveyVizPanel { min-height: 60vh; }</style>
 {% endblock %}
 
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Home</a>
+    &rsaquo; <a href="{% url 'manage-survey-list' %}">Surveys</a>
+    &rsaquo; Results: {{ survey.title }}
+  </div>
+{% endblock %}
+
 {% block content_title %}{% endblock %}
 
 {% block content %}
