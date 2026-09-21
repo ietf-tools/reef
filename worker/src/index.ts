@@ -12,6 +12,10 @@ router
   .get('/api/v1/subjects.json', (req, env) => serveBlob(req, env, 'subjects.json'))
   .get('/api/v1/subjects/:slug.json', (req, env) => serveBlob(req, env, `subjects/${req.params.slug}.json`))
   .get('/api/v1/surveys/open.json', (req, env) => serveBlob(req, env, 'surveys/open.json', '/api/reef/surveys/open/'))
+  // The superset Red filters by each row's `visibility`, including the surveys
+  // only a signed-in reader may be offered. No originPath: no deployment routes
+  // it, and the served `/api/reef/surveys/open/` answers a different question.
+  .get('/api/v1/surveys/published.json', (req, env) => serveBlob(req, env, 'surveys/published.json'))
   .get('/api/v1/surveys/:slug/definition.json', (req, env) =>
     serveBlob(
       req,

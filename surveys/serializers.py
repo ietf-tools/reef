@@ -49,6 +49,13 @@ class OpenSurveySerializer(serializers.ModelSerializer):
     The fields line up with Red's Notification: title, description and url are shown,
     and slug is the string Red keys a dismissal on. documents is the addition that
     tells it where to offer this at all.
+
+    visibility says whether the runner will admit an anonymous visitor, so Red can
+    offer an authenticated-only survey to a signed-in reader alone rather than
+    sending an anonymous one to a runner that refuses them. It is the field that
+    tells the two apart in the one payload that mixes them, which is the
+    precomputed surveys/published.json; the rows an anonymous caller is served,
+    here or from that store's surveys/open.json, are all "open" by construction.
     """
 
     url = serializers.SerializerMethodField()
@@ -56,7 +63,15 @@ class OpenSurveySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Survey
-        fields = ["id", "slug", "title", "description", "url", "documents"]
+        fields = [
+            "id",
+            "slug",
+            "title",
+            "description",
+            "url",
+            "documents",
+            "visibility",
+        ]
 
     def get_url(self, obj) -> str:
         # The runner is a static bundle with no server in front of it, so the

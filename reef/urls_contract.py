@@ -27,6 +27,7 @@ description saying it is a published file and naming the store key.
 from django.urls import path
 
 from subjects.precompute import PrecomputedSubjectDetail, SubjectIndex
+from surveys.precompute import PrecomputedSurveyList
 
 from .urls import urlpatterns as served_urlpatterns
 
@@ -41,5 +42,10 @@ urlpatterns = [
         "api/reef/precomputed/subjects/<slug:slug>/",
         PrecomputedSubjectDetail.as_view(),
         name="precomputed-subject-detail",
+    ),
+    path(
+        "api/reef/precomputed/surveys/",
+        PrecomputedSurveyList.as_view(),
+        name="precomputed-survey-list",
     ),
 ]

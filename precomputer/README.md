@@ -62,7 +62,8 @@ popularity.json                     the curated most-popular list
 subjects.json                       the vocabulary as a tree, with every
                                     assignment and every title, in one file
 subjects/<slug>.json                one subject and the documents carrying it
-surveys/open.json                   surveys a visitor may be offered
+surveys/open.json                   surveys an anonymous visitor may be offered
+surveys/published.json              every published survey, with its visibility
 surveys/<slug>/definition.json      an open survey's definition and theme
 ratings/<doc>.json                  a rated document's public average and count
 ```
@@ -91,6 +92,22 @@ document, which at this vocabulary's depth would repeat every title about three
 times over. And a subject's subtree is not written out: it is derivable from `path`
 and `children` in the pass a caller is already making, and writing it would store
 every identifier once per ancestor.
+
+### The two survey lists
+
+`surveys/open.json` is the served `/api/reef/surveys/open/` without a
+credential, byte for byte. `surveys/published.json` is every published survey
+whatever its visibility, so Red can offer an authenticated-only survey to a
+signed-in reader without asking the API who they are first; it picks by each
+row's `visibility` and offers an `authenticated` one only to a reader it has
+signed in. Its view is `surveys/precompute.py`, routed nowhere, like the subject
+ones.
+
+Two things that file is not. It is not a cache of any response: an identified
+caller of `/api/reef/surveys/open/` also has the surveys they have already
+answered dropped, which one payload serving every reader cannot do, so a row
+means "published, and offerable to a reader of this visibility" and no more. And
+it is not anonymous-safe in the sense the rest of this store is -- see below.
 
 ### subjects/&lt;slug&gt;.json
 
@@ -149,7 +166,7 @@ both cases a missing key may just be one this run did not rebuild.
 
 ## What is not precomputed
 
-Everything here is rendered as an anonymous caller, because a key in a blob
+What a key holds is what an anonymous caller may read, because a key in a blob
 store is served to whoever asks for it. Four endpoints are excluded on purpose:
 
 - `me/documents/` and `subscriptions/` are per-caller by definition.
@@ -162,3 +179,11 @@ store is served to whoever asks for it. Four endpoints are excluded on purpose:
 `ratings/<doc>/` is included as its anonymous body: the public average and
 count, with `your_rating` null. That is the field the live response varies by
 caller in, and what an unauthenticated reader would have been served.
+
+`surveys/published.json` is the one deliberate exception. Listing the surveys
+only a signed-in reader may be offered is the point of the file, so their titles
+and descriptions are readable by anyone who fetches the key. What stays behind
+the credential is the rest: a definition -- the questions -- is precomputed for
+open surveys alone, and responses and results are not precomputed at all. Staff
+who would rather a survey's existence not be public should leave it in draft
+until it is offered, or accept that publishing it publishes its title.

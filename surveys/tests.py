@@ -44,6 +44,14 @@ class OpenSurveyListTests(APITestCase):
         item = resp.json()[0]
         self.assertEqual(item["url"], "/s?slug=open-pub")
 
+    def test_item_carries_visibility(self):
+        """Red decides from the row itself whether to offer a survey anonymously."""
+        user = User.objects.create(username="u2", oidc_sub="sub-2")
+        self.client.force_authenticate(user=user)
+        resp = self.client.get("/api/reef/surveys/open/")
+        visibility = {s["slug"]: s["visibility"] for s in resp.json()}
+        self.assertEqual(visibility, {"open-pub": "open", "auth-pub": "authenticated"})
+
 
 class DefinitionAndResponseTests(APITestCase):
     def test_definition_public_for_open_survey(self):

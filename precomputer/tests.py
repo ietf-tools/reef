@@ -131,7 +131,13 @@ class OutputTests(PrecomputeTestCase):
         self.precompute()
         self.assertEqual(
             self.written(),
-            {"stats.json", "popularity.json", "subjects.json", "surveys/open.json"},
+            {
+                "stats.json",
+                "popularity.json",
+                "subjects.json",
+                "surveys/open.json",
+                "surveys/published.json",
+            },
         )
         self.assertEqual(self.read("stats.json"), [])
 
@@ -194,6 +200,46 @@ class OutputTests(PrecomputeTestCase):
         self.assertEqual(self.written(), {"subjects.json", "subjects/security.json"})
         self.assertEqual(len(self.read("subjects.json")["subjects"]), 1)
 
+    def test_published_list_carries_authenticated_surveys_too(self):
+        """The whole point of the second list: Red offers a signed-in reader a
+        survey without first asking the API who they are."""
+        Survey.objects.create(
+            title="Open",
+            slug="open-one",
+            status=Survey.Status.PUBLISHED,
+            visibility=Survey.Visibility.OPEN,
+        )
+        Survey.objects.create(
+            title="Signed in only",
+            slug="private-one",
+            status=Survey.Status.PUBLISHED,
+            visibility=Survey.Visibility.AUTHENTICATED,
+        )
+        Survey.objects.create(title="Draft", slug="draft-one")
+        self.precompute("surveys")
+
+        published = {
+            row["slug"]: row["visibility"]
+            for row in self.read("surveys/published.json")
+        }
+        self.assertEqual(
+            published, {"open-one": "open", "private-one": "authenticated"}
+        )
+        self.assertEqual(
+            [row["slug"] for row in self.read("surveys/open.json")], ["open-one"]
+        )
+
+    def test_published_list_leaves_out_a_withdrawn_survey(self):
+        survey = Survey.objects.create(
+            title="Signed in only",
+            slug="private-one",
+            status=Survey.Status.PUBLISHED,
+            visibility=Survey.Visibility.AUTHENTICATED,
+        )
+        survey.soft_delete()
+        self.precompute("surveys")
+        self.assertEqual(self.read("surveys/published.json"), [])
+
     def test_only_open_surveys_get_a_definition(self):
         Survey.objects.create(
             title="Open",
@@ -211,7 +257,11 @@ class OutputTests(PrecomputeTestCase):
         self.precompute("surveys")
         self.assertEqual(
             self.written(),
-            {"surveys/open.json", "surveys/open-one/definition.json"},
+            {
+                "surveys/open.json",
+                "surveys/published.json",
+                "surveys/open-one/definition.json",
+            },
         )
 
 
@@ -924,7 +974,12 @@ class CeleryTaskTests(PrecomputeTestCase):
         precompute_curated()
         self.assertEqual(
             self.written(),
-            {"popularity.json", "subjects.json", "surveys/open.json"},
+            {
+                "popularity.json",
+                "subjects.json",
+                "surveys/open.json",
+                "surveys/published.json",
+            },
         )
 
     def test_a_run_is_skipped_while_another_holds_the_lock(self):
@@ -964,6 +1019,33 @@ class CuratedSignalTests(TestCase):
         self.enqueue.reset_mock()
         with self.captureOnCommitCallbacks(execute=True):
             subject.delete()
+        self.assertEqual(self.enqueue.call_count, 1)
+
+    def test_editing_a_survey_enqueues_a_run(self):
+        """Any field, not just the ones a slug or a count is derived from: the
+        published lists carry the title and description a staff edit changes."""
+        with self.captureOnCommitCallbacks(execute=True):
+            survey = Survey.objects.create(
+                slug="sat", title="Before", status=Survey.Status.PUBLISHED
+            )
+        self.enqueue.reset_mock()
+
+        survey.title = "After"
+        with self.captureOnCommitCallbacks(execute=True):
+            survey.save()
+        self.assertEqual(self.enqueue.call_count, 1)
+
+    def test_withdrawing_a_survey_enqueues_a_run(self):
+        """soft_delete is a save, not a delete, so the post_delete receiver never
+        sees it -- and a withdrawn survey has to stop being offered."""
+        with self.captureOnCommitCallbacks(execute=True):
+            survey = Survey.objects.create(
+                slug="sat", title="Satisfaction", status=Survey.Status.PUBLISHED
+            )
+        self.enqueue.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            survey.soft_delete()
         self.assertEqual(self.enqueue.call_count, 1)
 
     def test_reader_activity_does_not_enqueue_anything(self):

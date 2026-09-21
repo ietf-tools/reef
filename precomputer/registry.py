@@ -13,8 +13,8 @@ store outlives the row it came from indefinitely. A subject that was renamed is
 not that case any more -- the old key holds the alias the rename left behind, and
 the run still produces it.
 
-Only anonymous responses are here, because a key in a blob store is served to
-whoever asks for it. That rules out four endpoints on purpose:
+What a key holds is what an anonymous caller may read, because a key in a blob
+store is served to whoever asks for it. That rules out four endpoints on purpose:
 
 * ``me/documents/`` and ``subscriptions/`` are per-caller by definition.
 * ``surveys/`` and ``surveys/<pk>/results/`` are staff-only.
@@ -22,6 +22,12 @@ whoever asks for it. That rules out four endpoints on purpose:
   unguessable id *is* the permission. That model does not survive a store whose
   keys can be listed, and a set is edited by its owner between runs, so a
   precomputed copy would be both a leak and stale on the page that shows it.
+
+``surveys/published.json`` is the one key that is not some endpoint's anonymous
+body: it lists authenticated-only surveys too, so that Red can offer one to a
+signed-in reader without asking the API first, which publishes those surveys'
+titles and descriptions to anyone who fetches the key. Taken deliberately, and
+the bounds of it are in ``surveys.precompute``.
 
 ``ratings/<doc>/`` is included, as its anonymous body: the public average and
 count, with ``your_rating`` null. The endpoint varies by caller only in that
@@ -43,6 +49,7 @@ from subjects.precompute import PrecomputedSubjectDetail, SubjectIndex
 from subjects.tree import rollup, subject_tree
 from surveys.api import OpenSurveyList, SurveyDefinition
 from surveys.models import Survey
+from surveys.precompute import PrecomputedSurveyList
 
 from .render import render_anonymous
 
@@ -218,17 +225,34 @@ def subjects(docs=None, index=None):
         )
 
 
-@task("surveys", owns=r"^surveys/open\.json$|^surveys/[^/]+/definition\.json$")
+@task(
+    "surveys",
+    owns=r"^surveys/open\.json$|^surveys/published\.json$"
+    r"|^surveys/[^/]+/definition\.json$",
+)
 def surveys(docs=None, index=None):
-    """Open surveys, and the definition of each one a visitor may run.
+    """Every published survey, the anonymous subset, and the definitions.
+
+    Two lists, because they answer different questions and only one of them is
+    an anonymous response. ``surveys/open.json`` is what an anonymous caller
+    gets from the served endpoint, byte for byte. ``surveys/published.json`` is
+    the superset Red filters itself, and is the deliberate exception to the rule
+    at the top of this module -- see ``surveys.precompute`` for what it costs.
 
     Only OPEN surveys get a definition file. An authenticated-visibility survey
     refuses an anonymous caller, so there is no anonymous body to store, and
-    the runner has to ask the API for it with the visitor's credential.
+    the runner has to ask the API for it with the visitor's credential. That
+    holds whichever list offered the survey.
     """
     yield (
         "surveys/open.json",
         render_anonymous(OpenSurveyList.as_view(), "/api/reef/surveys/open/"),
+    )
+    yield (
+        "surveys/published.json",
+        render_anonymous(
+            PrecomputedSurveyList.as_view(), "/api/reef/precomputed/surveys/"
+        ),
     )
     definition = SurveyDefinition.as_view()
     open_surveys = Survey.objects.filter(
