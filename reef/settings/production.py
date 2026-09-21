@@ -24,6 +24,10 @@ DEBUG = False
 # REEF_ALLOWED_HOSTS is a newline-separated list of allowed hosts.
 ALLOWED_HOSTS = _multiline_to_list(os.environ["REEF_ALLOWED_HOSTS"])
 
+# No default: see REEF_SITE_URL's comment in base.py. A survey toast linking
+# nowhere useful is not a thing to discover after it has gone out.
+REEF_SITE_URL = os.environ["REEF_SITE_URL"]
+
 # The kubelet addresses its probes to the pod's own IP, which Django then sees as the
 # Host header. That address is assigned at scheduling time, so the pod passes it in
 # through the downward API rather than it being something a deployment can configure.

@@ -11,6 +11,11 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
+# The devcontainer's NGINX origin, fronting both this app and the Nuxt survey
+# runner (see plan.md). REEF_SITE_URL's own comment in base.py explains why a
+# request-derived value would not do.
+REEF_SITE_URL = os.environ.get("REEF_SITE_URL", "http://localhost:8088")
+
 # Developer tooling.
 INSTALLED_APPS += [
     "debug_toolbar",

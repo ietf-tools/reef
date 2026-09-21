@@ -128,9 +128,15 @@ LOGOUT_REDIRECT_URL = "/"
 # runs unlicensed with a watermark). Passed to the browser bundles.
 REEF_SURVEYJS_LICENSE_KEY = os.environ.get("REEF_SURVEYJS_LICENSE_KEY", "")
 
-# Base URL of the Nuxt survey runner, used to build the link Red follows from
-# its toast. Empty yields a site-relative "/s?slug=<slug>".
-REEF_SURVEY_RUNNER_BASE_URL = os.environ.get("REEF_SURVEY_RUNNER_BASE_URL", "")
+# Reef's own public origin, scheme included and no trailing slash. Needed for one
+# thing: the link Red's toast follows to the survey runner, which is Reef's own
+# Nuxt client sharing this same origin, not a separate service -- see
+# surveys.serializers.OpenSurveySerializer.get_url(). A precomputed file has no
+# request to read this off, so it has to come from settings rather than
+# request.build_absolute_uri(). No default here, like ALLOWED_HOSTS: every
+# environment sets its own, because there is no value that would be right by
+# accident.
+REEF_SITE_URL = os.environ.get("REEF_SITE_URL")
 
 # Bearer (resource-server) validation of Authentik access tokens.
 #

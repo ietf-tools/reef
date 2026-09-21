@@ -1638,3 +1638,10 @@ temporary settings override, no network in tests):
 - the admin view gets the same staff-only/anonymous/concurrent-lock coverage
   `PrecomputeAdminViewTests` already has, plus a case for the confirm-large-change
   round trip.
+
+### Deployment dependency: REEF_SITE_URL
+
+Staging and production now require `REEF_SITE_URL` (Reef's own origin, e.g.
+`https://reef.ietf.org`) or the app fails to start; it replaces the optional
+`REEF_SURVEY_RUNNER_BASE_URL`, which silently produced a bare `/s?slug=...` path
+when unset.

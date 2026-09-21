@@ -1,5 +1,6 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -78,8 +79,15 @@ class OpenSurveySerializer(serializers.ModelSerializer):
         # slug travels as a query parameter: /s is one real prerendered page,
         # where /s/<slug> would need a path NGINX cannot know ahead of time.
         # Slugs match ^[-a-zA-Z0-9_]+$, so none of this needs escaping.
-        base = getattr(settings, "REEF_SURVEY_RUNNER_BASE_URL", "") or ""
-        return f"{base}/s?slug={obj.slug}"
+        #
+        # A caller with no REEF_SITE_URL configured gets a raised error rather
+        # than a bare "/s?slug=..." that only resolves correctly by accident
+        # of sharing an origin with whatever fetched it -- true for a browser
+        # on Reef's own Nuxt runner, false for anything else, including a
+        # precomputed file with no origin of its own.
+        if not settings.REEF_SITE_URL:
+            raise ImproperlyConfigured("REEF_SITE_URL is not set")
+        return f"{settings.REEF_SITE_URL}/s?slug={obj.slug}"
 
     @extend_schema_field(
         serializers.ListField(child=serializers.CharField(), allow_null=True)
