@@ -14,3 +14,7 @@ class ReefAuthConfig(AppConfig):
         # Point the admin login page at our template, which adds a link into
         # the reef-admin OIDC flow above the break-glass username/password form.
         admin.site.login_template = "reefauth/admin_login.html"
+
+        admin.site.site_header = "REEF Admin"
+        admin.site.site_title = "REEF Admin"
+        admin.site.index_title = "REEF Admin"

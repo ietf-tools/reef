@@ -1,0 +1,50 @@
+/* Copyright The IETF Trust 2026, All Rights Reserved */
+
+/* Reef's own links in the admin header's nav-global block. #header is a flex
+   row that becomes a column below 1024px, so the list wraps rather than fixing
+   a direction. Type is matched to #user-tools so the two read as one header. */
+#reef-admin-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px 20px;
+    margin: 0 0 0 50px;
+    padding: 0;
+}
+
+#reef-admin-links li {
+  list-style:none;
+}
+
+#reef-admin-links li a {
+  list-style:none;
+  font-size: 1.1rem;
+  letter-spacing: .15em;
+  border: solid 1px white;
+  border-radius: 2px;
+  font-weight:bold;
+  line-height: 1.2;
+  padding: 0.2em 0.6em;
+  text-transform: uppercase;
+}
+
+#reef-admin-links li a:hover,
+#reef-admin-links li a:focus {
+  text-decoration: none;
+  background-color: rgba(0,0,0,0.2);
+}
+
+#user-tools {
+  line-height: 1.5;
+}
+
+#user-tools,
+#logout-form button {
+  font-size: 1rem;
+}
+
+button.theme-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 5px 10px;
+}

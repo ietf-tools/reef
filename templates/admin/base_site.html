@@ -1,5 +1,9 @@
 {% extends "admin/base.html" %}
-{% load i18n %}
+{% load i18n static %}
+
+{% block extrastyle %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/reef-admin.css' %}">
+{% endblock %}
 
 {% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
 
@@ -10,13 +14,16 @@
 {% endif %}
 {% endblock %}
 
-{% block nav-global %}{% endblock %}
+{% block nav-global %}
+{% if has_permission %}
+<ul id="reef-admin-links">
+  <li><a href="{% url 'manage-survey-list' %}">{% translate "Survey builder" %}</a></li>
+  <li><a href="{% url 'admin:precomputer-run' %}">{% translate "Precomputer" %}</a></li>
+  <li><a href="{% url 'admin:subjects_subject_sync' %}">{% translate "Tags Sync" %}</a></li>
+</ul>
+{% endif %}
+{% endblock %}
 
 {% block userlinks %}
-{% if has_permission %}
-  <a href="{% url 'manage-survey-list' %}">{% translate "Survey builder" %}</a> /
-  <a href="{% url 'admin:precomputer-run' %}">{% translate "Precompute" %}</a> /
-  <a href="{% url 'admin:subjects_subject_sync' %}">{% translate "Sync subject tags" %}</a> /
-{% endif %}
 {{ block.super }}
 {% endblock %}

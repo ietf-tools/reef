@@ -271,8 +271,13 @@ USE_TZ = True
 # Static files
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
-# Self-hosted SurveyJS bundles (populated by vendor/sync.sh via npm).
-STATICFILES_DIRS = [BASE_DIR / "vendor" / "static"]
+STATICFILES_DIRS = [
+    # Hand-written assets. Named apart from STATIC_ROOT, which is the collected
+    # output and is not checked in.
+    BASE_DIR / "static_src",
+    # Self-hosted SurveyJS bundles (populated by vendor/sync.sh via npm).
+    BASE_DIR / "vendor" / "static",
+]
 
 # Hash every collected file and record the mapping in staticfiles.json, so the
 # names {% static %} emits are content-addressed and whitenoise can serve them
