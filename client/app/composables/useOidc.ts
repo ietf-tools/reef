@@ -17,6 +17,10 @@ const toOidcUser = (user: User): OidcUser => ({
   picture: typeof user.profile.picture === 'string' ? user.profile.picture : undefined
 })
 
+// The API tolerates this much clock skew too, so a token the browser still counts as
+// live is one the API will accept.
+const renewBeforeExpirySeconds = 30
+
 let manager: UserManager | null = null
 
 function getManager(): UserManager | null {
@@ -50,9 +54,30 @@ export function useOidc() {
     async completeLogin() {
       return getManager()?.signinRedirectCallback()
     },
+    // Renews rather than giving up on a lapsed token: the background renewal misses
+    // whenever its timer does, as on a laptop that slept through it, and a survey can
+    // take longer to fill in than the token lasts. Null when there is no session, or
+    // renewal failed; hasSession() tells those two apart.
     async getAccessToken(): Promise<string | null> {
-      const user = await getManager()?.getUser()
-      return user && !user.expired ? user.access_token : null
+      const userManager = getManager()
+      const user = await userManager?.getUser()
+      if (!userManager || !user) {
+        return null
+      }
+      const { expires_in: expiresIn } = user
+      if (expiresIn === undefined || expiresIn > renewBeforeExpirySeconds) {
+        return user.access_token
+      }
+      try {
+        const renewed = await userManager.signinSilent()
+        return renewed?.access_token ?? null
+      } catch {
+        return null
+      }
+    },
+    // Whether anyone signed in on this browser, even if their token has since lapsed.
+    async hasSession(): Promise<boolean> {
+      return Boolean(await getManager()?.getUser())
     },
     // Header.vue's account menu: null when there is no session to restore, distinct
     // from "not checked yet" (see useOidcSession, which owns that distinction).

@@ -89,17 +89,19 @@ AUTHENTICATION_BACKENDS = (
 #
 # These OIDC_* settings are Reef as a *relying party*, logging staff into the
 # Django admin, including the builder/analytics site nested under it at
-# /admin/survey-builder/, under the "reef-admin" application
-# (REEF_ADMIN_OIDC_APP_SLUG, e.g. "reef-admin" in
-# production, "reef-admin-staging" in staging) — the only interactive login
-# Reef performs; anyone else gets the break-glass local superuser. Public
-# survey-taking is never logged into here: it authenticates against Red's own
-# "rfc-editor" application entirely client-side (the Nuxt runner talks to
-# Authentik directly), so Reef only ever sees the resulting access token as an
-# API caller — see REEF_API_OIDC_* below, a separate role with its own issuer,
-# JWKS and client id.
+# /admin/survey-builder/, under the "reef-admin-staging" application
+# (REEF_ADMIN_OIDC_APP_SLUG) — the only interactive login Reef performs; anyone
+# else gets the break-glass local superuser. Public survey-taking is never
+# logged into here: it authenticates against the separate "reef-staging"
+# application entirely client-side (the Nuxt runner talks to Authentik
+# directly), so Reef only ever sees the resulting access token as an API
+# caller — see REEF_API_OIDC_* below, a separate role with its own issuer, JWKS
+# and client id.
 REEF_OIDC_HOST = os.environ.get("REEF_OIDC_HOST", "https://account.ietf.org")
-REEF_ADMIN_OIDC_APP_SLUG = os.environ.get("REEF_ADMIN_OIDC_APP_SLUG", "reef-admin")
+# `or` rather than a get() default, for the same reason as REEF_API_OIDC_APP_SLUGS.
+REEF_ADMIN_OIDC_APP_SLUG = (
+    os.environ.get("REEF_ADMIN_OIDC_APP_SLUG", "") or "reef-admin-staging"
+)
 _oidc_app = f"{REEF_OIDC_HOST}/application/o"
 OIDC_OP_ISSUER_ID = f"{_oidc_app}/{REEF_ADMIN_OIDC_APP_SLUG}/"
 OIDC_OP_AUTHORIZATION_ENDPOINT = f"{_oidc_app}/authorize/"
@@ -110,7 +112,7 @@ OIDC_OP_END_SESSION_ENDPOINT = f"{_oidc_app}/{REEF_ADMIN_OIDC_APP_SLUG}/end-sess
 
 OIDC_RP_CLIENT_ID = os.environ.get("REEF_ADMIN_OIDC_RP_CLIENT_ID", "")
 OIDC_RP_CLIENT_SECRET = os.environ.get("REEF_ADMIN_OIDC_RP_CLIENT_SECRET", "")
-# reef-admin's assigned signing key is EC, same as rfc-editor's (see
+# The admin application's assigned signing key is EC, same as rfc-editor's (see
 # REEF_API_OIDC_ALGORITHMS below) — this instance's certificates are EC by
 # convention, not RSA.
 OIDC_RP_SIGN_ALGO = "ES256"
@@ -140,10 +142,10 @@ REEF_SITE_URL = os.environ.get("REEF_SITE_URL")
 
 # Bearer (resource-server) validation of Authentik access tokens.
 #
-# Independent of the RP login settings above. The one caller today is Red's
-# "rfc-editor" application, which is also how public survey-takers authenticate
-# (see above) — Reef never registers its own application for that, it only
-# validates the access token Red/the runner already obtained. Each calling
+# Independent of the RP login settings above. Two callers: Red's "rfc-editor"
+# application, and "reef-staging", which public survey-takers sign into through
+# the Nuxt runner (see above). Reef only validates the access tokens those
+# applications already issued; it is never a party to either login. Each calling
 # application has its own issuer and JWKS, so accepting a caller means naming
 # its slug here; each also mints access tokens whose `aud` is its own client
 # id, so that id has to be listed as an accepted audience.
@@ -154,11 +156,15 @@ REEF_SITE_URL = os.environ.get("REEF_SITE_URL")
 # never reached.
 #
 # REEF_API_OIDC_APP_SLUGS: comma-separated Authentik application slugs whose
-# tokens are accepted. Defaults to "rfc-editor", the one caller Reef expects,
-# so an unlisted caller is rejected rather than silently trusted.
+# tokens are accepted. Defaults to the two callers Reef expects, so an unlisted
+# caller is rejected rather than silently trusted. Leaving out "reef-staging"
+# refuses every signed-in survey-taker, including on open surveys, where their
+# token turns an otherwise anonymous request into a 401.
 REEF_API_OIDC_APP_SLUGS = [
     s.strip()
-    for s in (os.environ.get("REEF_API_OIDC_APP_SLUGS", "") or "rfc-editor").split(",")
+    for s in (
+        os.environ.get("REEF_API_OIDC_APP_SLUGS", "") or "rfc-editor,reef-staging"
+    ).split(",")
     if s.strip()
 ]
 # Issuer -> JWKS endpoint for those applications. The issuer is what the token

@@ -100,6 +100,16 @@ class DefinitionAndResponseTests(APITestCase):
         self.assertEqual(stored.data, {"q1": "yes"})
         self.assertIsNone(stored.submitted_by)
 
+    def test_signed_in_submission_records_the_submitter(self):
+        make_survey(slug="s6")
+        user = User.objects.create(username="authentik-s6", oidc_sub="s6")
+        self.client.force_authenticate(user)
+        resp = self.client.post(
+            "/api/reef/surveys/s6/responses/", {"data": {"q1": "no"}}, format="json"
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(Response.objects.get().submitted_by, user)
+
     def test_authenticated_survey_rejects_anonymous_submission(self):
         make_survey(slug="s5", visibility=Survey.Visibility.AUTHENTICATED)
         resp = self.client.post(

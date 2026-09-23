@@ -30,8 +30,8 @@ services:
       - REEF_BROKER_URL=amqp://mq/
       # OIDC (Authentik at account.ietf.org). Set these in a local .env file.
       # Reef as a relying party, logging its own staff into the admin and
-      # builder/analytics site under the "reef-admin" application:
-      - REEF_ADMIN_OIDC_APP_SLUG=${REEF_ADMIN_OIDC_APP_SLUG:-reef-admin}
+      # builder/analytics site under the "reef-admin-staging" application:
+      - REEF_ADMIN_OIDC_APP_SLUG=${REEF_ADMIN_OIDC_APP_SLUG:-reef-admin-staging}
       - REEF_ADMIN_OIDC_RP_CLIENT_ID=${REEF_ADMIN_OIDC_RP_CLIENT_ID:-}
       - REEF_ADMIN_OIDC_RP_CLIENT_SECRET=${REEF_ADMIN_OIDC_RP_CLIENT_SECRET:-}
       - REEF_OIDC_STAFF_GROUPS=${REEF_OIDC_STAFF_GROUPS:-}
@@ -41,8 +41,11 @@ services:
       - REEF_API_OIDC_APP_SLUGS=${REEF_API_OIDC_APP_SLUGS:-}
       - REEF_API_OIDC_AUDIENCES=${REEF_API_OIDC_AUDIENCES:-}
       - REEF_API_OIDC_ALGORITHMS=${REEF_API_OIDC_ALGORITHMS:-}
-      # Public client id for the Nuxt runner's browser OIDC login.
-      - NUXT_PUBLIC_OIDC_CLIENT_ID=${NUXT_PUBLIC_OIDC_CLIENT_ID:-}
+      # The Nuxt runner's browser OIDC login, against "reef-staging". Defaulted
+      # here rather than left empty: Nuxt takes an empty variable as the value,
+      # which would override nuxt.config.ts with nothing.
+      - NUXT_PUBLIC_OIDC_AUTHORITY=${NUXT_PUBLIC_OIDC_AUTHORITY:-https://account.ietf.org/application/o/reef-staging/}
+      - NUXT_PUBLIC_OIDC_CLIENT_ID=${NUXT_PUBLIC_OIDC_CLIENT_ID:-dAytIOu6rzN2Za3kyeFlo3FhHh3K0al0w0k1N649}
     depends_on:
       - db
       - mq

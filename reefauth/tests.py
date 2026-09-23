@@ -108,6 +108,45 @@ class BearerTokenAuthenticationTests(TestCase):
         with self.assertRaises(exceptions.AuthenticationFailed):
             self.auth.authenticate(request)
 
+    # With no clock-skew allowance, Authentik's clock running a little ahead of
+    # ours would make a token it had just issued "not yet valid", refusing a
+    # survey-taker who had only signed in. A potential failure found by review,
+    # not one seen in a bug report.
+    def test_a_token_issued_slightly_in_the_future_is_accepted(self):
+        now = datetime.datetime.now(datetime.UTC)
+        token = _make_token(self.key, iat=now + datetime.timedelta(seconds=5))
+        request = self.factory.get(
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        user, _ = self.auth.authenticate(request)
+        self.assertEqual(user.oidc_sub, "abc-123")
+
+    def test_a_token_just_past_expiry_is_accepted(self):
+        now = datetime.datetime.now(datetime.UTC)
+        token = _make_token(
+            self.key,
+            iat=now - datetime.timedelta(minutes=5),
+            exp=now - datetime.timedelta(seconds=5),
+        )
+        request = self.factory.get(
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        user, _ = self.auth.authenticate(request)
+        self.assertEqual(user.oidc_sub, "abc-123")
+
+    def test_an_expired_token_fails(self):
+        now = datetime.datetime.now(datetime.UTC)
+        token = _make_token(
+            self.key,
+            iat=now - datetime.timedelta(minutes=10),
+            exp=now - datetime.timedelta(minutes=5),
+        )
+        request = self.factory.get(
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        with self.assertRaisesMessage(exceptions.AuthenticationFailed, "expired"):
+            self.auth.authenticate(request)
+
     # Red is a second Authentik application, so its tokens carry a different
     # issuer and a different `aud` from the survey runner's, and both must pass.
     @override_settings(

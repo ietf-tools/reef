@@ -7,9 +7,9 @@ token is present so the same class works on both protected endpoints (paired
 with IsAuthenticated) and public endpoints that merely want to identify a user
 when a token happens to be supplied (for example the open-survey list).
 
-Several Authentik applications call this API (the survey runner, and Red as the
-separate "rfc-editor" application), each with its own issuer, JWKS and client
-id. Which are accepted is configured by REEF_API_OIDC_APP_SLUGS and
+Several Authentik applications call this API (the survey runner as
+"reef-staging", and Red as "rfc-editor"), each with its own issuer, JWKS and
+client id. Which are accepted is configured by REEF_API_OIDC_APP_SLUGS and
 REEF_API_OIDC_AUDIENCES — deliberately separate from the OIDC_* settings that
 log Reef's own staff into the builder site, which is an unrelated role that
 happens to involve the same identity provider.
@@ -43,6 +43,13 @@ _ASYMMETRIC_ALGORITHMS = frozenset(
         "EdDSA",
     }
 )
+
+# Seconds of clock difference tolerated on exp, iat and nbf. Authentik, this
+# server and the browser each keep their own time: with none, a token Authentik
+# has just issued is refused as "not yet valid" whenever its clock runs a second
+# ahead of ours, and one the browser still thinks is live is refused as expired.
+# The runner renews a token this long before it expires, so the two agree.
+_CLOCK_SKEW_LEEWAY = 30
 
 
 @cache
@@ -156,6 +163,7 @@ class BearerTokenAuthentication(authentication.BaseAuthentication):
             # to the whole allowlist, so a token from one accepted application
             # can't be presented as though it came from another.
             issuer=issuer,
+            leeway=_CLOCK_SKEW_LEEWAY,
             options={"verify_aud": bool(audiences)},
         )
 

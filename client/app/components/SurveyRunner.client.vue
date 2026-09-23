@@ -1,19 +1,31 @@
 <template>
   <SurveyComponent :model="model" />
+  <div v-if="retryable" class="mt-4 flex justify-center">
+    <button
+      type="button"
+      class="rounded bg-blue-900 dark:bg-blue-950 px-4 py-2 font-medium text-white hover:bg-blue-800 disabled:opacity-60"
+      :disabled="saving"
+      @click="attemptSave">
+      Try again
+    </button>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { Model } from 'survey-core'
+import { Model, type CompleteEvent } from 'survey-core'
 import * as surveyThemes from 'survey-core/themes'
 import 'survey-core/survey-core.css'
 import { SurveyComponent } from 'survey-vue3-ui'
 
+type SurveyData = Record<string, unknown>
+type SaveOptions = Pick<CompleteEvent, 'showSaveInProgress' | 'showSaveError' | 'showSaveSuccess'>
+
 const props = defineProps<{
   definition: Record<string, unknown>
   theme?: Record<string, unknown> | null
+  // Rejects with an Error whose message is shown to the visitor.
+  save: (data: SurveyData) => Promise<void>
 }>()
-
-const emit = defineEmits<{ complete: [data: Record<string, unknown>] }>()
 
 const config = useRuntimeConfig()
 const colorMode = useColorMode()
@@ -62,7 +74,38 @@ watch(
   (mode) => applyTheme(mode)
 )
 
-model.onComplete.add((sender) => {
-  emit('complete', sender.data as Record<string, unknown>)
+// Held once the survey completes, because by then SurveyJS has left the last page
+// and a retry has nothing else to resubmit.
+let completed: { data: SurveyData; options: SaveOptions } | null = null
+const saving = ref(false)
+const retryable = ref(false)
+
+const attemptSave = async () => {
+  if (!completed || saving.value) {
+    return
+  }
+  const { data, options } = completed
+  saving.value = true
+  retryable.value = false
+  options.showSaveInProgress()
+  try {
+    await props.save(data)
+    options.showSaveSuccess()
+  } catch (error) {
+    options.showSaveError(error instanceof Error ? error.message : "Your response couldn't be saved. Please try again.")
+    retryable.value = true
+  } finally {
+    saving.value = false
+  }
+}
+
+// onComplete rather than onCompleting, because only here has SurveyJS already
+// cleared the answers to questions its conditions hid, which is the data a response
+// stores. attemptSave() reports saving before its first await: SurveyJS follows a
+// survey's navigateToUrl straight after this handler unless saving has started,
+// which would leave the page before the response reached the server.
+model.onComplete.add((sender, options) => {
+  completed = { data: sender.data as SurveyData, options }
+  void attemptSave()
 })
 </script>
