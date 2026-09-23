@@ -44,7 +44,12 @@ export default defineNuxtConfig({
       // only ever sees the resulting access token as an API caller
       // (REEF_API_OIDC_* in reef/settings/base.py).
       oidcAuthority: 'https://account.ietf.org/application/o/reef-staging/', // NUXT_PUBLIC_OIDC_AUTHORITY
-      oidcClientId: 'dAytIOu6rzN2Za3kyeFlo3FhHh3K0al0w0k1N649' // NUXT_PUBLIC_OIDC_CLIENT_ID
+      oidcClientId: 'dAytIOu6rzN2Za3kyeFlo3FhHh3K0al0w0k1N649', // NUXT_PUBLIC_OIDC_CLIENT_ID
+      // Name of a paired *Light/*Dark theme family from survey-core/themes (e.g.
+      // "Default", "Flat", "Sharp"), applied as the runner's base so it follows
+      // this site's colour mode. Set NUXT_PUBLIC_SURVEY_THEME_FAMILY to restyle
+      // every survey's chrome without a code change.
+      surveyThemeFamily: 'Default' // NUXT_PUBLIC_SURVEY_THEME_FAMILY
     }
   },
   app: {

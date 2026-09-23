@@ -1,9 +1,11 @@
 <script setup lang="ts">
 const oidc = useOidc()
+const { refresh } = useOidcSession()
 
 onMounted(async () => {
   try {
     const user = await oidc.completeLogin()
+    await refresh()
     const returnTo = (user?.state as { returnTo?: string } | undefined)?.returnTo
     await navigateTo(returnTo || '/')
   } catch {

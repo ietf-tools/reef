@@ -6,7 +6,11 @@ export const useOidcSession = () => {
   const authStore = useAuthStore()
   const oidc = useOidc()
 
-  onMounted(async () => {
+  // Exposed so auth/callback.vue can re-run it once the redirect callback has
+  // stored the new session, since it navigates onward client-side rather than
+  // reloading, and Header.vue (where this otherwise only runs on mount) stays
+  // mounted across that navigation instead of asking again on its own.
+  const refresh = async () => {
     try {
       const user = await oidc.getUser()
       if (user) {
@@ -17,5 +21,9 @@ export const useOidcSession = () => {
     } finally {
       authStore.hasCheckedAuth = true
     }
-  })
+  }
+
+  onMounted(refresh)
+
+  return { refresh }
 }

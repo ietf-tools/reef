@@ -13,11 +13,19 @@ class SurveyQuerySet(models.QuerySet):
     def deleted(self):
         return self.filter(deleted_at__isnull=False)
 
-    def offerable_to(self, user):
+    def offerable_to(self, user, *, include_authenticated_only=False):
         """Published surveys that may be offered to the given user.
 
         Anonymous users see open surveys only; authenticated users also see
         authenticated-visibility surveys.
+
+        include_authenticated_only lists an authenticated-visibility survey to an
+        anonymous caller too, for Reef's own survey list rather than Red's toast:
+        the runner still refuses that survey's definition to an anonymous visitor
+        and prompts a login instead, but the caller needs the row to know the
+        survey exists before that prompt. Red's toast and the precomputed
+        surveys/open.json leave this off, since a toast is offered unprompted and
+        has no login step of its own to fall back on.
 
         A survey the caller has already answered is left out, because Red renders
         these as toasts and a toast for a survey somebody finished last week is worse
@@ -37,6 +45,8 @@ class SurveyQuerySet(models.QuerySet):
         """
         qs = self.filter(status=Survey.Status.PUBLISHED)
         if not (user and user.is_authenticated):
+            if include_authenticated_only:
+                return qs
             return qs.filter(visibility=Survey.Visibility.OPEN)
         # Excluded by subquery rather than by a join, which with several responses to
         # one survey would have to be deduplicated to mean the same thing.

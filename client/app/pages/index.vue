@@ -6,12 +6,22 @@
       <li v-for="s in surveys" :key="s.slug">
         <NuxtLink
           :to="{ path: '/s', query: { slug: s.slug } }"
-          class="block rounded border border-gray-200 dark:border-gray-700 p-4 hover:bg-gray-50 dark:hover:bg-blue-900">
-          <span class="font-medium">{{ s.title }}</span>
-          <span v-if="s.description" class="block text-sm text-gray-600 dark:text-gray-300">
-            {{ s.description }}
+          class="flex lg:flex-row justify-between rounded border border-gray-500 dark:border-gray-700 p-4 hover:bg-gray-50 dark:hover:bg-blue-900 no-underline">
+          <span class="font-medium underline">{{ s.title }}</span>
+          <span class="flex flex-row items-center mt-1 text-sm ml-2">
+            <span class="bg-gray-300 text-black text-sm px-2 py-1 rounded-xl">
+              <span v-if="s.visibility === 'authenticated'" class="flex flex-row items-center">
+                <GraphicsBustInSilhouette class="mr-1" />account required survey
+              </span>
+              <span v-else>
+                public survey
+              </span>
+            </span>
           </span>
-        </NuxtLink>
+         </NuxtLink>
+         <span v-if="s.description" class="block text-sm text-gray-600 dark:text-gray-300">
+           {{ s.description }}
+         </span>
       </li>
       <li v-if="surveys && surveys.length === 0" class="text-gray-600 dark:text-gray-300">
         No open surveys right now.

@@ -33,6 +33,12 @@ class OpenSurveyListTests(APITestCase):
         slugs = {s["slug"] for s in resp.json()}
         self.assertEqual(slugs, {"open-pub"})
 
+    def test_anonymous_with_include_authenticated_sees_both(self):
+        resp = self.client.get("/api/reef/surveys/open/?include_authenticated=1")
+        self.assertEqual(resp.status_code, 200)
+        slugs = {s["slug"] for s in resp.json()}
+        self.assertEqual(slugs, {"open-pub", "auth-pub"})
+
     def test_authenticated_also_sees_authenticated_visibility(self):
         user = User.objects.create(username="u1", oidc_sub="sub-1")
         self.client.force_authenticate(user=user)

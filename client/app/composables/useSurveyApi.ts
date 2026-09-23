@@ -29,10 +29,13 @@ export function useSurveyApi() {
       })
     },
 
+    // include_authenticated so the list also names an authenticated-only survey to
+    // an anonymous caller; the runner still turns that caller away and into login.
     async openSurveys(): Promise<OpenSurvey[]> {
       return $fetch<OpenSurvey[]>(`/api/reef/surveys/open/`, {
         baseURL,
-        headers: await authHeaders()
+        headers: await authHeaders(),
+        query: { include_authenticated: true }
       })
     },
 

@@ -56,7 +56,10 @@ class OpenSurveySerializer(serializers.ModelSerializer):
     sending an anonymous one to a runner that refuses them. It is the field that
     tells the two apart in the one payload that mixes them, which is the
     precomputed surveys/published.json; the rows an anonymous caller is served,
-    here or from that store's surveys/open.json, are all "open" by construction.
+    here or from that store's surveys/open.json, are all "open" by construction --
+    unless the caller asked the served endpoint to widen that with
+    include_authenticated, which is what Reef's own survey list does so it can
+    list a survey the runner will still turn an anonymous visitor away from.
     """
 
     url = serializers.SerializerMethodField()

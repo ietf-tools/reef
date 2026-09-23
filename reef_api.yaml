@@ -1059,8 +1059,20 @@ paths:
     get:
       operationId: surveys_open_list
       description: |-
-        Open surveys Red may offer. Bearer optional: an identified user also
-        receives their targeted surveys, an anonymous caller sees open ones only.
+        Open surveys Red may offer, and the surveys Reef's own list page
+        offers. Bearer optional: an identified user always receives their
+        targeted surveys; an anonymous caller sees open ones only, unless
+        ``include_authenticated`` is set.
+      parameters:
+      - in: query
+        name: include_authenticated
+        schema:
+          type: boolean
+        description: List an authenticated-visibility survey to an anonymous caller
+          too, instead of leaving it out. The runner still refuses that survey's definition
+          to an anonymous visitor and prompts a login instead; this only lets the
+          caller see that the survey exists before that prompt. No effect once the
+          caller is signed in, since they already see every visibility either way.
       tags:
       - surveys
       security:
@@ -1397,7 +1409,10 @@ components:
         sending an anonymous one to a runner that refuses them. It is the field that
         tells the two apart in the one payload that mixes them, which is the
         precomputed surveys/published.json; the rows an anonymous caller is served,
-        here or from that store's surveys/open.json, are all "open" by construction.
+        here or from that store's surveys/open.json, are all "open" by construction --
+        unless the caller asked the served endpoint to widen that with
+        include_authenticated, which is what Reef's own survey list does so it can
+        list a survey the runner will still turn an anonymous visitor away from.
       properties:
         id:
           type: integer

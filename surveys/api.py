@@ -1,7 +1,7 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import generics
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
@@ -41,15 +41,43 @@ class SurveyDetail(generics.RetrieveUpdateDestroyAPIView):
         instance.soft_delete()
 
 
+@extend_schema_view(
+    get=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="include_authenticated",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "List an authenticated-visibility survey to an anonymous "
+                    "caller too, instead of leaving it out. The runner still "
+                    "refuses that survey's definition to an anonymous "
+                    "visitor and prompts a login instead; this only lets "
+                    "the caller see that the survey exists before that "
+                    "prompt. No effect once the caller is signed in, since "
+                    "they already see every visibility either way."
+                ),
+            )
+        ]
+    )
+)
 class OpenSurveyList(generics.ListAPIView):
-    """Open surveys Red may offer. Bearer optional: an identified user also
-    receives their targeted surveys, an anonymous caller sees open ones only."""
+    """Open surveys Red may offer, and the surveys Reef's own list page
+    offers. Bearer optional: an identified user always receives their
+    targeted surveys; an anonymous caller sees open ones only, unless
+    ``include_authenticated`` is set."""
 
     serializer_class = OpenSurveySerializer
     permission_classes = [AllowAny]
 
     def get_queryset(self):
-        return Survey.objects.offerable_to(self.request.user)
+        include_authenticated = self.request.query_params.get(
+            "include_authenticated"
+        ) in ("1", "true", "True")
+        return Survey.objects.offerable_to(
+            self.request.user, include_authenticated_only=include_authenticated
+        )
 
 
 class SurveyDefinition(generics.RetrieveAPIView):
