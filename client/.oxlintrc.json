@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "vue"],
+  "env": {
+    "browser": true
+  },
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "no-extra-boolean-cast": "off",
+    "no-loss-of-precision": "off",
+    "no-useless-spread": "off",
+    "no-useless-escape": "off"
+  }
+}

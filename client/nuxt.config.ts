@@ -1,5 +1,7 @@
+import tailwindcss from '@tailwindcss/vite'
+
 export default defineNuxtConfig({
-  compatibilityDate: "2025-07-01",
+  compatibilityDate: '2025-07-01',
   // No server rendering: `npm run generate` emits a static bundle that talks to
   // the Reef API from the browser and nothing else. There is no Node runtime in
   // front of it, so every route below has to be a real file NGINX can serve,
@@ -11,33 +13,52 @@ export default defineNuxtConfig({
   devServer: {
     // 3001, not the Nuxt default of 3000, so the dev server does not collide
     // with Red's Nuxt server when both projects are running.
-    port: 3001,
+    port: 3001
   },
   nitro: {
     prerender: {
-      routes: ["/", "/s", "/auth/callback"],
-    },
+      routes: ['/', '/s', '/auth/callback']
+    }
   },
-  modules: ["@nuxtjs/tailwindcss", "reka-ui/nuxt"],
-  css: ["~/assets/css/tailwind.css"],
+  modules: ['reka-ui/nuxt', '@pinia/nuxt', 'pinia-plugin-persistedstate/nuxt', './modules/color-mode/module.ts'],
+  // Same defaults as Red, so the resolved theme (and the .dark class it toggles)
+  // agrees between the two sites for anyone moving between them.
+  colorMode: {
+    classSuffix: '',
+    preference: 'system',
+    fallback: 'light'
+  },
+  css: ['~/assets/css/tailwind.css'],
+  vite: {
+    plugins: [tailwindcss()]
+  },
   runtimeConfig: {
     public: {
       // Empty means relative: the dev NGINX proxies the API onto this origin.
       // Set NUXT_PUBLIC_API_BASE where it answers elsewhere.
-      apiBase: "", // NUXT_PUBLIC_API_BASE
+      apiBase: '', // NUXT_PUBLIC_API_BASE
       // Authentik OIDC application issuer (discovery is fetched from here).
-      // Red's own "rfc-editor" application, not a Reef-specific one: a
-      // survey-taker authenticates as the same identity Red already knows,
-      // entirely client-side — Reef's server only ever sees the resulting
-      // access token as an API caller (REEF_API_OIDC_* in reef/settings/base.py).
-      oidcAuthority: "https://account.ietf.org/application/o/rfc-editor/", // NUXT_PUBLIC_OIDC_AUTHORITY
-      oidcClientId: "", // NUXT_PUBLIC_OIDC_CLIENT_ID
-    },
+      // Reef's own "reef-staging" application (a public/PKCE client), not Red's
+      // "rfc-editor" one: the identity is still the same account.ietf.org user,
+      // but Reef authenticates against its own registered app — Reef's server
+      // only ever sees the resulting access token as an API caller
+      // (REEF_API_OIDC_* in reef/settings/base.py).
+      oidcAuthority: 'https://account.ietf.org/application/o/reef-staging/', // NUXT_PUBLIC_OIDC_AUTHORITY
+      oidcClientId: 'dAytIOu6rzN2Za3kyeFlo3FhHh3K0al0w0k1N649' // NUXT_PUBLIC_OIDC_CLIENT_ID
+    }
   },
   app: {
     head: {
-      title: "Reef Surveys",
-      meta: [{ name: "viewport", content: "width=device-width, initial-scale=1" }],
-    },
-  },
-});
+      title: 'RFC-Editor.org Surveys',
+      htmlAttrs: {
+        lang: 'en'
+      },
+      meta: [{ name: 'viewport', content: 'width=device-width, initial-scale=1' }],
+      // Same font source as Red, so text renders identically across the two sites.
+      link: [
+        { rel: 'preconnect', href: 'https://static.ietf.org' },
+        { rel: 'stylesheet', href: 'https://static.ietf.org/fonts/inter/import.css' }
+      ]
+    }
+  }
+})

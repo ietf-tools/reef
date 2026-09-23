@@ -1,0 +1,36 @@
+<template>
+  <NuxtLink v-if="isInternal" v-bind="sanitisedAnchorProps" data-is-nuxt-link>
+    <slot />
+  </NuxtLink>
+  <a v-else v-bind="sanitisedAnchorProps" data-is-hyperlink>
+    <slot />
+  </a>
+</template>
+
+<script setup lang="ts">
+/**
+ * An anchor hyperlink that detects whether to use SPA Vue Router or a conventional hyperlink.
+ *
+ * If the link is external then target="_blank" and rel="noopener" will be added.
+ */
+import { computed } from 'vue'
+import { NuxtLink } from '#components'
+import { EXTERNAL_LINK_REL, TARGET_NEW_WINDOW } from '~/utilities/html'
+import { isExternalLink, isInternalLink } from '~/utilities/url'
+
+const props = defineProps<{ href?: string; id?: string }>()
+
+const isInternal = computed(() => isInternalLink(props.href))
+
+const sanitisedAnchorProps = computed(() => {
+  const isExternal = isExternalLink(props.href)
+
+  return {
+    ...props,
+    to: isInternal.value ? props.href : undefined, // copy `href` to `to` for NuxtLink
+    href: isInternal.value ? undefined : props.href, // clobber 'href' with `undefined` when it's a NuxtLink
+    rel: isExternal ? EXTERNAL_LINK_REL : undefined,
+    target: isExternal ? TARGET_NEW_WINDOW : undefined
+  }
+})
+</script>

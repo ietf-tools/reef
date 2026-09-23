@@ -1,0 +1,38 @@
+<template>
+  <footer
+    class="bg-blue-900 text-white dark:bg-blue-950 border-t border-t-white dark:border-t-blue-900 relative print:hidden">
+    <h2 class="sr-only">Footer</h2>
+    <nav aria-label="Footer" class="container mx-auto flex flex-col md:flex-row py-4 lg:py-8 gap-4">
+      <div class="flex-1 flex flex-col gap-5 pr-4">
+        <p class="text-base pl-3">
+          surveys.rfc-editor.org is maintained by the
+          <Anchor :href="IETF_URL_ORIGIN" class="underline text-blue-100 font-semibold md:text-nowrap">
+            Internet Engineering Task Force
+          </Anchor>
+        </p>
+        <div class="flex gap-7 items-center mt-2 pl-3 lg:mt-5">
+          <Anchor
+            :href="IETF_URL_ORIGIN"
+            class="bg-blue-900 dark:bg-blue-950 px-2 py-1 rounded forced-color-adjust-none">
+            <GraphicsIETFLogo width="105" height="60" />
+          </Anchor>
+        </div>
+        <div class="flex gap-2 items-center mt-2 pl-3 lg:mt-5 text-sm">
+          <ul class="inline">
+            <li class="inline">
+              <Anchor href="https://status.ietf.org">System Status</Anchor>
+            </li>
+            <li class="inline">
+              <span class="text-white inline-block px-2" aria-hidden>&middot;</span>
+              <Anchor href="https://github.com/ietf-tools/reef/issues">Report a Bug</Anchor>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+  </footer>
+</template>
+
+<script setup lang="ts">
+import { IETF_URL_ORIGIN } from '~/utilities/url'
+</script>

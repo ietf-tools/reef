@@ -1,3 +1,185 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@source inline('text-blue-100 dark:text-blue-50 dark:text-blue-100 text-blue-300 dark:text-blue-300 color-blue-50 color-blue-100 color-blue-300');
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Inter', sans-serif;
+
+  --color-yellow-50: #ffff99;
+  --color-blue-25: #d3e3ff;
+  --color-blue-50: #b3b3ff;
+  --color-blue-100: #3cc0fd;
+  --color-blue-150: #2222ee;
+  --color-blue-200: #0b8cc5;
+  --color-blue-300: #1c62b6;
+  --color-blue-400: #18539b;
+  --color-blue-850: #001d2c;
+  --color-blue-900: #002d3c;
+  --color-blue-950: #00101c;
+  --color-blue-975: #00070f;
+  --color-yellow-100: #ffee66;
+  --color-yellow-200: #ffe459;
+  --color-yellow-400: #ffd13e;
+  --color-yellow-500: #e2b72a;
+  --color-yellow-600: #c49c15;
+  --color-yellow-750: #a78201;
+  --color-yellow-975: #211002;
+
+  --animate-scaleIn: scaleIn 200ms ease;
+  --animate-scaleOut: scaleOut 200ms ease;
+  --animate-fadeIn: fadeIn 200ms ease;
+  --animate-fadeOut: fadeOut 200ms ease;
+  --animate-slideDown: slideDown 300ms cubic-bezier(0.87, 0, 0.13, 1);
+  --animate-slideUp: slideUp 300ms cubic-bezier(0.87, 0, 0.13, 1);
+  --animate-slideDownAndFade: slideDownAndFade 400ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slideLeftAndFade: slideLeftAndFade 400ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slideUpAndFade: slideUpAndFade 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slideRightAndFade: slideRightAndFade 200ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  --shadow-3xl:
+    0 1px 1px hsl(0deg 0% 0% / 0.075), 0 2px 2px hsl(0deg 0% 0% / 0.075), 0 4px 4px hsl(0deg 0% 0% / 0.075),
+    0 8px 8px hsl(0deg 0% 0% / 0.075), 0 16px 16px hsl(0deg 0% 0% / 0.075);
+
+  @keyframes scaleIn {
+    0% {
+      opacity: 0;
+      transform: rotateX(-10deg) scale(0.9);
+    }
+
+    100% {
+      opacity: 1;
+      transform: rotateX(0deg) scale(1);
+    }
+  }
+
+  @keyframes scaleOut {
+    0% {
+      opacity: 1;
+      transform: rotateX(0deg) scale(1);
+    }
+
+    100% {
+      opacity: 0;
+      transform: rotateX(-10deg) scale(0.95);
+    }
+  }
+
+  @keyframes fadeIn {
+    0% {
+      opacity: 0;
+    }
+
+    100% {
+      opacity: 1;
+    }
+  }
+
+  @keyframes fadeOut {
+    0% {
+      opacity: 1;
+    }
+
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes slideDown {
+    0% {
+      height: 0;
+    }
+    100% {
+      height: var(--reka-accordion-content-height);
+    }
+  }
+
+  @keyframes slideUp {
+    0% {
+      height: var(--reka-accordion-content-height);
+    }
+
+    100% {
+      height: 0;
+    }
+  }
+
+  @keyframes slideDownAndFade {
+    0% {
+      opacity: 0;
+      transform: translateY(-5px);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slideLeftAndFade {
+    0% {
+      opacity: 0;
+      transform: translateX(5px);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes slideUpAndFade {
+    0% {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slideRightAndFade {
+    0% {
+      opacity: 0;
+      transform: translateX(-5px);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+}
+
+@layer base {
+  body,
+  #__nuxt {
+    min-height: 100vh;
+  }
+
+  a {
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+
+    abbr {
+      text-decoration: underline;
+    }
+  }
+}
+
+html {
+  background: var(--color-gray-100);
+  color: var(--color-black);
+}
+
+html.dark {
+  background: var(--color-blue-975);
+  color: var(--color-white);
+}
+
+html.dark::selection {
+  color: white;
+  background: var(--color-blue-600);
+}

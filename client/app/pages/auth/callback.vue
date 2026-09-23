@@ -1,17 +1,17 @@
 <script setup lang="ts">
-const oidc = useOidc();
+const oidc = useOidc()
 
 onMounted(async () => {
   try {
-    const user = await oidc.completeLogin();
-    const returnTo = (user?.state as { returnTo?: string } | undefined)?.returnTo;
-    await navigateTo(returnTo || "/");
+    const user = await oidc.completeLogin()
+    const returnTo = (user?.state as { returnTo?: string } | undefined)?.returnTo
+    await navigateTo(returnTo || '/')
   } catch {
-    await navigateTo("/");
+    await navigateTo('/')
   }
-});
+})
 </script>
 
 <template>
-  <main class="mx-auto max-w-md p-6 text-gray-600">Signing you in…</main>
+  <div class="mx-auto max-w-md p-6 text-gray-600 dark:text-gray-300">Signing you in…</div>
 </template>
