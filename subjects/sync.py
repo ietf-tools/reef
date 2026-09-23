@@ -25,6 +25,14 @@ subscribers go on matching. An assignment that vanishes is hard-deleted --
 SubjectAssignment carries no subscriber of its own, and its own docstring is
 explicit that there is no state between assigned and not.
 
+An id is matched to a subject without regard to letter case. The taxonomy writes
+ids the way the documents write them -- DNS, IPv6, DoH -- so that a screen reader
+pronounces them, while Reef's slugs are lowercase because they are URL paths, and
+a change in the casing of an id is not a new subject. Reef keeps the lowercase
+slug as the stable identifier and takes the id's own casing as the display name,
+but only while the name is still the mechanical placeholder a sync gave it: a
+name staff have edited is theirs.
+
 Manual only. There is deliberately no scheduled task calling this: a mirror of
 an external taxonomy that nobody is watching is exactly the kind of change that
 should have a person looking at the result each time.
@@ -87,6 +95,28 @@ def title_case(slug):
     return slug.replace("-", " ").title()
 
 
+def slug_for(tag_id):
+    """Canonical subject key for an ID, used for case-insensitive matching.
+
+    A subject slug is a URL path, so it is normalized to a single lowercase key,
+    and casefold() handles Unicode letter variants like "straße" and "STRASSE"
+    as the same subject instead of letting them slip through as distinct IDs.
+    """
+    return tag_id.casefold()
+
+
+def display_name(tag_id):
+    """The name a sync gives a subject it creates or still names mechanically.
+
+    An id written with capitals is a conventional form -- DNS, 6LoWPAN, WebDAV --
+    and is the name as it stands. One written all in lowercase is a phrase with
+    no such form (congestion-control), and gets the title_case placeholder.
+    """
+    if tag_id != tag_id.casefold():
+        return tag_id
+    return title_case(tag_id)
+
+
 @dataclass
 class SubjectChange:
     slug: str
@@ -95,7 +125,8 @@ class SubjectChange:
 
 @dataclass
 class VocabularyDiff:
-    to_create: list  # [{"slug", "parent_slug", "description"}], shallowest first
+    # [{"slug", "name", "parent_slug", "description"}], shallowest first
+    to_create: list
     to_update: list  # [SubjectChange]
     to_unretire: list  # [slug]
     to_retire: list  # [Subject], live subjects whose slug vanished
@@ -213,6 +244,10 @@ def validate_taxonomy(taxonomy):
     """
     problems = []
     by_id = {}
+    # Ids map to lowercase slugs (see slug_for), so two ids differing only in
+    # case would fight over one subject. The taxonomy's own loader refuses them
+    # too; checking here means a broken upstream build cannot reach the write.
+    id_by_slug = {}
     for entry in taxonomy.get("tags") or []:
         tag_id = entry.get("id")
         if not tag_id:
@@ -221,6 +256,11 @@ def validate_taxonomy(taxonomy):
         if tag_id in by_id:
             problems.append(f"{tag_id!r} appears more than once")
             continue
+        other = id_by_slug.get(slug_for(tag_id))
+        if other is not None:
+            problems.append(f"{tag_id!r} and {other!r} differ only in letter case")
+            continue
+        id_by_slug[slug_for(tag_id)] = tag_id
         by_id[tag_id] = entry
 
     for tag_id, entry in by_id.items():
@@ -275,26 +315,36 @@ def diff_vocabulary(taxonomy):
         by_id, key=lambda tag_id: (_depth(tag_id, by_id, depth_cache), tag_id)
     )
 
+    # Keyed by lowercase slug, which is also what slug_for(tag_id) yields, so an
+    # id that changed only its casing upstream finds the subject it always was.
     existing = {
-        subject.slug: subject
+        slug_for(subject.slug): subject
         for subject in Subject.all_objects.select_related("parent")
     }
+    # Names in use, so a display-name refresh below never proposes a name the
+    # unique column would refuse. Live and retired alike: the constraint is.
+    names_in_use = {subject.name for subject in existing.values()}
 
     to_create, to_update, to_unretire = [], [], []
     for tag_id in ordered_ids:
         entry = by_id[tag_id]
-        parent_slug = entry.get("parent")
+        parent_slug = slug_for(entry["parent"]) if entry.get("parent") else None
         description = (entry.get("desc") or "").strip()
-        subject = existing.get(tag_id)
+        subject = existing.get(slug_for(tag_id))
 
         if subject is None:
             to_create.append(
-                {"slug": tag_id, "parent_slug": parent_slug, "description": description}
+                {
+                    "slug": slug_for(tag_id),
+                    "name": display_name(tag_id),
+                    "parent_slug": parent_slug,
+                    "description": description,
+                }
             )
             continue
 
         if subject.is_retired:
-            to_unretire.append(tag_id)
+            to_unretire.append(subject.slug)
 
         current_parent_slug = subject.parent.slug if subject.parent_id else None
         changes = {}
@@ -302,14 +352,25 @@ def diff_vocabulary(taxonomy):
             changes["parent"] = (current_parent_slug, parent_slug)
         if subject.description != description:
             changes["description"] = (subject.description, description)
+        # The id's casing is the display form the placeholder was standing in
+        # for. Only the placeholder is replaced: a name staff typed is kept even
+        # where upstream now writes the id differently.
+        name = display_name(tag_id)
+        if (
+            subject.name == title_case(subject.slug)
+            and name != subject.name
+            and name not in names_in_use
+        ):
+            changes["name"] = (subject.name, name)
+            names_in_use.add(name)
         if changes:
-            to_update.append(SubjectChange(slug=tag_id, changes=changes))
+            to_update.append(SubjectChange(slug=subject.slug, changes=changes))
 
-    taxonomy_ids = set(by_id)
+    taxonomy_slugs = {slug_for(tag_id) for tag_id in by_id}
     to_retire = [
         subject
         for slug, subject in existing.items()
-        if slug not in taxonomy_ids and not subject.is_retired
+        if slug not in taxonomy_slugs and not subject.is_retired
     ]
     return VocabularyDiff(to_create, to_update, to_unretire, to_retire)
 
@@ -341,7 +402,7 @@ def apply_vocabulary(diff):
     for index, item in enumerate(diff.to_create, start=1):
         subject = Subject.objects.create(
             slug=item["slug"],
-            name=title_case(item["slug"]),
+            name=item["name"],
             description=item["description"],
             parent=resolve_parent(item["parent_slug"]),
         )
@@ -365,6 +426,9 @@ def apply_vocabulary(diff):
         if "description" in change.changes:
             _, new_description = change.changes["description"]
             subject.description = new_description
+        if "name" in change.changes:
+            _, new_name = change.changes["name"]
+            subject.name = new_name
         subject.save()
         logger.info(
             "subject sync: updated %d/%d: %s (%s)",
@@ -409,8 +473,11 @@ def apply_vocabulary(diff):
 def diff_assignments(rfc_tags):
     """What sync_assignments would create and delete, resolved against the
     vocabulary as it stands right now -- call after apply_vocabulary()."""
+    # Tags in rfc-tags.json are the taxonomy's ids, cased as the documents write
+    # them; the lookup is by the lowercase slug they map to, like the vocabulary.
     by_slug = {
-        subject.slug: subject.pk for subject in Subject.all_objects.only("pk", "slug")
+        slug_for(subject.slug): subject.pk
+        for subject in Subject.all_objects.only("pk", "slug")
     }
     current = {
         (subject_id, doc): pk
@@ -428,7 +495,7 @@ def diff_assignments(rfc_tags):
             unresolved.append((rfc_id, "not a document id"))
             continue
         for tag_slug in record.get("tags") or []:
-            subject_id = by_slug.get(tag_slug)
+            subject_id = by_slug.get(slug_for(tag_slug))
             if subject_id is None:
                 unresolved.append((tag_slug, doc))
                 continue

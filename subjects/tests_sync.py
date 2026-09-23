@@ -56,6 +56,18 @@ class ValidateTaxonomyTests(TestCase):
             any("appears more than once" in problem for problem in problems)
         )
 
+    def test_ids_differing_only_in_case_are_a_problem(self):
+        t = taxonomy(("DNS", None, ""), ("dns", None, ""))
+        problems = validate_taxonomy(t)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("differ only in letter case", problems[0])
+
+    def test_unicode_casefolded_ids_are_treated_as_the_same_subject(self):
+        t = taxonomy(("straße", None, ""), ("STRASSE", None, ""))
+        problems = validate_taxonomy(t)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("differ only in letter case", problems[0])
+
     def test_a_catch_all_id_is_a_problem(self):
         t = taxonomy(("misc", None, "Misc"))
         problems = validate_taxonomy(t)
@@ -83,7 +95,50 @@ class DiffVocabularyTests(TestCase):
         diff = diff_vocabulary(taxonomy(("security", None, "Security")))
         self.assertEqual(
             diff.to_create,
-            [{"slug": "security", "parent_slug": None, "description": "Security"}],
+            [
+                {
+                    "slug": "security",
+                    "name": "Security",
+                    "parent_slug": None,
+                    "description": "Security",
+                }
+            ],
+        )
+
+    def test_a_mixed_case_id_creates_a_lowercase_slug_named_as_written(self):
+        diff = diff_vocabulary(taxonomy(("DoH", None, "DNS over HTTPS")))
+        self.assertEqual(diff.to_create[0]["slug"], "doh")
+        self.assertEqual(diff.to_create[0]["name"], "DoH")
+
+    def test_an_id_that_changed_only_its_case_is_the_same_subject(self):
+        # The subject a lowercase sync created, still carrying its placeholder name.
+        Subject.objects.create(slug="arpanet", name="Arpanet", description="Early")
+        diff = diff_vocabulary(taxonomy(("ARPANET", None, "Early")))
+        self.assertEqual(diff.to_create, [])
+        self.assertEqual(diff.to_retire, [])
+        self.assertEqual(len(diff.to_update), 1)
+        self.assertEqual(diff.to_update[0].slug, "arpanet")
+        self.assertEqual(diff.to_update[0].changes, {"name": ("Arpanet", "ARPANET")})
+
+    def test_a_name_staff_edited_is_not_replaced_by_the_id_casing(self):
+        Subject.objects.create(slug="dns", name="Domain Name System", description="")
+        diff = diff_vocabulary(taxonomy(("DNS", None, "")))
+        self.assertEqual(diff.to_update, [])
+
+    def test_a_name_refresh_never_proposes_a_name_already_in_use(self):
+        Subject.objects.create(slug="dns", name="Dns", description="")
+        Subject.objects.create(slug="domain-name-system", name="DNS", description="")
+        diff = diff_vocabulary(
+            taxonomy(("DNS", None, ""), ("domain-name-system", None, ""))
+        )
+        self.assertEqual(diff.to_update, [])
+
+    def test_a_parent_named_in_mixed_case_resolves(self):
+        Subject.objects.create(slug="dns", name="DNS")
+        diff = diff_vocabulary(taxonomy(("DNS", None, ""), ("DNSSEC", "DNS", "")))
+        self.assertEqual(
+            [(item["slug"], item["parent_slug"]) for item in diff.to_create],
+            [("dnssec", "dns")],
         )
 
     def test_a_changed_description_is_an_update(self):
@@ -144,6 +199,12 @@ class DiffAssignmentsTests(TestCase):
         assignment = SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
         diff = diff_assignments({})
         self.assertEqual(diff.to_delete_pks, [assignment.pk])
+
+    def test_a_tag_written_in_the_documents_casing_resolves(self):
+        subject = Subject.objects.create(slug="dns", name="DNS")
+        diff = diff_assignments({"RFC9110": {"tags": ["DNS"]}})
+        self.assertEqual(diff.to_create, [(subject.pk, "rfc9110")])
+        self.assertEqual(diff.unresolved, [])
 
     def test_an_unknown_slug_is_unresolved_not_raised(self):
         diff = diff_assignments({"RFC9110": {"tags": ["no-such-tag"]}})
@@ -234,6 +295,29 @@ class WriteTests(RunSyncTestCase):
             ).count(),
             1,
         )
+
+    def test_upstream_recasing_its_ids_renames_nothing_and_keeps_assignments(self):
+        # A sync of the lowercase vocabulary, then the same vocabulary with ids
+        # written as the documents write them, as rfc-subject-tags did in
+        # September 2026.
+        self.run_sync(
+            taxonomy(("dns", None, "Naming"), ("dnssec", "dns", "Signing")),
+            {"RFC9110": {"tags": ["dnssec"]}},
+        )
+        result = self.run_sync(
+            taxonomy(("DNS", None, "Naming"), ("DNSSEC", "DNS", "Signing")),
+            {"RFC9110": {"tags": ["DNSSEC"]}},
+        )
+        self.assertTrue(result.written)
+        self.assertEqual(result.created, [])
+        self.assertEqual(result.retired, [])
+        self.assertEqual(result.assignments_created, 0)
+        self.assertEqual(result.assignments_deleted, 0)
+        self.assertEqual(
+            sorted(Subject.objects.values_list("slug", "name")),
+            [("dns", "DNS"), ("dnssec", "DNSSEC")],
+        )
+        self.assertEqual(Subject.all_objects.get(slug="dnssec").parent.slug, "dns")
 
     def test_a_retiring_subject_with_live_children_retires_the_whole_branch(self):
         made = tree("messaging", "messaging/email")
