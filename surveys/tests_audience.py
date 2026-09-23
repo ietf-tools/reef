@@ -156,6 +156,31 @@ class OpenSurveyListTests(APITestCase):
         self.client.force_authenticate(user=self.user)
         self.assertEqual(self.open_surveys(), [])
 
+    def test_reefs_own_list_still_names_a_survey_the_caller_answered(self):
+        """The list page is opened on purpose, so it names every survey on offer."""
+        survey = published()
+        Response.objects.create(survey=survey, data={}, submitted_by=self.user)
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get("/api/reef/surveys/open/?include_answered=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([row["slug"] for row in response.json()], [survey.slug])
+
+    def test_answered_marks_only_the_callers_own_responses(self):
+        mine = published(slug="mine")
+        theirs = published(slug="theirs")
+        other = User.objects.create(username="o", oidc_sub="o")
+        Response.objects.create(survey=mine, data={}, submitted_by=self.user)
+        Response.objects.create(survey=theirs, data={}, submitted_by=other)
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get("/api/reef/surveys/open/?include_answered=1")
+        answered = {row["slug"]: row["answered"] for row in response.json()}
+        self.assertEqual(answered, {"mine": True, "theirs": False})
+
+    def test_answered_is_false_for_an_anonymous_caller(self):
+        survey = published()
+        Response.objects.create(survey=survey, data={}, submitted_by=self.user)
+        self.assertIs(self.open_surveys()[0]["answered"], False)
+
     def test_somebody_else_having_answered_does_not_hide_it(self):
         survey = published()
         other = User.objects.create(username="o", oidc_sub="o")

@@ -16,6 +16,11 @@ export function useSurveyApi() {
   // bearer token either way, so nothing here depends on a cookie.
   const baseURL = config.public.apiBase
 
+  // Where the API shares the site's origin, the browser would otherwise send the
+  // Django admin's session cookie too, and the API would take a visitor signed out
+  // of the runner for whoever last signed into /admin/ in that browser.
+  const credentials = 'omit'
+
   async function authHeaders(): Promise<Record<string, string>> {
     const token = await oidc.getAccessToken()
     return token ? { Authorization: `Bearer ${token}` } : {}
@@ -25,17 +30,21 @@ export function useSurveyApi() {
     async getDefinition(slug: string): Promise<SurveyDefinition> {
       return $fetch<SurveyDefinition>(`/api/reef/surveys/${slug}/definition/`, {
         baseURL,
+        credentials,
         headers: await authHeaders()
       })
     },
 
     // include_authenticated so the list also names an authenticated-only survey to
     // an anonymous caller; the runner still turns that caller away and into login.
+    // include_answered so a signed-in visitor still sees surveys they have answered;
+    // hiding those is for Red's unprompted toast, not for this list.
     async openSurveys(): Promise<OpenSurvey[]> {
       return $fetch<OpenSurvey[]>(`/api/reef/surveys/open/`, {
         baseURL,
+        credentials,
         headers: await authHeaders(),
-        query: { include_authenticated: true }
+        query: { include_authenticated: true, include_answered: true }
       })
     },
 
@@ -43,6 +52,7 @@ export function useSurveyApi() {
       await $fetch(`/api/reef/surveys/${slug}/responses/`, {
         method: 'POST',
         baseURL,
+        credentials,
         headers: await authHeaders(),
         body: { data }
       })

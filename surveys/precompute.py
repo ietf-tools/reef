@@ -70,4 +70,4 @@ class PrecomputedSurveyList(generics.ListAPIView):
         # Not offerable_to(): that reads request.user, which the precomputer
         # renders as anonymous, and would cut this back to the open surveys
         # surveys/open.json already holds.
-        return Survey.objects.filter(status=Survey.Status.PUBLISHED)
+        return Survey.objects.filter(status=Survey.Status.PUBLISHED).with_answered(None)

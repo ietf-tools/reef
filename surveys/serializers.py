@@ -60,10 +60,17 @@ class OpenSurveySerializer(serializers.ModelSerializer):
     unless the caller asked the served endpoint to widen that with
     include_authenticated, which is what Reef's own survey list does so it can
     list a survey the runner will still turn an anonymous visitor away from.
+
+    answered says whether the signed-in caller has already responded, for a list
+    that still names answered surveys; it is always false for an anonymous caller
+    and in every precomputed file.
     """
 
     url = serializers.SerializerMethodField()
     documents = serializers.SerializerMethodField()
+    # Read from the with_answered() annotation, which every queryset behind this
+    # serializer must carry.
+    answered = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Survey
@@ -75,6 +82,7 @@ class OpenSurveySerializer(serializers.ModelSerializer):
             "url",
             "documents",
             "visibility",
+            "answered",
         ]
 
     def get_url(self, obj) -> str:

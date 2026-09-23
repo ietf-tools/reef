@@ -9,6 +9,7 @@ from rest_framework import exceptions
 from rest_framework.test import APIRequestFactory
 
 from reefauth.authentication import BearerTokenAuthentication
+from reefauth.backends import ReefOIDCAuthBackend
 from reefauth.checks import cors_origins_configured
 from reefauth.models import User
 
@@ -181,33 +182,70 @@ class BearerTokenAuthenticationTests(TestCase):
             self.auth.authenticate(request)
 
     @override_settings(
-        REEF_OIDC_STAFF_GROUPS=["rpc-staff"], REEF_OIDC_GROUPS_CLAIM="groups"
+        REEF_OIDC_STAFF_GROUPS=["rpc-staff"], REEF_OIDC_SUPERUSER_GROUPS=["team-dev"]
     )
-    def test_staff_group_grants_staff(self):
-        token = _make_token(self.key, groups=["rpc-staff", "other"])
+    def test_groups_in_a_bearer_token_grant_nothing(self):
+        token = _make_token(self.key, groups=["rpc-staff", "team-dev"])
         request = self.factory.get(
             "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
         )
         user, _ = self.auth.authenticate(request)
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+
+    # An admin signed in through reef-admin who then uses the survey runner or
+    # Red: those tokens carry no staff groups, and must not demote the shared
+    # User row out of the admin.
+    def test_a_bearer_token_keeps_an_admins_permissions(self):
+        User.objects.create(
+            username="authentik-abc-123",
+            oidc_sub="abc-123",
+            name="Old Name",
+            is_staff=True,
+            is_superuser=True,
+        )
+        token = _make_token(self.key)
+        request = self.factory.get(
+            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+        self.auth.authenticate(request)
+        user = User.objects.get(oidc_sub="abc-123")
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_superuser)
+        self.assertEqual(user.name, "Ada Lovelace")  # profile fields still sync
+
+
+class OIDCLoginBackendPermissionTests(TestCase):
+    """The reef-admin login is what decides is_staff and is_superuser."""
+
+    def setUp(self):
+        self.backend = ReefOIDCAuthBackend()
+
+    @override_settings(
+        REEF_OIDC_STAFF_GROUPS=["rpc-staff"], REEF_OIDC_GROUPS_CLAIM="groups"
+    )
+    def test_staff_group_grants_staff(self):
+        user = self.backend.create_user(
+            {"sub": "abc-123", "groups": ["rpc-staff", "other"]}
+        )
         self.assertTrue(user.is_staff)
 
     @override_settings(REEF_OIDC_SUPERUSER_GROUPS=["team-dev"])
     def test_superuser_group_grants_superuser_and_staff(self):
-        token = _make_token(self.key, groups=["team-dev"])
-        request = self.factory.get(
-            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
-        )
-        user, _ = self.auth.authenticate(request)
+        user = self.backend.create_user({"sub": "abc-123", "groups": ["team-dev"]})
         self.assertTrue(user.is_superuser)
         self.assertTrue(user.is_staff)  # the admin refuses a superuser who isn't
 
+    @override_settings(REEF_OIDC_STAFF_GROUPS=[], REEF_OIDC_SUPERUSER_GROUPS=[])
     def test_no_superuser_groups_configured_grants_neither(self):
-        token = _make_token(self.key, groups=["team-dev"])
-        request = self.factory.get(
-            "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
-        )
-        user, _ = self.auth.authenticate(request)
+        user = self.backend.create_user({"sub": "abc-123", "groups": ["team-dev"]})
         self.assertFalse(user.is_superuser)
+        self.assertFalse(user.is_staff)
+
+    @override_settings(REEF_OIDC_STAFF_GROUPS=["rpc-staff"])
+    def test_leaving_the_staff_group_revokes_staff_at_next_login(self):
+        user = self.backend.create_user({"sub": "abc-123", "groups": ["rpc-staff"]})
+        user = self.backend.update_user(user, {"sub": "abc-123", "groups": []})
         self.assertFalse(user.is_staff)
 
 

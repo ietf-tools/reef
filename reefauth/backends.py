@@ -16,7 +16,7 @@ class ReefOIDCAuthBackend(OIDCAuthenticationBackend):
         return self.UserModel.objects.filter(oidc_sub=sub)
 
     def create_user(self, claims):
-        return sync_user_from_claims(claims)
+        return sync_user_from_claims(claims, sync_permissions=True)
 
     def update_user(self, user, claims):
-        return sync_user_from_claims(claims)
+        return sync_user_from_claims(claims, sync_permissions=True)

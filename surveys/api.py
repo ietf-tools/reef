@@ -58,7 +58,20 @@ class SurveyDetail(generics.RetrieveUpdateDestroyAPIView):
                     "prompt. No effect once the caller is signed in, since "
                     "they already see every visibility either way."
                 ),
-            )
+            ),
+            OpenApiParameter(
+                name="include_answered",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Keep surveys the signed-in caller has already answered, "
+                    "instead of leaving them out. For a list the visitor "
+                    "opened themselves; an unprompted invitation should leave "
+                    "this off. No effect for an anonymous caller, whose "
+                    "responses record no submitter to match on."
+                ),
+            ),
         ]
     )
 )
@@ -66,18 +79,21 @@ class OpenSurveyList(generics.ListAPIView):
     """Open surveys Red may offer, and the surveys Reef's own list page
     offers. Bearer optional: an identified user always receives their
     targeted surveys; an anonymous caller sees open ones only, unless
-    ``include_authenticated`` is set."""
+    ``include_authenticated`` is set. Surveys the identified user has
+    already answered are left out unless ``include_answered`` is set."""
 
     serializer_class = OpenSurveySerializer
     permission_classes = [AllowAny]
 
     def get_queryset(self):
-        include_authenticated = self.request.query_params.get(
-            "include_authenticated"
-        ) in ("1", "true", "True")
+        params = self.request.query_params
+        truthy = ("1", "true", "True")
+        user = self.request.user
         return Survey.objects.offerable_to(
-            self.request.user, include_authenticated_only=include_authenticated
-        )
+            user,
+            include_authenticated_only=params.get("include_authenticated") in truthy,
+            include_answered=params.get("include_answered") in truthy,
+        ).with_answered(user)
 
 
 class SurveyDefinition(generics.RetrieveAPIView):

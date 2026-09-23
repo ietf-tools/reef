@@ -13,7 +13,22 @@ class SurveyQuerySet(models.QuerySet):
     def deleted(self):
         return self.filter(deleted_at__isnull=False)
 
-    def offerable_to(self, user, *, include_authenticated_only=False):
+    def with_answered(self, user):
+        """Annotate each survey with answered: whether user has responded to it.
+
+        Always False for an anonymous caller, whose responses record no submitter.
+        """
+        if not (user and user.is_authenticated):
+            return self.annotate(answered=models.Value(False))
+        return self.annotate(
+            answered=models.Exists(
+                Response.objects.filter(survey=models.OuterRef("pk"), submitted_by=user)
+            )
+        )
+
+    def offerable_to(
+        self, user, *, include_authenticated_only=False, include_answered=False
+    ):
         """Published surveys that may be offered to the given user.
 
         Anonymous users see open surveys only; authenticated users also see
@@ -34,6 +49,9 @@ class SurveyQuerySet(models.QuerySet):
         different origin from Red, so no cookie, no localStorage and no redirect tells
         Red that it happened.
 
+        include_answered keeps those surveys, for Reef's own survey list: a list the
+        visitor opened themselves should name every survey on offer, answered or not.
+
         Only for an identified caller. An anonymous response records no submitter, on
         purpose, so there is deliberately nothing here to match on; suppressing those
         would mean recognising an anonymous respondent, which is a worse trade than an
@@ -48,6 +66,8 @@ class SurveyQuerySet(models.QuerySet):
             if include_authenticated_only:
                 return qs
             return qs.filter(visibility=Survey.Visibility.OPEN)
+        if include_answered:
+            return qs
         # Excluded by subquery rather than by a join, which with several responses to
         # one survey would have to be deduplicated to mean the same thing.
         return qs.exclude(

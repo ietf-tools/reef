@@ -8,7 +8,12 @@
           :to="{ path: '/s', query: { slug: s.slug } }"
           class="flex lg:flex-row justify-between rounded border border-gray-500 dark:border-gray-700 p-4 hover:bg-gray-50 dark:hover:bg-blue-900 no-underline">
           <span class="font-medium underline">{{ s.title }}</span>
-          <span class="flex flex-row items-center mt-1 text-sm ml-2">
+          <span class="flex flex-row items-center gap-2 mt-1 text-sm ml-2">
+            <span
+              v-if="s.answered"
+              class="flex flex-row items-center bg-green-100 text-green-900 dark:bg-green-950 dark:text-green-100 text-sm px-2 py-1 rounded-xl">
+              <GraphicsCheckmark class="mr-1" />you've already responded
+            </span>
             <span class="bg-gray-300 text-black text-sm px-2 py-1 rounded-xl">
               <span v-if="s.visibility === 'authenticated'" class="flex flex-row items-center">
                 <GraphicsBustInSilhouette class="mr-1" />account required survey
