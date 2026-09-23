@@ -353,8 +353,9 @@ _SHAPES = {
     "checkbox": lambda v: _is_scalar(v) or _scalars(v),
     "tagbox": lambda v: _is_scalar(v) or _scalars(v),
     "ranking": lambda v: _is_scalar(v) or _scalars(v),
-    "matrix": lambda v: isinstance(v, dict)
-    and all(_is_scalar(x) or _scalars(x) for x in v.values()),
+    "matrix": lambda v: (
+        isinstance(v, dict) and all(_is_scalar(x) or _scalars(x) for x in v.values())
+    ),
     "matrixdropdown": lambda v: isinstance(v, dict),
     "matrixdynamic": lambda v: isinstance(v, list),
     "paneldynamic": lambda v: isinstance(v, list),
@@ -471,7 +472,7 @@ def cell_html(cell):
             '<table class="reef-answer-fields"><tbody>{}</tbody></table>',
             format_html_join(
                 "",
-                "<tr><th scope=\"row\">{}</th><td>{}</td></tr>",
+                '<tr><th scope="row">{}</th><td>{}</td></tr>',
                 ((label, cell_html(v)) for label, v in cell.items),
             ),
         )
@@ -482,10 +483,10 @@ def cell_html(cell):
             for label, _ in item.items:
                 if label not in labels:
                     labels.append(label)
-        head = format_html_join("", "<th scope=\"col\">{}</th>", ((l,) for l in labels))
+        head = format_html_join("", '<th scope="col">{}</th>', ((lb,) for lb in labels))
         body = format_html_join(
             "",
-            "<tr><th scope=\"row\">{}</th>{}</tr>",
+            '<tr><th scope="row">{}</th>{}</tr>',
             (
                 (
                     index,
