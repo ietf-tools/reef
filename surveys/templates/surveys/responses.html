@@ -1,0 +1,66 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate "Home" %}</a>
+    &rsaquo; <a href="{% url 'manage-survey-results' %}">{% translate "Survey results" %}</a>
+    &rsaquo; {{ survey.title }}
+  </div>
+{% endblock %}
+
+{% block content_title %}{% endblock %}
+
+{% block content %}
+  <h1>{{ survey.title }} <small>({{ survey.slug }})</small></h1>
+
+  <p>
+    {% blocktranslate count counter=page.paginator.count %}{{ counter }} response{% plural %}{{ counter }} responses{% endblocktranslate %}
+    {% if survey.is_deleted %}&middot; {% translate "This survey has been withdrawn." %}{% endif %}
+  </p>
+
+  <ul class="object-tools reef-responses-tools">
+    <li><a href="{% url 'manage-survey-responses-csv' survey.pk %}">{% translate "Export all as CSV" %}</a></li>
+  </ul>
+
+  <div class="reef-responses-scroll">
+    <table class="reef-responses">
+      <thead>
+        <tr>
+          <th scope="col">{% translate "Submitted" %}</th>
+          <th scope="col">{% translate "Respondent" %}</th>
+          {% for column in columns %}
+            <th scope="col">{{ column.title }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td class="nowrap">{{ row.response.submitted_at|date:"Y-m-d H:i" }}</td>
+            <td>{{ row.respondent }}</td>
+            {% for cell in row.cells %}
+              <td>{{ cell }}</td>
+            {% endfor %}
+          </tr>
+        {% empty %}
+          <tr><td colspan="{{ columns|length|add:2 }}">{% translate "No responses yet." %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if page.has_other_pages %}
+    <p class="paginator">
+      {% for number in page_range %}
+        {% if number == page.paginator.ELLIPSIS %}
+          {{ number }}
+        {% elif number == page.number %}
+          <span class="this-page">{{ number }}</span>
+        {% else %}
+          <a href="?page={{ number }}">{{ number }}</a>
+        {% endif %}
+      {% endfor %}
+    </p>
+  {% endif %}
+{% endblock %}

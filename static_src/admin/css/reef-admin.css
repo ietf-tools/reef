@@ -48,3 +48,47 @@ button.theme-toggle {
   right: 0;
   padding: 5px 10px;
 }
+
+/* Survey responses: a row per response, which with many questions is wider than
+   the page, so the table scrolls on its own rather than widening the layout. */
+.reef-responses-scroll {
+  overflow-x: auto;
+  clear: both;
+}
+
+.reef-responses td,
+.reef-responses th {
+  vertical-align: top;
+  min-width: 8em;
+  max-width: 30em;
+}
+
+.reef-responses .nowrap {
+  white-space: nowrap;
+}
+
+/* Structured answers nested inside a response cell. */
+.reef-answer-fields,
+.reef-answer-entries {
+  margin: 0;
+  border: 1px solid var(--hairline-color);
+}
+
+.reef-answer-fields th,
+.reef-answer-fields td,
+.reef-answer-entries th,
+.reef-answer-entries td {
+  min-width: 0;
+  padding: 2px 6px;
+  font-size: 0.95em;
+}
+
+.reef-answer-fields th[scope="row"] {
+  font-weight: normal;
+  color: var(--body-quiet-color);
+}
+
+.reef-answer-list {
+  margin: 0;
+  padding-left: 1.5em;
+}

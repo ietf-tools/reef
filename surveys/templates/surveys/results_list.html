@@ -1,0 +1,39 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate "Home" %}</a>
+    &rsaquo; {% translate "Survey results" %}
+  </div>
+{% endblock %}
+
+{% block content %}
+  <p>{% translate "Choose a survey to browse its responses." %}</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">{% translate "Title" %}</th>
+        <th scope="col">{% translate "Slug" %}</th>
+        <th scope="col">{% translate "Status" %}</th>
+        <th scope="col">{% translate "Responses" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for survey in surveys %}
+        <tr>
+          <td><a href="{% url 'manage-survey-responses' survey.pk %}">{{ survey.title }}</a></td>
+          <td>{{ survey.slug }}</td>
+          <td>
+            {{ survey.get_status_display }}
+            {% if survey.is_deleted %}({% translate "withdrawn" %}){% endif %}
+          </td>
+          <td>{{ survey.response_count }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">{% translate "No surveys yet." %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

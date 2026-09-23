@@ -18,6 +18,7 @@
 {% if has_permission %}
 <ul id="reef-admin-links">
   <li><a href="{% url 'manage-survey-list' %}">{% translate "Survey builder" %}</a></li>
+  <li><a href="{% url 'manage-survey-results' %}">{% translate "Survey results" %}</a></li>
   <li><a href="{% url 'admin:precomputer-run' %}">{% translate "Precomputer" %}</a></li>
   <li><a href="{% url 'admin:subjects_subject_sync' %}">{% translate "Tags Sync" %}</a></li>
 </ul>

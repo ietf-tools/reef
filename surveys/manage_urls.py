@@ -17,4 +17,15 @@ urlpatterns = [
         views.survey_analytics,
         name="manage-survey-analytics",
     ),
+    path("results/", views.survey_results_list, name="manage-survey-results"),
+    path(
+        "results/<int:pk>/",
+        views.survey_responses,
+        name="manage-survey-responses",
+    ),
+    path(
+        "results/<int:pk>/export.csv",
+        views.survey_responses_csv,
+        name="manage-survey-responses-csv",
+    ),
 ]
