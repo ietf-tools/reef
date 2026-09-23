@@ -7,7 +7,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 15px 20px;
-    margin: 0 0 0 50px;
+    margin: 0 0 0 10px;
     padding: 0;
 }
 
@@ -19,6 +19,7 @@
   list-style:none;
   font-size: 1.1rem;
   letter-spacing: .15em;
+  white-space: nowrap;
   border: solid 1px white;
   border-radius: 2px;
   font-weight:bold;
