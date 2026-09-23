@@ -310,6 +310,28 @@ class SubjectSubscriptionTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["subject"], self.subject.pk)
 
+    def test_a_subject_subscription_carries_the_subject_it_names(self):
+        parent = Subject.objects.create(slug="applications", name="Applications")
+        acap = Subject.objects.create(slug="acap", name="ACAP", parent=parent)
+        created = self.subscribe(kind="subject", subject=acap.pk).json()
+        self.assertEqual(created["subject"], acap.pk)
+        self.assertEqual(
+            created["subject_details"],
+            {"slug": "acap", "name": "ACAP", "path": "applications/acap"},
+        )
+        listed = self.client.get("/api/reef/subscriptions/").json()
+        self.assertEqual(listed[0]["subject_details"]["name"], "ACAP")
+
+    def test_other_kinds_carry_no_subject_details(self):
+        response = self.subscribe(kind="new_rfc")
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(response.json()["subject_details"])
+
+    def test_a_relation_error_names_the_field_the_caller_sent(self):
+        response = self.subscribe(kind="new_rfc", subject=self.subject.pk)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("subject", response.json())
+
     def test_subject_kind_requires_a_subject(self):
         self.assertEqual(self.subscribe(kind="subject").status_code, 400)
 
@@ -338,7 +360,8 @@ class SubjectSubscriptionTests(APITestCase):
         )
 
     def test_cannot_subscribe_to_a_subject_that_does_not_exist(self):
-        self.assertEqual(self.subscribe(kind="subject", subject=9999).status_code, 400)
+        response = self.subscribe(kind="subject", subject=9999)
+        self.assertEqual(response.status_code, 400)
 
     def test_repeat_subscribe_to_a_subject_is_idempotent(self):
         first = self.subscribe(kind="subject", subject=self.subject.pk)

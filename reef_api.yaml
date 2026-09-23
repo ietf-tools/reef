@@ -1323,6 +1323,34 @@ components:
         * `rfc` - Changes to one specific RFC
         * `set` - Changes to anything in a document set
         * `subject` - Changes to anything carrying a subject
+    MinimalSubject:
+      type: object
+      description: |-
+        The fields a subscription list needs to show and link a subject.
+
+        Avoid SubjectSerializer: its document counts run two queries per subject
+        when nothing has precomputed them.
+      properties:
+        slug:
+          type: string
+          readOnly: true
+          description: Stable identifier used in URLs and by Red. Changing it leaves
+            the old one behind as an alias, so links naming it still resolve; the
+            name is still the field to edit when only the wording changed.
+          pattern: ^[-a-zA-Z0-9_]+$
+        name:
+          type: string
+          readOnly: true
+          description: How the subject is shown to readers.
+        path:
+          type: string
+          readOnly: true
+          description: Slugs from the top down, separated by a slash. Derived; edit
+            the slug or the parent instead.
+      required:
+      - name
+      - path
+      - slug
     MyDocument:
       type: object
       description: |-
@@ -2035,6 +2063,10 @@ components:
         subject:
           type: integer
           nullable: true
+        subject_details:
+          allOf:
+          - $ref: '#/components/schemas/MinimalSubject'
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -2043,6 +2075,7 @@ components:
       - created_at
       - id
       - kind
+      - subject_details
     Survey:
       type: object
       description: Full survey representation used by the management API and the builder.

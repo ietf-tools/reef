@@ -13,6 +13,19 @@ from .models import Subscription, normalize_params, relation_problems
 RELATION_FIELD_NAMES = {"document_set": "set", "subject": "subject"}
 
 
+class MinimalSubjectSerializer(serializers.ModelSerializer):
+    """The fields a subscription list needs to show and link a subject.
+
+    Avoid SubjectSerializer: its document counts run two queries per subject
+    when nothing has precomputed them.
+    """
+
+    class Meta:
+        model = Subject
+        fields = ["slug", "name", "path"]
+        read_only_fields = fields
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     set = serializers.PrimaryKeyRelatedField(
         source="document_set",
@@ -30,10 +43,19 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
     )
+    subject_details = MinimalSubjectSerializer(source="subject", read_only=True)
 
     class Meta:
         model = Subscription
-        fields = ["id", "kind", "params", "set", "subject", "created_at"]
+        fields = [
+            "id",
+            "kind",
+            "params",
+            "set",
+            "subject",
+            "subject_details",
+            "created_at",
+        ]
         read_only_fields = ["id", "created_at"]
 
     def __init__(self, *args, **kwargs):

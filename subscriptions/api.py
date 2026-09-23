@@ -21,8 +21,12 @@ class OwnSubscriptionsMixin:
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Subscription.objects.filter(user=self.request.user).filter(
-            Q(document_set__isnull=True) | Q(document_set__deleted_at__isnull=True)
+        return (
+            Subscription.objects.filter(user=self.request.user)
+            .filter(
+                Q(document_set__isnull=True) | Q(document_set__deleted_at__isnull=True)
+            )
+            .select_related("subject")  # subject_details, per row
         )
 
 
