@@ -3,11 +3,11 @@
 
 Two files, two purposes, both fetched fresh every run:
 
-- taxonomy.yaml is the curated vocabulary -- one entry per tag, with its parent,
-  kind and description. It becomes Reef's Subject tree. Everything else in an
-  entry (match rules, groups, implies, decomposes_to, yields_to, stats) is how
-  *they* compute assignments or serve a two-axis search Reef has no use for, and
-  is read and discarded.
+- taxonomy.yaml is the curated vocabulary -- one entry per tag, with its id,
+  uuid, slug, parent and description. It becomes Reef's Subject tree. Everything
+  else in an entry (kind, match rules, groups, implies, decomposes_to, yields_to,
+  stats) is how *they* compute assignments or serve a two-axis search Reef has
+  no use for, and is read and discarded.
 - rfc-tags.json is a separate, generated artifact (rebuilt daily by their CI,
   published to GitHub Pages) carrying the per-RFC output of running their
   matching engine against taxonomy.yaml. Its `tags` field, the leaf assignment,
@@ -15,8 +15,18 @@ Two files, two purposes, both fetched fresh every run:
   ancestor closure, which subjects.tree.rollup() already computes from Reef's
   own `path` column, so it is never read.
 
-A sync is a mirror: it overwrites `description` and `parent` even where staff
-hand-edited them, and it removes what the source no longer has. Removal is two
+A tag carries three names, and each maps to one thing in Reef. The id is written
+the way the documents write the term (HTTP/2, S/MIME, congestion control) and is
+what `parent` and rfc-tags.json refer to; it becomes a created subject's `name`.
+The slug is their slugify of the id and becomes Reef's `slug`. The uuid never
+changes, even when a rename changes the other two, so it is what a sync matches
+on and is kept as `upstream_uuid`. A subject not yet linked to a uuid is matched
+by slug, then by name, and linked on that run.
+
+A sync is a mirror: it overwrites `slug`, `description` and `parent` even where
+staff hand-edited them, and it removes what the source no longer has. `name` is
+the exception: it is set when a subject is created and never overwritten, so a
+curated name ("DNS over HTTPS" for DoH) survives every sync. Removal is two
 different operations, because the domain already draws this line. A subject
 that vanishes is retired, never deleted -- Subscription.subject is
 on_delete=PROTECT specifically so a cascade can never silently stop somebody's
@@ -35,6 +45,7 @@ import logging
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
@@ -42,13 +53,21 @@ from difflib import SequenceMatcher
 import yaml
 from django.core.exceptions import ValidationError
 from django.core.management import CommandError
+from django.core.validators import validate_slug
 from django.db import transaction
 from django.db.models import Count
 
 from reef.docids import normalize_doc_id
 from reef.locks import advisory_lock
 
-from .models import MAX_DEPTH, Subject, SubjectAssignment
+from .models import (
+    MAX_DEPTH,
+    NAME_MAX_LENGTH,
+    SLUG_MAX_LENGTH,
+    Subject,
+    SubjectAlias,
+    SubjectAssignment,
+)
 
 logger = logging.getLogger("reef")
 
@@ -76,29 +95,36 @@ SUGGESTION_MAX_PER_SUBJECT = 3
 
 
 def title_case(slug):
-    """A first name for a subject sync creates, to be edited by whoever curates
-    it next.
+    """A placeholder name for a subject created from nothing but a slug, to be
+    edited by whoever curates it next.
 
-    Deliberately mechanical, the same placeholder import_subjects.py already
-    uses: taxonomy.yaml carries no field for Reef's separate display name, only
-    a description, so a guessed expansion of an initialism would be worse than
-    an obvious placeholder.
+    Deliberately mechanical: a guessed expansion of an initialism would be worse
+    than an obvious placeholder. The sync does not need it, since a tag's id is
+    already written the way the documents write it.
     """
     return slug.replace("-", " ").title()
 
 
 @dataclass
 class SubjectChange:
-    slug: str
+    slug: str  # the slug after this change
     changes: dict  # field -> (old, new)
+    pk: int | None = None
+    parent_uuid: str | None = None
 
 
 @dataclass
 class VocabularyDiff:
-    to_create: list  # [{"slug", "parent_slug", "description"}], shallowest first
+    # [{"uuid", "slug", "name", "parent_uuid", "description"}], shallowest first
+    to_create: list
     to_update: list  # [SubjectChange]
-    to_unretire: list  # [slug]
-    to_retire: list  # [Subject], live subjects whose slug vanished
+    to_unretire: list  # [slug], as it will be after to_update
+    to_retire: list  # [Subject], live subjects no tag matched
+    # The existing subject each matched tag resolves to, so a parent can be
+    # found before the subject it names has been linked by the write.
+    pk_by_uuid: dict = field(default_factory=dict)
+    # Reasons the diff cannot be written as it stands; nothing is, while any exist.
+    conflicts: list = field(default_factory=list)
 
 
 @dataclass
@@ -128,6 +154,7 @@ class SyncResult:
     skip_reason: str = ""
     written: bool = False
     needs_confirmation: bool = False
+    # A malformed taxonomy, or slugs the current vocabulary already holds.
     validation_problems: list = field(default_factory=list)
     created: list = field(default_factory=list)  # [slug]
     updated: list = field(default_factory=list)  # [SubjectChange]
@@ -202,6 +229,28 @@ def fetch_assignments(url=RFC_TAGS_URL):
     return parsed
 
 
+def _canonical_uuid(value):
+    """value as a lowercase hyphenated uuid string, or None if it is not one."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
+
+
+def _is_slug(value):
+    # The type check first: validate_slug stringifies what it is given, and
+    # str(None) is a perfectly good slug.
+    if not isinstance(value, str):
+        return False
+    try:
+        validate_slug(value)
+    except ValidationError:
+        return False
+    return True
+
+
 def validate_taxonomy(taxonomy):
     """Every structural problem in the fetched taxonomy, checked all at once.
 
@@ -210,6 +259,11 @@ def validate_taxonomy(taxonomy):
     but the structural rules Reef's own tree also has to hold are checked here,
     the same way seed_subjects.py._check() does it: everything checked first,
     one report naming every problem, nothing written if any of it fails.
+
+    The uuid and slug are checked here even though their loader already refuses
+    a file without them: the uuid is what every match runs through and the slug
+    goes straight into a unique column and every path beneath it, so a file that
+    somehow reached Reef without them has to stop here rather than half-apply.
     """
     problems = []
     by_id = {}
@@ -218,16 +272,52 @@ def validate_taxonomy(taxonomy):
         if not tag_id:
             problems.append("a tag entry has no id")
             continue
+        # safe_load turns an unquoted id that looks like a number into one.
+        if not isinstance(tag_id, str):
+            problems.append(f"{tag_id!r} is not a string id")
+            continue
         if tag_id in by_id:
             problems.append(f"{tag_id!r} appears more than once")
             continue
         by_id[tag_id] = entry
 
+    tag_by_uuid, tag_by_slug = {}, {}
     for tag_id, entry in by_id.items():
-        if tag_id in CATCH_ALL_IDS:
+        if len(tag_id) > NAME_MAX_LENGTH:
             problems.append(
-                f"{tag_id!r} is a catch-all id, which the vocabulary refuses"
+                f"{tag_id!r} is longer than a subject name can be "
+                f"({NAME_MAX_LENGTH} characters)"
             )
+
+        tag_uuid = _canonical_uuid(entry.get("uuid"))
+        if tag_uuid is None:
+            problems.append(f"{tag_id!r} has no valid uuid")
+        elif tag_uuid in tag_by_uuid:
+            problems.append(
+                f"{tag_id!r} has the same uuid as {tag_by_uuid[tag_uuid]!r}"
+            )
+        else:
+            tag_by_uuid[tag_uuid] = tag_id
+
+        slug = entry.get("slug")
+        if not _is_slug(slug):
+            problems.append(f"{tag_id!r} has no valid slug (got {slug!r})")
+        else:
+            if len(slug) > SLUG_MAX_LENGTH:
+                problems.append(
+                    f"{tag_id!r} has a slug longer than {SLUG_MAX_LENGTH} characters"
+                )
+            elif slug in tag_by_slug:
+                problems.append(
+                    f"{tag_id!r} has the same slug as {tag_by_slug[slug]!r}"
+                )
+            else:
+                tag_by_slug[slug] = tag_id
+            if slug in CATCH_ALL_IDS:
+                problems.append(
+                    f"{tag_id!r} is a catch-all tag, which the vocabulary refuses"
+                )
+
         parent = entry.get("parent")
         if parent and parent not in by_id:
             problems.append(f"{tag_id!r} names unknown parent {parent!r}")
@@ -262,12 +352,48 @@ def _depth(tag_id, by_id, cache):
     return depth
 
 
-def diff_vocabulary(taxonomy):
-    """What sync_vocabulary would create, update, unretire and retire.
+def match_subjects(entries, subjects):
+    """The existing subject each tag resolves to, as {uuid: Subject}.
 
-    Reads only, against Subject.all_objects -- a slug that reappears in the
-    taxonomy after being retired must be recognised and brought back, not
-    created a second time under a slug the unique constraint would refuse.
+    By upstream_uuid first, and only then, for a subject not yet linked to any
+    tag, by slug and finally by name -- the name pass is what links a subject
+    whose curated name already reads the way the tag's id now does (S/MIME)
+    while its slug was derived differently (s-mime against smime). In separate
+    passes, so a weaker match can never take a subject a uuid already claims.
+    Reads against all_objects: a tag that comes back after its subject was
+    retired must bring that subject back, not create a second one.
+    """
+    linked = {str(s.upstream_uuid): s for s in subjects if s.upstream_uuid}
+    unlinked = [s for s in subjects if s.upstream_uuid is None]
+    by_slug = {s.slug: s for s in unlinked}
+    by_name = {s.name: s for s in unlinked}
+
+    matched, claimed = {}, set()
+    for entry in entries:
+        tag_uuid = _canonical_uuid(entry["uuid"])
+        if tag_uuid in linked:
+            matched[tag_uuid] = linked[tag_uuid]
+            claimed.add(linked[tag_uuid].pk)
+    for lookup, key in ((by_slug, "slug"), (by_name, "id")):
+        for entry in entries:
+            tag_uuid = _canonical_uuid(entry["uuid"])
+            subject = lookup.get(entry[key])
+            if tag_uuid in matched or subject is None or subject.pk in claimed:
+                continue
+            matched[tag_uuid] = subject
+            claimed.add(subject.pk)
+    return matched
+
+
+def diff_vocabulary(taxonomy):
+    """What apply_vocabulary would create, update, unretire and retire.
+
+    Reads only. A slug this would give a subject that another subject or alias
+    already holds is reported in `conflicts` rather than left for the unique
+    constraint to refuse halfway through the write. That includes two subjects
+    trading slugs, which upstream's slugify can do on its own: it numbers
+    duplicates in file order (WHOIS -> whois, WHOIS++ -> whois-2), so reordering
+    the file swaps them. Which one keeps the published slug is for a person.
     """
     by_id = {entry["id"]: entry for entry in taxonomy["tags"]}
     depth_cache = {}
@@ -275,43 +401,91 @@ def diff_vocabulary(taxonomy):
         by_id, key=lambda tag_id: (_depth(tag_id, by_id, depth_cache), tag_id)
     )
 
-    existing = {
-        subject.slug: subject
-        for subject in Subject.all_objects.select_related("parent")
-    }
+    subjects = list(Subject.all_objects.select_related("parent"))
+    matched = match_subjects(list(by_id.values()), subjects)
+    matched_pks = {subject.pk for subject in matched.values()}
+    subject_by_slug = {subject.slug: subject for subject in subjects}
+    alias_owner = dict(SubjectAlias.objects.values_list("slug", "subject_id"))
+    names_in_use = {subject.name for subject in subjects}
 
-    to_create, to_update, to_unretire = [], [], []
+    to_create, to_update, to_unretire, conflicts = [], [], [], []
     for tag_id in ordered_ids:
         entry = by_id[tag_id]
-        parent_slug = entry.get("parent")
+        tag_uuid = _canonical_uuid(entry["uuid"])
+        slug = entry["slug"]
+        parent_entry = by_id.get(entry.get("parent"))
+        parent_uuid = _canonical_uuid(parent_entry["uuid"]) if parent_entry else None
+        parent_slug = parent_entry["slug"] if parent_entry else None
         description = (entry.get("desc") or "").strip()
-        subject = existing.get(tag_id)
+        subject = matched.get(tag_uuid)
+
+        holder = subject_by_slug.get(slug)
+        if holder is not None and holder is not subject:
+            conflicts.append(
+                f"{tag_id!r} has slug {slug!r}, which {holder.path!r} already has"
+            )
+        elif slug in alias_owner and alias_owner[slug] != getattr(subject, "pk", None):
+            conflicts.append(
+                f"{tag_id!r} has slug {slug!r}, which is already another "
+                "subject's alias"
+            )
 
         if subject is None:
+            # A name clash is not a conflict: a created subject's name is a first
+            # draft anyway, so it gets a unique one that says why and syncs on.
+            name = tag_id if tag_id not in names_in_use else f"{tag_id} ({slug})"
+            names_in_use.add(name)
             to_create.append(
-                {"slug": tag_id, "parent_slug": parent_slug, "description": description}
+                {
+                    "uuid": tag_uuid,
+                    "slug": slug,
+                    "name": name,
+                    "parent_uuid": parent_uuid,
+                    "description": description,
+                }
             )
             continue
 
         if subject.is_retired:
-            to_unretire.append(tag_id)
+            to_unretire.append(slug)
 
-        current_parent_slug = subject.parent.slug if subject.parent_id else None
         changes = {}
-        if current_parent_slug != parent_slug:
+        if subject.upstream_uuid is None:
+            changes["upstream_uuid"] = (None, tag_uuid)
+        if subject.slug != slug:
+            changes["slug"] = (subject.slug, slug)
+        # Compared by identity, not slug: a parent renamed in this same run has a
+        # different slug but is the same subject.
+        new_parent = matched.get(parent_uuid)
+        if parent_uuid is None:
+            parent_changed = subject.parent_id is not None
+        else:
+            parent_changed = new_parent is None or new_parent.pk != subject.parent_id
+        if parent_changed:
+            current_parent_slug = subject.parent.slug if subject.parent_id else None
             changes["parent"] = (current_parent_slug, parent_slug)
         if subject.description != description:
             changes["description"] = (subject.description, description)
         if changes:
-            to_update.append(SubjectChange(slug=tag_id, changes=changes))
+            to_update.append(
+                SubjectChange(
+                    slug=slug, changes=changes, pk=subject.pk, parent_uuid=parent_uuid
+                )
+            )
 
-    taxonomy_ids = set(by_id)
     to_retire = [
         subject
-        for slug, subject in existing.items()
-        if slug not in taxonomy_ids and not subject.is_retired
+        for subject in subjects
+        if subject.pk not in matched_pks and not subject.is_retired
     ]
-    return VocabularyDiff(to_create, to_update, to_unretire, to_retire)
+    return VocabularyDiff(
+        to_create,
+        to_update,
+        to_unretire,
+        to_retire,
+        pk_by_uuid={tag_uuid: subject.pk for tag_uuid, subject in matched.items()},
+        conflicts=conflicts,
+    )
 
 
 #  A subject's save() is not cheap -- validate_tree() walks ancestors, and
@@ -326,26 +500,31 @@ PROGRESS_LOG_INTERVAL = 50
 
 def apply_vocabulary(diff):
     """Write a VocabularyDiff. Creates and reparents before retiring, so a
-    subject moving out of a vanishing branch is safely out of it first."""
-    created_by_slug = {}
+    subject moving out of a vanishing branch is safely out of it first.
 
-    def resolve_parent(parent_slug):
-        if parent_slug is None:
+    A slug change goes through Subject.save() like any other rename, so the old
+    slug is left behind as an alias and published links naming it still resolve.
+    """
+    created_by_uuid = {}
+
+    def resolve_parent(parent_uuid):
+        if parent_uuid is None:
             return None
-        if parent_slug in created_by_slug:
-            return created_by_slug[parent_slug]
-        return Subject.all_objects.get(slug=parent_slug)
+        if parent_uuid in created_by_uuid:
+            return created_by_uuid[parent_uuid]
+        return Subject.all_objects.get(pk=diff.pk_by_uuid[parent_uuid])
 
     started = time.monotonic()
     total = len(diff.to_create)
     for index, item in enumerate(diff.to_create, start=1):
         subject = Subject.objects.create(
+            upstream_uuid=item["uuid"],
             slug=item["slug"],
-            name=title_case(item["slug"]),
+            name=item["name"],
             description=item["description"],
-            parent=resolve_parent(item["parent_slug"]),
+            parent=resolve_parent(item["parent_uuid"]),
         )
-        created_by_slug[item["slug"]] = subject
+        created_by_uuid[item["uuid"]] = subject
         logger.info("subject sync: created %d/%d: %s", index, total, item["slug"])
         if index % PROGRESS_LOG_INTERVAL == 0 or index == total:
             logger.info(
@@ -358,10 +537,13 @@ def apply_vocabulary(diff):
     started = time.monotonic()
     total = len(diff.to_update)
     for index, change in enumerate(diff.to_update, start=1):
-        subject = Subject.all_objects.get(slug=change.slug)
+        subject = Subject.all_objects.get(pk=change.pk)
+        if "upstream_uuid" in change.changes:
+            _, subject.upstream_uuid = change.changes["upstream_uuid"]
+        if "slug" in change.changes:
+            _, subject.slug = change.changes["slug"]
         if "parent" in change.changes:
-            _, new_parent_slug = change.changes["parent"]
-            subject.parent = resolve_parent(new_parent_slug)
+            subject.parent = resolve_parent(change.parent_uuid)
         if "description" in change.changes:
             _, new_description = change.changes["description"]
             subject.description = new_description
@@ -406,11 +588,22 @@ def apply_vocabulary(diff):
         )
 
 
-def diff_assignments(rfc_tags):
-    """What sync_assignments would create and delete, resolved against the
-    vocabulary as it stands right now -- call after apply_vocabulary()."""
-    by_slug = {
-        subject.slug: subject.pk for subject in Subject.all_objects.only("pk", "slug")
+def diff_assignments(rfc_tags, taxonomy):
+    """What apply_assignments would create and delete, resolved against the
+    vocabulary as it stands right now -- call after apply_vocabulary().
+
+    rfc-tags.json names each tag by its id, which is neither a Reef slug nor
+    stable across a rename, so each is resolved through the taxonomy fetched in
+    the same run to its uuid and from there to the subject linked to it.
+    """
+    uuid_by_id = {
+        entry["id"]: _canonical_uuid(entry["uuid"]) for entry in taxonomy["tags"]
+    }
+    pk_by_uuid = {
+        str(tag_uuid): pk
+        for pk, tag_uuid in Subject.all_objects.filter(
+            upstream_uuid__isnull=False
+        ).values_list("pk", "upstream_uuid")
     }
     current = {
         (subject_id, doc): pk
@@ -427,10 +620,10 @@ def diff_assignments(rfc_tags):
         except ValidationError:
             unresolved.append((rfc_id, "not a document id"))
             continue
-        for tag_slug in record.get("tags") or []:
-            subject_id = by_slug.get(tag_slug)
+        for tag_id in record.get("tags") or []:
+            subject_id = pk_by_uuid.get(uuid_by_id.get(tag_id))
             if subject_id is None:
-                unresolved.append((tag_slug, doc))
+                unresolved.append((tag_id, doc))
                 continue
             desired.add((subject_id, doc))
 
@@ -606,6 +799,12 @@ def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
         len(vocab_diff.to_retire),
         time.monotonic() - diff_started,
     )
+    if vocab_diff.conflicts:
+        logger.warning(
+            "subject sync: %d slug conflict(s); nothing written",
+            len(vocab_diff.conflicts),
+        )
+        return SyncResult(validation_problems=vocab_diff.conflicts)
     live_count_before = Subject.objects.count()
     assignment_total_before = SubjectAssignment.objects.count()
     retire_count = len(vocab_diff.to_retire)
@@ -646,7 +845,7 @@ def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
         )
 
         diff_started = time.monotonic()
-        assignment_diff = diff_assignments(rfc_tags)
+        assignment_diff = diff_assignments(rfc_tags, taxonomy)
         logger.info(
             "subject sync: assignment diff: %d to create, %d to delete, %d "
             "unresolved, %.1fs elapsed",

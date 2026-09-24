@@ -56,7 +56,8 @@ class Command(BaseCommand):
             raise SystemExit(
                 self.style.ERROR(
                     f"{len(result.validation_problems)} problem(s) in the fetched "
-                    "taxonomy. Nothing was written."
+                    "taxonomy or against the current vocabulary. Nothing was "
+                    "written."
                 )
             )
         if result.needs_confirmation:

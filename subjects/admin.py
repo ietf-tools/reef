@@ -163,6 +163,7 @@ class SubjectAdmin(admin.ModelAdmin):
     # being scattered through an alphabetical list of several hundred names.
     ordering = ["path"]
     autocomplete_fields = ["parent"]
+    readonly_fields = ["upstream_uuid"]
     actions = [
         "retire_selected",
         "unretire_selected",

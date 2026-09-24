@@ -175,6 +175,18 @@ class Subject(models.Model):
         help_text="The subject this one sits under. Leave empty for a top-level "
         "subject. A document assigned here also counts under every subject above.",
     )
+    # The tag's permanent identity in rfc-editor/rfc-subject-tags, which is what the
+    # sync matches on. Their id and slug both change when a tag is renamed there;
+    # this does not, so a rename arrives as a rename rather than as one subject
+    # retired and an unrelated one created. Empty for a subject the sync has never
+    # linked to a tag.
+    upstream_uuid = models.UUIDField(
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+        help_text="The tag this subject mirrors in rfc-subject-tags. Set by the sync.",
+    )
     # Derived from parent and slug, maintained by save(), and never edited. It buys
     # three things a bare parent pointer does not: a listing in tree order from
     # order_by("path"), a subtree in one indexed query, and the ancestors of a

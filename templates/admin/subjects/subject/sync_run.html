@@ -26,8 +26,8 @@
 
 {% elif result.validation_problems %}
   <p class="errornote">
-    {{ result.validation_problems|length }} problem(s) in the fetched taxonomy.
-    Nothing was written.
+    {{ result.validation_problems|length }} problem(s) in the fetched taxonomy
+    or against the current vocabulary. Nothing was written.
   </p>
   <ul>
     {% for problem in result.validation_problems %}

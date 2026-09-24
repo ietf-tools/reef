@@ -6,15 +6,17 @@ the network, matching precomputer/tests.py's own PrecomputeTestCase pattern.
 """
 
 import logging
+import uuid
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils.text import slugify
 
 from subscriptions.models import Subscription
 
-from .models import Subject, SubjectAssignment, SubjectSyncRun
+from .models import Subject, SubjectAlias, SubjectAssignment, SubjectSyncRun
 from .sync import (
     SyncResult,
     diff_assignments,
@@ -29,14 +31,31 @@ from .tests_hierarchy import tree
 User = get_user_model()
 
 
+def tag_uuid(tag_id):
+    """The uuid taxonomy() gives tag_id, stable across calls as upstream's is."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, tag_id))
+
+
 def taxonomy(*entries):
-    """A minimal parsed taxonomy.yaml from (id, parent, desc) tuples."""
-    return {
-        "tags": [
-            {"id": tag_id, "parent": parent, "kind": "topic", "desc": desc}
-            for tag_id, parent, desc in entries
-        ]
-    }
+    """A minimal parsed taxonomy.yaml from (id, parent, desc) tuples.
+
+    A fourth element, a dict, overrides fields of that entry -- how a test
+    renames a tag while keeping its uuid, or gives it a slug of its own.
+    """
+    tags = []
+    for tag_id, parent, desc, *overrides in entries:
+        entry = {
+            "id": tag_id,
+            "uuid": tag_uuid(tag_id),
+            "slug": slugify(tag_id),
+            "parent": parent,
+            "kind": "topic",
+            "desc": desc,
+        }
+        for override in overrides:
+            entry.update(override)
+        tags.append(entry)
+    return {"tags": tags}
 
 
 class ValidateTaxonomyTests(TestCase):
@@ -61,6 +80,34 @@ class ValidateTaxonomyTests(TestCase):
         problems = validate_taxonomy(t)
         self.assertTrue(any("catch-all" in problem for problem in problems))
 
+    def test_a_missing_or_malformed_uuid_is_a_problem(self):
+        t = taxonomy(("a", None, "", {"uuid": None}), ("b", None, "", {"uuid": "x"}))
+        problems = validate_taxonomy(t)
+        self.assertEqual(sum("no valid uuid" in problem for problem in problems), 2)
+
+    def test_a_shared_uuid_is_a_problem(self):
+        t = taxonomy(("a", None, ""), ("b", None, "", {"uuid": tag_uuid("a")}))
+        problems = validate_taxonomy(t)
+        self.assertTrue(any("same uuid" in problem for problem in problems))
+
+    def test_a_missing_or_malformed_slug_is_a_problem(self):
+        t = taxonomy(
+            ("a", None, "", {"slug": None}), ("HTTP/2", None, "", {"slug": "HTTP/2"})
+        )
+        problems = validate_taxonomy(t)
+        self.assertEqual(sum("no valid slug" in problem for problem in problems), 2)
+
+    def test_a_shared_slug_is_a_problem(self):
+        t = taxonomy(("WHOIS", None, ""), ("WHOIS++", None, "", {"slug": "whois"}))
+        problems = validate_taxonomy(t)
+        self.assertTrue(any("same slug" in problem for problem in problems))
+
+    def test_a_number_as_an_id_is_a_problem(self):
+        t = taxonomy(("a", None, ""))
+        t["tags"][0]["id"] = 802.11
+        problems = validate_taxonomy(t)
+        self.assertTrue(any("not a string" in problem for problem in problems))
+
     def test_a_parent_cycle_is_a_problem(self):
         t = taxonomy(("a", "b", "A"), ("b", "a", "B"))
         problems = validate_taxonomy(t)
@@ -83,7 +130,15 @@ class DiffVocabularyTests(TestCase):
         diff = diff_vocabulary(taxonomy(("security", None, "Security")))
         self.assertEqual(
             diff.to_create,
-            [{"slug": "security", "parent_slug": None, "description": "Security"}],
+            [
+                {
+                    "uuid": tag_uuid("security"),
+                    "slug": "security",
+                    "name": "security",
+                    "parent_uuid": None,
+                    "description": "Security",
+                }
+            ],
         )
 
     def test_a_changed_description_is_an_update(self):
@@ -102,10 +157,98 @@ class DiffVocabularyTests(TestCase):
         self.assertEqual(change.changes["parent"], ("a", "b"))
 
     def test_an_unchanged_tag_is_neither_created_nor_updated(self):
-        Subject.objects.create(slug="security", name="Security", description="Security")
+        Subject.objects.create(
+            slug="security",
+            name="Security",
+            description="Security",
+            upstream_uuid=tag_uuid("security"),
+        )
         diff = diff_vocabulary(taxonomy(("security", None, "Security")))
         self.assertEqual(diff.to_create, [])
         self.assertEqual(diff.to_update, [])
+
+    def test_an_unlinked_subject_is_linked_by_slug(self):
+        Subject.objects.create(slug="dns", name="DNS", description="DNS")
+        diff = diff_vocabulary(taxonomy(("DNS", None, "DNS")))
+        self.assertEqual(diff.to_create, [])
+        self.assertEqual(
+            diff.to_update[0].changes, {"upstream_uuid": (None, tag_uuid("DNS"))}
+        )
+
+    def test_an_unlinked_subject_is_linked_by_name_when_the_slug_differs(self):
+        Subject.objects.create(slug="s-mime", name="S/MIME")
+        diff = diff_vocabulary(taxonomy(("S/MIME", None, "")))
+        self.assertEqual(diff.to_create, [])
+        self.assertEqual(diff.to_update[0].changes["slug"], ("s-mime", "smime"))
+
+    def test_a_linked_subject_is_matched_by_uuid_not_slug(self):
+        """A subject another tag's slug happens to match is not taken from the
+        tag whose uuid it carries."""
+        Subject.objects.create(
+            slug="whois", name="WHOIS++", upstream_uuid=tag_uuid("WHOIS++")
+        )
+        diff = diff_vocabulary(taxonomy(("WHOIS++", None, "", {"slug": "whois-2"})))
+        self.assertEqual(diff.to_create, [])
+        self.assertEqual(diff.to_update[0].changes["slug"], ("whois", "whois-2"))
+
+    def test_a_created_subject_is_named_by_the_id(self):
+        diff = diff_vocabulary(taxonomy(("HTTP/2", None, "")))
+        self.assertEqual(diff.to_create[0]["slug"], "http2")
+        self.assertEqual(diff.to_create[0]["name"], "HTTP/2")
+
+    def test_a_created_name_already_in_use_is_made_unique(self):
+        # Linked to another tag, so the name pass cannot match it to this one.
+        Subject.objects.create(
+            slug="unrelated", name="DoH", upstream_uuid=tag_uuid("unrelated")
+        )
+        diff = diff_vocabulary(taxonomy(("unrelated", None, ""), ("DoH", None, "")))
+        self.assertEqual(diff.to_create[0]["name"], "DoH (doh)")
+
+    def test_an_existing_name_is_never_overwritten(self):
+        Subject.objects.create(
+            slug="doh", name="DNS over HTTPS", upstream_uuid=tag_uuid("DoH")
+        )
+        diff = diff_vocabulary(taxonomy(("DoH", None, "")))
+        self.assertEqual(diff.to_update, [])
+
+    def test_a_slug_another_subject_holds_is_a_conflict(self):
+        Subject.objects.create(
+            slug="whois", name="WHOIS", upstream_uuid=tag_uuid("WHOIS")
+        )
+        Subject.objects.create(
+            slug="whois-2", name="WHOIS++", upstream_uuid=tag_uuid("WHOIS++")
+        )
+        # The file reordered, so upstream's numbering swapped the two.
+        diff = diff_vocabulary(
+            taxonomy(
+                ("WHOIS++", None, "", {"slug": "whois"}),
+                ("WHOIS", None, "", {"slug": "whois-2"}),
+            )
+        )
+        self.assertEqual(len(diff.conflicts), 2)
+
+    def test_a_slug_another_subjects_alias_holds_is_a_conflict(self):
+        other = Subject.objects.create(slug="kerberos", name="Kerberos")
+        SubjectAlias.objects.create(slug="krb5", subject=other)
+        diff = diff_vocabulary(taxonomy(("Kerberos", None, ""), ("krb5", None, "")))
+        self.assertEqual(len(diff.conflicts), 1)
+        self.assertIn("krb5", diff.conflicts[0])
+
+    def test_a_parent_renamed_in_the_same_run_is_not_a_reparent(self):
+        made = tree("messaging", "messaging/email")
+        for subject in made.values():
+            subject.upstream_uuid = tag_uuid(subject.slug)
+            subject.save()
+        diff = diff_vocabulary(
+            taxonomy(
+                ("messaging", None, "", {"slug": "mail-and-messaging"}),
+                ("email", "messaging", ""),
+            )
+        )
+        self.assertEqual(
+            [(change.slug, list(change.changes)) for change in diff.to_update],
+            [("mail-and-messaging", ["slug"])],
+        )
 
     def test_a_vanished_live_subject_is_retired(self):
         Subject.objects.create(slug="old", name="Old")
@@ -126,29 +269,42 @@ class DiffVocabularyTests(TestCase):
 
 
 class DiffAssignmentsTests(TestCase):
+    def setUp(self):
+        self.taxonomy = taxonomy(("security", None, ""))
+        self.subject = Subject.objects.create(
+            slug="security", name="Security", upstream_uuid=tag_uuid("security")
+        )
+
     def test_a_new_pair_is_a_create(self):
-        subject = Subject.objects.create(slug="security", name="Security")
-        diff = diff_assignments({"RFC9110": {"tags": ["security"]}})
-        self.assertEqual(diff.to_create, [(subject.pk, "rfc9110")])
+        diff = diff_assignments({"RFC9110": {"tags": ["security"]}}, self.taxonomy)
+        self.assertEqual(diff.to_create, [(self.subject.pk, "rfc9110")])
         self.assertEqual(diff.to_delete_pks, [])
 
     def test_an_existing_pair_is_kept(self):
-        subject = Subject.objects.create(slug="security", name="Security")
-        SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
-        diff = diff_assignments({"RFC9110": {"tags": ["security"]}})
+        SubjectAssignment.objects.create(subject=self.subject, doc="rfc9110")
+        diff = diff_assignments({"RFC9110": {"tags": ["security"]}}, self.taxonomy)
         self.assertEqual(diff.to_create, [])
         self.assertEqual(diff.to_delete_pks, [])
 
     def test_a_vanished_pair_is_deleted(self):
-        subject = Subject.objects.create(slug="security", name="Security")
-        assignment = SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
-        diff = diff_assignments({})
+        assignment = SubjectAssignment.objects.create(
+            subject=self.subject, doc="rfc9110"
+        )
+        diff = diff_assignments({}, self.taxonomy)
         self.assertEqual(diff.to_delete_pks, [assignment.pk])
 
-    def test_an_unknown_slug_is_unresolved_not_raised(self):
-        diff = diff_assignments({"RFC9110": {"tags": ["no-such-tag"]}})
-        self.assertEqual(diff.unresolved, [("no-such-tag", "rfc9110")])
+    def test_an_unknown_id_is_unresolved_not_raised(self):
+        diff = diff_assignments({"RFC9110": {"tags": ["no such tag"]}}, self.taxonomy)
+        self.assertEqual(diff.unresolved, [("no such tag", "rfc9110")])
         self.assertEqual(diff.to_create, [])
+
+    def test_an_id_is_resolved_through_its_uuid_not_as_a_slug(self):
+        t = taxonomy(("HTTP/2", None, ""))
+        subject = Subject.objects.create(
+            slug="http2", name="HTTP/2", upstream_uuid=tag_uuid("HTTP/2")
+        )
+        diff = diff_assignments({"RFC9113": {"tags": ["HTTP/2"]}}, t)
+        self.assertEqual(diff.to_create, [(subject.pk, "rfc9113")])
 
 
 class SuggestMergesTests(TestCase):
@@ -255,6 +411,59 @@ class WriteTests(RunSyncTestCase):
         subscription.refresh_from_db()
         self.assertEqual(subscription.subject_id, subject.pk)
         self.assertTrue(Subject.all_objects.get(pk=subject.pk).is_retired)
+
+    def test_an_upstream_rename_renames_the_subject_and_keeps_its_subscribers(self):
+        subject = Subject.objects.create(
+            slug="x509", name="X.509", upstream_uuid=tag_uuid("X509")
+        )
+        SubjectAssignment.objects.create(subject=subject, doc="rfc5280")
+        user = User.objects.create(username="reader", oidc_sub="reader")
+        subscription = Subscription.objects.create(
+            user=user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        result = self.run_sync(
+            taxonomy(("X.509", None, "", {"uuid": tag_uuid("X509"), "slug": "x-509"})),
+            {"RFC5280": {"tags": ["X.509"]}},
+        )
+        self.assertTrue(result.written)
+        self.assertEqual(result.retired, [])
+        subject.refresh_from_db()
+        self.assertEqual(subject.slug, "x-509")
+        self.assertFalse(subject.is_retired)
+        self.assertTrue(
+            SubjectAlias.objects.filter(slug="x509", subject=subject).exists()
+        )
+        self.assertEqual(result.assignments_created, 0)
+        self.assertEqual(result.assignments_deleted, 0)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.subject_id, subject.pk)
+
+    def test_an_id_with_a_slash_never_reaches_the_path(self):
+        result = self.run_sync(
+            taxonomy(("web", None, ""), ("HTTP/2", "web", "")),
+            {"RFC9113": {"tags": ["HTTP/2"]}},
+        )
+        self.assertTrue(result.written)
+        subject = Subject.objects.get(upstream_uuid=tag_uuid("HTTP/2"))
+        self.assertEqual(subject.path, "web/http2")
+        self.assertEqual(subject.name, "HTTP/2")
+        self.assertTrue(
+            SubjectAssignment.objects.filter(subject=subject, doc="rfc9113").exists()
+        )
+
+    def test_a_slug_conflict_writes_nothing(self):
+        Subject.objects.create(
+            slug="taken", name="Taken", upstream_uuid=tag_uuid("vanished")
+        )
+        result = self.run_sync(
+            taxonomy(("new", None, "", {"slug": "taken"})),
+            {"RFC1": {"tags": ["new"]}},
+            confirm_large_change=True,
+        )
+        self.assertFalse(result.written)
+        self.assertEqual(len(result.validation_problems), 1)
+        self.assertFalse(Subject.all_objects.get(slug="taken").is_retired)
+        self.assertEqual(SubjectAssignment.objects.count(), 0)
 
     def test_running_twice_with_nothing_changed_writes_nothing_the_second_time(self):
         t = taxonomy(("security", None, "Security"))
