@@ -1352,7 +1352,7 @@ have to already exist. The sync does both, vocabulary first.
 |---|---|---|
 | `uuid` | `upstream_uuid` | What the sync matches on. Unique, and empty for a subject no sync has linked yet. Their `id` and `slug` both change on a rename; this does not. |
 | `slug` | `slug` | Direct, and mirrored: a changed slug is a rename, applied through `Subject.save()`, which leaves the old slug behind as an alias. Never derived by Reef from the `id`: an id may contain spaces, `/` and `+`, and `/` is Reef's own path separator. |
-| `id` | `name` | The display form. Sets the `name` of a subject the sync creates; an existing subject's `name` is never overwritten, so a curated name ("DNS over HTTPS" for `DoH`, "Wi-Fi" for `WiFi`) survives. If another subject already has that name, the created one is named `id (slug)` instead, for a curator to settle. Also how `parent` and `rfc-tags.json` name a tag, so both are resolved through the taxonomy rather than read as slugs. |
+| `id` | `name` | The display form, and mirrored like everything else: every sync sets each subject's `name` to its tag's `id`, overwriting a curated one ("DNS over HTTPS" becomes `DoH`). A subject outside the vocabulary — retired, or retiring on this run — that still holds a name an id needs gives it up and becomes `name (slug)`; a retired subject's name is published nowhere. Also how `parent` and `rfc-tags.json` name a tag, so both are resolved through the taxonomy rather than read as slugs. |
 | `parent` | `parent` | By identity: the parent's `id` is resolved to its `uuid` and from there to a subject, so a parent renamed in the same run is not mistaken for a move. Single-parent tree, and `MAX_DEPTH = 4` in subjects/models.py already matches "at most four levels deep" — Reef's cap was plainly set from this same source originally (see below). |
 | *(none — implied by parent chain)* | `path`, `depth` | Reef derives these itself in `Subject.save()`; nothing to import. |
 | `desc` | `description` | Direct. |
@@ -1406,10 +1406,8 @@ a close description match) behind it.
 ### Discarding local changes: retire, don't delete
 
 "Discard local changes" means a resync is authoritative over everything it has a
-source for: `slug`, `description` and `parent` are overwritten even where staff
-hand-edited them, and it removes what the source no longer has. `name` is the one
-field this doesn't apply to: the tag's `id` sets it on creation and never again, because
-a curated name is often better than the id (see the mapping table above).
+source for: `name`, `slug`, `description` and `parent` are overwritten even where staff
+hand-edited them, and it removes what the source no longer has.
 Discarding local changes also means two different operations for the two tables the
 sync feeds, because the domain already draws this line:
 
@@ -1521,12 +1519,16 @@ back, not create a second one). Each tag is first matched to an existing subject
 - **to_create**: a tag matching no existing subject. Created with its
   `upstream_uuid`, `slug`, `name=id`, `description=desc`, and `parent` resolved by the
   parent tag's uuid.
-- **to_update**: a matched subject that is not yet linked, or whose `slug`, `parent` or
-  `description` (from `desc`) differs from the taxonomy. `name` is never part of this
-  diff, see the mapping table above. Reported as a field-level diff — `old -> new` for
+- **to_update**: a matched subject that is not yet linked, or whose `name` (from `id`),
+  `slug`, `parent` or `description` (from `desc`) differs from the taxonomy. Reported
+  as a field-level diff — `old -> new` for
   each changed field — not just a count, so the result page shows what actually was
   linked, renamed, moved or reworded rather than making staff go and look. `kind` is
   read and discarded, per the mapping table above.
+- **displaced**: a subject no tag matched that holds a name some tag's `id` needs,
+  renamed to `name (slug)`. Every name the run changes is parked on a placeholder
+  before any is written, so two subjects trading names never meet the unique
+  constraint halfway.
 - **to_retire**: a currently-*live* Reef subject no tag matched. `Subject.retire()`
   already refuses one with live children unless the whole subtree goes together, so
   retirement is applied depth-first — same as the existing "retire subtree" admin
@@ -1660,8 +1662,9 @@ temporary settings override, no network in tests):
   name when the slug differs;
 - an upstream rename (same uuid, new id and slug) renames the subject, leaves an alias,
   and keeps its subscribers and assignments; an id containing `/` never reaches `path`;
-- an existing name is never overwritten, and a created name already in use is made
-  unique;
+- an existing name follows the id; two subjects trading names are both written; a
+  subject outside the vocabulary holding a name an id needs gives it up as
+  `name (slug)`;
 - a slug another subject or alias holds, including two subjects trading slugs, stops the
   run with nothing written;
 - a vanished tag retires it, depth-first when it has live children;

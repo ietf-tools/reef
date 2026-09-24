@@ -17,7 +17,7 @@ import json
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -28,6 +28,11 @@ from precomputer.blobstore import get_blob_store
 from precomputer.registry import TASKS
 from reef import rfcmeta
 from reef.docids import normalize_doc_id
+
+# A progress line every this many files rendered and uploaded. The subjects task
+# alone writes several hundred, and a line only at the end of each task left the
+# admin page showing the same line for most of a minute.
+PROGRESS_INTERVAL = 50
 
 
 class Command(BaseCommand):
@@ -115,6 +120,7 @@ class Command(BaseCommand):
         # couple of seconds, and every task shares the one index.
         index = None
         if options["metadata"]:
+            self.stdout.write("Loading Red's index")
             index = rfcmeta.get_index()
             if index is None:
                 # Red being unreachable is not a reason to publish nothing: the files
@@ -132,9 +138,10 @@ class Command(BaseCommand):
 
         for name in selected:
             func = TASKS[name]
+            self.stdout.write(f"[{name}] rendering")
             try:
                 keys = self._run_task(
-                    func, docs, index, store, options["concurrency"], dry_run
+                    name, func, docs, index, store, options["concurrency"], dry_run
                 )
             except Exception as exc:
                 # One task's failure does not cancel the rest: the point of a
@@ -149,6 +156,7 @@ class Command(BaseCommand):
 
         purged = 0
         if options["purge"] and docs is None and not failures:
+            self.stdout.write("Checking for stale keys to purge")
             purged = self._purge(store, clean_tasks, written, dry_run)
         elif options["purge"]:
             self.stdout.write(
@@ -176,23 +184,31 @@ class Command(BaseCommand):
             raise CommandError(f"Failed: {'; '.join(failures)}. {summary}.")
         return summary
 
-    def _run_task(self, func, docs, index, store, concurrency, dry_run):
+    def _run_task(self, name, func, docs, index, store, concurrency, dry_run):
         """Render a task's files and upload them, returning the keys written.
 
         Rendering runs here, one at a time, because it is database work on this
-        thread's connection. Uploading is network waiting, so it fans out.
+        thread's connection. Uploading is network waiting, so it fans out. Progress
+        is reported from this thread only, never from an upload thread: stdout may
+        be a stream that writes to the database, and the upload threads have no
+        connection of their own to write with.
         """
         keys = set()
         with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
             uploads = []
             for key, body in func(docs=docs, index=index):
                 keys.add(key)
+                if len(keys) % PROGRESS_INTERVAL == 0:
+                    self.stdout.write(f"[{name}] {len(keys)} file(s) rendered")
                 if dry_run:
                     self.stdout.write(f"  would write {key} ({len(body)} bytes)")
                     continue
                 uploads.append(pool.submit(store.put, key, body))
-            for upload in uploads:
+            total = len(uploads)
+            for done, upload in enumerate(as_completed(uploads), start=1):
                 upload.result()  # surfaces upload errors
+                if done % PROGRESS_INTERVAL == 0 or done == total:
+                    self.stdout.write(f"[{name}] {done}/{total} uploaded")
         return keys
 
     def _purge(self, store, tasks, written, dry_run):

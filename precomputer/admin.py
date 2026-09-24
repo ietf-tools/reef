@@ -1,52 +1,52 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""A staff-only admin page that runs `manage.py precompute` and shows its output.
+"""A staff-only admin page that starts `manage.py precompute` and shows its output.
 
-No model backs this -- there is nothing here to list or edit, only an action to
-trigger and a result to read -- so it is wired in as a plain admin_view rather than
-through a ModelAdmin, the same way reefauth customises admin.site directly.
+A full run renders and uploads several hundred files, which on a deployment takes
+over a minute -- long enough that a request waiting on it showed nothing but a
+spinner and was heading for the gunicorn timeout. So the button only creates a
+PrecomputeRun and hands it to Celery (precomputer.tasks.precompute_from_admin), and
+the run's page polls that row, as the subject sync's button already does.
+
+There is still nothing here to list or edit, so it is wired in as plain admin views
+rather than through a ModelAdmin, the same way reefauth customises admin.site
+directly.
 """
 
-import io
-
 from django.contrib import admin
-from django.core.management import CommandError, call_command
-from django.shortcuts import render
-from django.urls import path
+from django.http import HttpResponseRedirect
+from django.shortcuts import get_object_or_404, render
+from django.urls import path, reverse
 
-from reef.locks import advisory_lock
-
-from .tasks import LOCK_NAME
+from .models import PrecomputeRun
+from .tasks import precompute_from_admin
 
 
 def precompute_view(request):
-    result = None
     if request.method == "POST":
-        with advisory_lock(LOCK_NAME) as acquired:
-            if not acquired:
-                result = {
-                    "skipped": True,
-                    "message": "Another precompute run is already in progress. "
-                    "Try again shortly.",
-                }
-            else:
-                out, err = io.StringIO(), io.StringIO()
-                try:
-                    call_command("precompute", stdout=out, stderr=err)
-                    ok = True
-                except CommandError as exc:
-                    ok = False
-                    err.write(str(exc))
-                result = {
-                    "skipped": False,
-                    "ok": ok,
-                    "output": out.getvalue(),
-                    "error": err.getvalue(),
-                }
-
+        run = PrecomputeRun.objects.create(triggered_by=request.user)
+        precompute_from_admin.delay(run.pk)
+        return HttpResponseRedirect(
+            reverse("admin:precomputer-run-detail", args=[run.pk])
+        )
     return render(
         request,
         "precomputer/run.html",
-        {**admin.site.each_context(request), "title": "Precompute", "result": result},
+        {
+            **admin.site.each_context(request),
+            "title": "Precompute",
+            "recent_runs": PrecomputeRun.objects.select_related("triggered_by")[:10],
+        },
+    )
+
+
+def precompute_run_view(request, run_id):
+    """One run's status, refreshed by the template's <meta refresh> until it has
+    finished, then its full output."""
+    run = get_object_or_404(PrecomputeRun, pk=run_id)
+    return render(
+        request,
+        "precomputer/run_detail.html",
+        {**admin.site.each_context(request), "title": "Precompute", "run": run},
     )
 
 
@@ -57,6 +57,11 @@ def _get_admin_urls(get_urls):
                 "precompute/",
                 admin.site.admin_view(precompute_view),
                 name="precomputer-run",
+            ),
+            path(
+                "precompute/runs/<int:run_id>/",
+                admin.site.admin_view(precompute_run_view),
+                name="precomputer-run-detail",
             ),
         ] + get_urls()
 

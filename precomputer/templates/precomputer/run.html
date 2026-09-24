@@ -7,28 +7,39 @@
   the daily schedule (<code>precomputer.tasks.precompute_all</code>). Useful for
   reproducing and inspecting an upload failure without shell access.
 </p>
+<p>
+  Runs in the background: this starts it and takes you to a page that shows its
+  progress, rather than waiting here for it to finish.
+</p>
 
 <form method="post">
   {% csrf_token %}
   <input type="submit" value="{% translate 'Run precompute now' %}">
 </form>
 
-{% if result %}
-  <h2>{% translate "Result" %}</h2>
-  {% if result.skipped %}
-    <p class="errornote">{{ result.message }}</p>
-  {% else %}
-    <p class="{% if result.ok %}success{% else %}errornote{% endif %}">
-      {% if result.ok %}{% translate "Succeeded" %}{% else %}{% translate "Failed" %}{% endif %}
-    </p>
-    {% if result.output %}
-      <h3>{% translate "Output" %}</h3>
-      <pre>{{ result.output }}</pre>
-    {% endif %}
-    {% if result.error %}
-      <h3>{% translate "Errors" %}</h3>
-      <pre class="errornote">{{ result.error }}</pre>
-    {% endif %}
-  {% endif %}
+{% if recent_runs %}
+  <h2>{% translate "Recent runs" %}</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>{% translate "Started" %}</th>
+        <th>{% translate "Status" %}</th>
+        <th>{% translate "Triggered by" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in recent_runs %}
+        <tr>
+          <td>
+            <a href="{% url 'admin:precomputer-run-detail' run_id=run.pk %}">
+              {{ run.created_at }}
+            </a>
+          </td>
+          <td>{{ run.get_status_display }}</td>
+          <td>{{ run.triggered_by|default:"(unknown)" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 {% endif %}
 {% endblock %}

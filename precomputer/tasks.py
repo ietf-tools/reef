@@ -1,10 +1,11 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""Celery tasks that run the precomputer on a schedule.
+"""Celery tasks that run the precomputer: on a schedule, after a staff edit, and
+from the admin button.
 
 Thin wrappers around `manage.py precompute`, deliberately: the command is the entry
 point, and having the schedule call anything else would give two code paths to the
 same work and one of them would drift. What these add is a lock, a queue and a
-schedule.
+schedule -- and for the admin button, a PrecomputeRun row to report onto.
 
 Two entries, on different periods, because the two halves go stale for different
 reasons. Engagement files move whenever a reader rates or subscribes, which is
@@ -18,12 +19,17 @@ non-zero; a Celery exception on top would add a retry that recomputes the same
 broken thing, and an alert for something the next scheduled run fixes by itself.
 """
 
+import io
 import logging
+import traceback
 
 from celery import shared_task
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
+from django.utils import timezone
 
 from reef.locks import advisory_lock
+
+from .models import PrecomputeRun
 
 logger = logging.getLogger("reef")
 
@@ -71,3 +77,71 @@ def precompute_curated():
     that development does not have a backend for.
     """
     return _run("popularity", "subjects", "surveys")
+
+
+class _ProgressOutput(io.StringIO):
+    """The command's stdout, kept whole for the finished page and mirrored line
+    by line onto a PrecomputeRun's progress_message for the polling one.
+
+    A stream rather than a callback threaded through the command: the command
+    already writes a line at each step, and BaseCommand hands every one of them
+    to whatever stdout it was given, one write per line.
+    """
+
+    def __init__(self, run_id):
+        super().__init__()
+        self.run_id = run_id
+
+    def write(self, text):
+        written = super().write(text)
+        line = text.strip()
+        if line:
+            PrecomputeRun.objects.filter(pk=self.run_id).update(
+                progress_message=line.splitlines()[-1][:255]
+            )
+        return written
+
+
+@shared_task(ignore_result=True)
+def precompute_from_admin(run_id):
+    """Every task, for the admin button, reporting onto a PrecomputeRun row.
+
+    Under the same lock as the scheduled runs, so a press that lands on one in
+    progress is recorded as skipped rather than racing its purge. Unlike them it
+    records a failure of any kind, traceback and all, since the row is the only
+    place the person who pressed the button will look.
+    """
+    try:
+        run = PrecomputeRun.objects.get(pk=run_id)
+    except PrecomputeRun.DoesNotExist:
+        logger.error("Precompute run %s vanished before it could start", run_id)
+        return
+
+    run.status = PrecomputeRun.Status.RUNNING
+    run.started_at = timezone.now()
+    run.save(update_fields=["status", "started_at"])
+
+    out, err = _ProgressOutput(run_id), io.StringIO()
+    with advisory_lock(LOCK_NAME) as acquired:
+        if not acquired:
+            run.status = PrecomputeRun.Status.SKIPPED
+            err.write(
+                "Another precompute run is already in progress. Try again shortly."
+            )
+        else:
+            try:
+                call_command("precompute", stdout=out, stderr=err)
+            except CommandError as exc:
+                run.status = PrecomputeRun.Status.FAILED
+                err.write(str(exc))
+            except Exception:
+                logger.error("Precompute run %s failed", run_id, exc_info=True)
+                run.status = PrecomputeRun.Status.FAILED
+                err.write(traceback.format_exc())
+            else:
+                run.status = PrecomputeRun.Status.SUCCEEDED
+
+    run.output = out.getvalue()
+    run.error = err.getvalue()
+    run.finished_at = timezone.now()
+    run.save(update_fields=["status", "output", "error", "finished_at"])

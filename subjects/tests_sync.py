@@ -159,7 +159,7 @@ class DiffVocabularyTests(TestCase):
     def test_an_unchanged_tag_is_neither_created_nor_updated(self):
         Subject.objects.create(
             slug="security",
-            name="Security",
+            name="security",
             description="Security",
             upstream_uuid=tag_uuid("security"),
         )
@@ -196,20 +196,33 @@ class DiffVocabularyTests(TestCase):
         self.assertEqual(diff.to_create[0]["slug"], "http2")
         self.assertEqual(diff.to_create[0]["name"], "HTTP/2")
 
-    def test_a_created_name_already_in_use_is_made_unique(self):
-        # Linked to another tag, so the name pass cannot match it to this one.
-        Subject.objects.create(
-            slug="unrelated", name="DoH", upstream_uuid=tag_uuid("unrelated")
-        )
-        diff = diff_vocabulary(taxonomy(("unrelated", None, ""), ("DoH", None, "")))
-        self.assertEqual(diff.to_create[0]["name"], "DoH (doh)")
-
-    def test_an_existing_name_is_never_overwritten(self):
+    def test_an_existing_name_follows_the_id(self):
         Subject.objects.create(
             slug="doh", name="DNS over HTTPS", upstream_uuid=tag_uuid("DoH")
         )
         diff = diff_vocabulary(taxonomy(("DoH", None, "")))
-        self.assertEqual(diff.to_update, [])
+        self.assertEqual(diff.to_update[0].changes, {"name": ("DNS over HTTPS", "DoH")})
+
+    def test_a_name_held_outside_the_vocabulary_is_taken_from_that_subject(self):
+        # Linked to a tag that has gone, so the name pass cannot match it either.
+        Subject.objects.create(
+            slug="kerberos-v4", name="Kerberos", upstream_uuid=tag_uuid("gone")
+        )
+        diff = diff_vocabulary(taxonomy(("Kerberos", None, "")))
+        self.assertEqual(diff.to_create[0]["name"], "Kerberos")
+        self.assertEqual(
+            diff.displaced[0].changes,
+            {"name": ("Kerberos", "Kerberos (kerberos-v4)")},
+        )
+
+    def test_a_name_held_by_another_matched_subject_displaces_nothing(self):
+        """That subject is taking its own tag's id in the same write."""
+        Subject.objects.create(
+            slug="unrelated", name="DoH", upstream_uuid=tag_uuid("unrelated")
+        )
+        diff = diff_vocabulary(taxonomy(("unrelated", None, ""), ("DoH", None, "")))
+        self.assertEqual(diff.displaced, [])
+        self.assertEqual(diff.to_create[0]["name"], "DoH")
 
     def test_a_slug_another_subject_holds_is_a_conflict(self):
         Subject.objects.create(
@@ -238,6 +251,7 @@ class DiffVocabularyTests(TestCase):
         made = tree("messaging", "messaging/email")
         for subject in made.values():
             subject.upstream_uuid = tag_uuid(subject.slug)
+            subject.name = subject.slug
             subject.save()
         diff = diff_vocabulary(
             taxonomy(
@@ -450,6 +464,35 @@ class WriteTests(RunSyncTestCase):
         self.assertTrue(
             SubjectAssignment.objects.filter(subject=subject, doc="rfc9113").exists()
         )
+
+    def test_two_subjects_trading_names_are_both_written(self):
+        first = Subject.objects.create(
+            slug="a", name="Beta", upstream_uuid=tag_uuid("Alpha")
+        )
+        second = Subject.objects.create(
+            slug="b", name="Alpha", upstream_uuid=tag_uuid("Beta")
+        )
+        result = self.run_sync(
+            taxonomy(
+                ("Alpha", None, "", {"slug": "a"}), ("Beta", None, "", {"slug": "b"})
+            )
+        )
+        self.assertTrue(result.written)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual((first.name, second.name), ("Alpha", "Beta"))
+
+    def test_a_retired_subject_holding_a_name_gives_it_up(self):
+        holder = Subject.objects.create(
+            slug="kerberos-v4", name="Kerberos", upstream_uuid=tag_uuid("gone")
+        )
+        holder.retire()
+        result = self.run_sync(taxonomy(("Kerberos", None, "")))
+        self.assertTrue(result.written)
+        holder.refresh_from_db()
+        self.assertEqual(holder.name, "Kerberos (kerberos-v4)")
+        self.assertTrue(holder.is_retired)
+        self.assertEqual(Subject.objects.get(slug="kerberos").name, "Kerberos")
 
     def test_a_slug_conflict_writes_nothing(self):
         Subject.objects.create(

@@ -17,23 +17,26 @@ Two files, two purposes, both fetched fresh every run:
 
 A tag carries three names, and each maps to one thing in Reef. The id is written
 the way the documents write the term (HTTP/2, S/MIME, congestion control) and is
-what `parent` and rfc-tags.json refer to; it becomes a created subject's `name`.
-The slug is their slugify of the id and becomes Reef's `slug`. The uuid never
-changes, even when a rename changes the other two, so it is what a sync matches
-on and is kept as `upstream_uuid`. A subject not yet linked to a uuid is matched
-by slug, then by name, and linked on that run.
+what `parent` and rfc-tags.json refer to; it becomes Reef's `name`. The slug is
+their slugify of the id and becomes Reef's `slug`. The uuid never changes, even
+when a rename changes the other two, so it is what a sync matches on and is kept
+as `upstream_uuid`. A subject not yet linked to a uuid is matched by slug, then
+by name, and linked on that run.
 
-A sync is a mirror: it overwrites `slug`, `description` and `parent` even where
-staff hand-edited them, and it removes what the source no longer has. `name` is
-the exception: it is set when a subject is created and never overwritten, so a
-curated name ("DNS over HTTPS" for DoH) survives every sync. Removal is two
-different operations, because the domain already draws this line. A subject
-that vanishes is retired, never deleted -- Subscription.subject is
-on_delete=PROTECT specifically so a cascade can never silently stop somebody's
-mail, and retire() already exists to take a subject out of the picker while its
-subscribers go on matching. An assignment that vanishes is hard-deleted --
-SubjectAssignment carries no subscriber of its own, and its own docstring is
-explicit that there is no state between assigned and not.
+A sync is a mirror: it overwrites `name`, `slug`, `description` and `parent`
+even where staff hand-edited them, and it removes what the source no longer has.
+A name the vocabulary needs that a subject outside it still holds -- retired, or
+retiring on this run -- is taken from that subject, which becomes "name (slug)":
+a retired subject's name is published nowhere, and the one in the vocabulary is
+what readers see.
+
+Removal is two different operations, because the domain already draws this
+line. A subject that vanishes is retired, never deleted -- Subscription.subject
+is on_delete=PROTECT specifically so a cascade can never silently stop
+somebody's mail, and retire() already exists to take a subject out of the
+picker while its subscribers go on matching. An assignment that vanishes is
+hard-deleted -- SubjectAssignment carries no subscriber of its own, and its own
+docstring is explicit that there is no state between assigned and not.
 
 Manual only. There is deliberately no scheduled task calling this: a mirror of
 an external taxonomy that nobody is watching is exactly the kind of change that
@@ -55,7 +58,8 @@ from django.core.exceptions import ValidationError
 from django.core.management import CommandError
 from django.core.validators import validate_slug
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import CharField, Count, Value
+from django.db.models.functions import Cast, Concat
 
 from reef.docids import normalize_doc_id
 from reef.locks import advisory_lock
@@ -94,6 +98,13 @@ SUGGESTION_SLUG_THRESHOLD = 0.4
 SUGGESTION_MAX_PER_SUBJECT = 3
 
 
+def displaced_name(subject):
+    """The name a subject outside the vocabulary gives up its own for: unique
+    because the slug is, and still recognisably the same subject in the admin."""
+    suffix = f" ({subject.slug})"
+    return f"{subject.name[: NAME_MAX_LENGTH - len(suffix)]}{suffix}"
+
+
 def title_case(slug):
     """A placeholder name for a subject created from nothing but a slug, to be
     edited by whoever curates it next.
@@ -120,6 +131,8 @@ class VocabularyDiff:
     to_update: list  # [SubjectChange]
     to_unretire: list  # [slug], as it will be after to_update
     to_retire: list  # [Subject], live subjects no tag matched
+    # [SubjectChange], subjects no tag matched moved off a name a tag's id needs
+    displaced: list = field(default_factory=list)
     # The existing subject each matched tag resolves to, so a parent can be
     # found before the subject it names has been linked by the write.
     pk_by_uuid: dict = field(default_factory=dict)
@@ -406,9 +419,9 @@ def diff_vocabulary(taxonomy):
     matched_pks = {subject.pk for subject in matched.values()}
     subject_by_slug = {subject.slug: subject for subject in subjects}
     alias_owner = dict(SubjectAlias.objects.values_list("slug", "subject_id"))
-    names_in_use = {subject.name for subject in subjects}
+    name_holder = {subject.name: subject for subject in subjects}
 
-    to_create, to_update, to_unretire, conflicts = [], [], [], []
+    to_create, to_update, to_unretire, displaced, conflicts = [], [], [], [], []
     for tag_id in ordered_ids:
         entry = by_id[tag_id]
         tag_uuid = _canonical_uuid(entry["uuid"])
@@ -430,16 +443,26 @@ def diff_vocabulary(taxonomy):
                 "subject's alias"
             )
 
+        # A subject matched to another tag gives this name up by taking its own
+        # tag's id in the same write, so only one outside the vocabulary has to be
+        # moved off it.
+        name_taken_by = name_holder.get(tag_id)
+        if name_taken_by is not None and name_taken_by.pk not in matched_pks:
+            new_name = displaced_name(name_taken_by)
+            displaced.append(
+                SubjectChange(
+                    slug=name_taken_by.slug,
+                    changes={"name": (name_taken_by.name, new_name)},
+                    pk=name_taken_by.pk,
+                )
+            )
+
         if subject is None:
-            # A name clash is not a conflict: a created subject's name is a first
-            # draft anyway, so it gets a unique one that says why and syncs on.
-            name = tag_id if tag_id not in names_in_use else f"{tag_id} ({slug})"
-            names_in_use.add(name)
             to_create.append(
                 {
                     "uuid": tag_uuid,
                     "slug": slug,
-                    "name": name,
+                    "name": tag_id,
                     "parent_uuid": parent_uuid,
                     "description": description,
                 }
@@ -452,6 +475,8 @@ def diff_vocabulary(taxonomy):
         changes = {}
         if subject.upstream_uuid is None:
             changes["upstream_uuid"] = (None, tag_uuid)
+        if subject.name != tag_id:
+            changes["name"] = (subject.name, tag_id)
         if subject.slug != slug:
             changes["slug"] = (subject.slug, slug)
         # Compared by identity, not slug: a parent renamed in this same run has a
@@ -483,6 +508,7 @@ def diff_vocabulary(taxonomy):
         to_update,
         to_unretire,
         to_retire,
+        displaced=displaced,
         pk_by_uuid={tag_uuid: subject.pk for tag_uuid, subject in matched.items()},
         conflicts=conflicts,
     )
@@ -514,6 +540,26 @@ def apply_vocabulary(diff):
             return created_by_uuid[parent_uuid]
         return Subject.all_objects.get(pk=diff.pk_by_uuid[parent_uuid])
 
+    # Every name this run changes is parked on a placeholder first, so that two
+    # subjects trading names, or one taking a name another is giving up, never
+    # meet the unique constraint halfway through. Through update() rather than
+    # save(): a placeholder is not a state the history should record.
+    renaming = [
+        change.pk
+        for change in [*diff.displaced, *diff.to_update]
+        if "name" in change.changes
+    ]
+    Subject.all_objects.filter(pk__in=renaming).update(
+        name=Concat(Value("subject-sync-placeholder-"), Cast("pk", CharField()))
+    )
+    for change in diff.displaced:
+        subject = Subject.all_objects.get(pk=change.pk)
+        _, subject.name = change.changes["name"]
+        # update_fields, so that a retired subject under a retired parent is not
+        # put through validate_tree(), which refuses exactly that.
+        subject.save(update_fields=["name", "updated_at"])
+        logger.info("subject sync: moved %s off its name", change.slug)
+
     started = time.monotonic()
     total = len(diff.to_create)
     for index, item in enumerate(diff.to_create, start=1):
@@ -540,6 +586,8 @@ def apply_vocabulary(diff):
         subject = Subject.all_objects.get(pk=change.pk)
         if "upstream_uuid" in change.changes:
             _, subject.upstream_uuid = change.changes["upstream_uuid"]
+        if "name" in change.changes:
+            _, subject.name = change.changes["name"]
         if "slug" in change.changes:
             _, subject.slug = change.changes["slug"]
         if "parent" in change.changes:
@@ -884,7 +932,7 @@ def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
                 assignment_total_before=assignment_total_before,
                 assignment_total_after=new_total,
                 created=[item["slug"] for item in vocab_diff.to_create],
-                updated=vocab_diff.to_update,
+                updated=[*vocab_diff.to_update, *vocab_diff.displaced],
                 unretired=vocab_diff.to_unretire,
                 retired=[subject.slug for subject in vocab_diff.to_retire],
                 assignments_created=assignment_diff.create_count,
@@ -936,7 +984,7 @@ def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
     return SyncResult(
         written=True,
         created=[item["slug"] for item in vocab_diff.to_create],
-        updated=vocab_diff.to_update,
+        updated=[*vocab_diff.to_update, *vocab_diff.displaced],
         unretired=vocab_diff.to_unretire,
         retired=retired_slugs,
         assignments_created=assignment_diff.create_count,

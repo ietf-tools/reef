@@ -1,0 +1,41 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+  {{ block.super }}
+  {% if not run.is_finished %}
+    <meta http-equiv="refresh" content="3">
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<p>
+  {% translate "Started" %} {{ run.created_at }}{% if run.triggered_by %} by {{ run.triggered_by }}{% endif %}.
+</p>
+
+{% if not run.is_finished %}
+  <p>{{ run.get_status_display }}&hellip; this page refreshes itself every few
+    seconds. Safe to close and come back later -- the run keeps going either way.</p>
+  {% if run.status == "pending" %}
+    <p>Queued behind any precompute run the worker already has in hand.</p>
+  {% endif %}
+  {% if run.progress_message %}
+    <p><code>{{ run.progress_message }}</code></p>
+  {% endif %}
+{% else %}
+  <p class="{% if run.status == 'succeeded' %}success{% else %}errornote{% endif %}">
+    {{ run.get_status_display }}{% if run.started_at and run.finished_at %}
+      in {{ run.started_at|timesince:run.finished_at }}{% endif %}.
+  </p>
+  {% if run.output %}
+    <h3>{% translate "Output" %}</h3>
+    <pre>{{ run.output }}</pre>
+  {% endif %}
+  {% if run.error %}
+    <h3>{% translate "Errors" %}</h3>
+    <pre class="errornote">{{ run.error }}</pre>
+  {% endif %}
+{% endif %}
+
+<p><a href="{% url 'admin:precomputer-run' %}">{% translate "Back to precompute" %}</a></p>
+{% endblock %}

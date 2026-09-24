@@ -18,9 +18,15 @@ from django.urls import reverse
 
 from popularity.models import PopularEntry
 from precomputer.blobstore import LocalBlobStore, get_blob_store
+from precomputer.models import PrecomputeRun
 from precomputer.registry import TASKS
 from precomputer.signals import CURATED_DEBOUNCE_SECONDS
-from precomputer.tasks import precompute_all, precompute_curated, precompute_engagement
+from precomputer.tasks import (
+    precompute_all,
+    precompute_curated,
+    precompute_engagement,
+    precompute_from_admin,
+)
 from ratings.models import Rating
 from reef import rfcmeta
 from reef.locks import _key, advisory_lock
@@ -1099,8 +1105,9 @@ class RetiredSubjectOutputTests(PrecomputeTestCase):
 
 
 class PrecomputeAdminViewTests(PrecomputeTestCase):
-    """The staff-only /admin/precompute/ button, for triggering a run without shell
-    access and reading its output straight from the page."""
+    """The staff-only /admin/precompute/ button. It only ever creates a
+    PrecomputeRun and hands it to Celery; the run itself is
+    PrecomputeFromAdminTaskTests' job."""
 
     def setUp(self):
         super().setUp()
@@ -1120,35 +1127,116 @@ class PrecomputeAdminViewTests(PrecomputeTestCase):
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 302)
 
-    def test_staff_get_shows_the_form_and_no_result_yet(self):
-        self.client.force_login(self._staff())
+    def test_staff_get_shows_the_form_and_recent_runs(self):
+        staff = self._staff()
+        PrecomputeRun.objects.create(triggered_by=staff)
+        self.client.force_login(staff)
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 200)
-        self.assertIsNone(resp.context["result"])
         self.assertContains(resp, "Run precompute now")
+        self.assertContains(resp, "Recent runs")
 
-    def test_staff_post_runs_every_task_and_reports_success(self):
-        self.client.force_login(self._staff())
-        resp = self.client.post(self.url)
-        self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.context["result"]["ok"])
-        self.assertIn("stats.json", self.written())
-        self.assertContains(resp, "Succeeded")
-
-    def test_a_failing_run_is_shown_rather_than_raised(self):
-        self.client.force_login(self._staff())
-        with mock.patch(
-            "precomputer.admin.call_command", side_effect=CommandError("boom")
-        ):
+    def test_staff_post_creates_a_run_and_enqueues_it_without_running_it(self):
+        staff = self._staff()
+        self.client.force_login(staff)
+        with mock.patch("precomputer.admin.precompute_from_admin.delay") as delay:
             resp = self.client.post(self.url)
-        self.assertEqual(resp.status_code, 200)
-        self.assertFalse(resp.context["result"]["ok"])
-        self.assertIn("boom", resp.context["result"]["error"])
-
-    def test_a_concurrent_run_is_reported_rather_than_started(self):
-        self.client.force_login(self._staff())
-        with mock.patch("precomputer.admin.advisory_lock") as lock:
-            lock.return_value.__enter__.return_value = False
-            resp = self.client.post(self.url)
-        self.assertTrue(resp.context["result"]["skipped"])
+        run = PrecomputeRun.objects.get()
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(f"/precompute/runs/{run.pk}/", resp["Location"])
+        self.assertEqual(run.status, PrecomputeRun.Status.PENDING)
+        self.assertEqual(run.triggered_by, staff)
+        delay.assert_called_once_with(run.pk)
         self.assertEqual(self.written(), set())
+
+    def test_an_unfinished_run_refreshes_and_shows_its_progress(self):
+        run = PrecomputeRun.objects.create(
+            status=PrecomputeRun.Status.RUNNING,
+            progress_message="[subjects] 150/660 uploaded",
+        )
+        self.client.force_login(self._staff())
+        resp = self.client.get(reverse("admin:precomputer-run-detail", args=[run.pk]))
+        self.assertContains(resp, 'http-equiv="refresh"')
+        self.assertContains(resp, "[subjects] 150/660 uploaded")
+
+    def test_a_finished_run_stops_refreshing_and_shows_its_output(self):
+        run = PrecomputeRun.objects.create(
+            status=PrecomputeRun.Status.FAILED, output="[stats] 1 file(s)", error="boom"
+        )
+        self.client.force_login(self._staff())
+        resp = self.client.get(reverse("admin:precomputer-run-detail", args=[run.pk]))
+        self.assertNotContains(resp, 'http-equiv="refresh"')
+        self.assertContains(resp, "[stats] 1 file(s)")
+        self.assertContains(resp, "boom")
+
+
+class PrecomputeFromAdminTaskTests(PrecomputeTestCase):
+    def test_a_missing_run_is_logged_not_raised(self):
+        precompute_from_admin(999999)  # must not raise
+
+    def test_a_run_writes_every_task_and_records_its_output(self):
+        run = PrecomputeRun.objects.create()
+        precompute_from_admin(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, PrecomputeRun.Status.SUCCEEDED)
+        self.assertIn("stats.json", self.written())
+        self.assertIn("file(s) written", run.output)
+        self.assertIsNotNone(run.started_at)
+        self.assertIsNotNone(run.finished_at)
+
+    def test_the_last_line_of_output_is_left_as_its_progress(self):
+        run = PrecomputeRun.objects.create()
+        precompute_from_admin(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.progress_message, run.output.strip().splitlines()[-1])
+
+    def test_a_run_while_another_holds_the_lock_is_skipped(self):
+        run = PrecomputeRun.objects.create()
+        with mock.patch("precomputer.tasks.advisory_lock") as lock:
+            lock.return_value.__enter__.return_value = False
+            precompute_from_admin(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, PrecomputeRun.Status.SKIPPED)
+        self.assertIn("already in progress", run.error)
+        self.assertEqual(self.written(), set())
+
+    def test_a_failing_command_marks_the_run_failed(self):
+        run = PrecomputeRun.objects.create()
+        with mock.patch(
+            "precomputer.tasks.call_command", side_effect=CommandError("boom")
+        ):
+            precompute_from_admin(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, PrecomputeRun.Status.FAILED)
+        self.assertIn("boom", run.error)
+
+    def test_an_unexpected_exception_records_its_traceback(self):
+        """Nobody pressing the button can read the worker's log, so the row
+        carries the whole traceback rather than just the message."""
+        run = PrecomputeRun.objects.create()
+        with mock.patch(
+            "precomputer.tasks.call_command", side_effect=RuntimeError("boom")
+        ):
+            precompute_from_admin(run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.status, PrecomputeRun.Status.FAILED)
+        self.assertIn("Traceback (most recent call last)", run.error)
+        self.assertIn("RuntimeError: boom", run.error)
+
+
+class ProgressOutputTests(PrecomputeTestCase):
+    def test_uploads_are_counted_as_they_complete(self):
+        for index in range(3):
+            Subject.objects.create(name=f"Subject {index}", slug=f"subject-{index}")
+        with mock.patch(
+            "precomputer.management.commands.precompute.PROGRESS_INTERVAL", 2
+        ):
+            output = self.precompute("subjects")
+        self.assertIn("[subjects] rendering", output)
+        self.assertIn("[subjects] 2 file(s) rendered", output)
+        self.assertIn("[subjects] 2/4 uploaded", output)
+        self.assertIn("[subjects] 4/4 uploaded", output)
+
+    def test_a_dry_run_counts_nothing_as_uploaded(self):
+        output = self.precompute("stats", dry_run=True)
+        self.assertNotIn("uploaded", output)
