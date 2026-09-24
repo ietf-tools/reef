@@ -213,7 +213,7 @@ reef/
     static/surveys/{init-creator,init-analytics}.js
     rules.py  factories.py  tests.py  migrations/
   ratings/                 scaffold: Rating model, aggregate/submit API, test stub
-  popularity/              scaffold: curated-list model/config, read API, test stub
+  popularity/              DocumentPopularity derived from MatomoRanking, Matomo import admin, read API
   docsets/                 DocumentSet and DocumentSetEntry, owner-scoped API, public read
   subjects/                Subject vocabulary and SubjectAssignment, public read API, admin curation
     tree.py                roll-up over the tree, in one place because four callers need it
@@ -249,8 +249,10 @@ reef/
   submitted_at, meta (JSON).
 - ratings.Rating (scaffold): rfc (identifier), user, value (1-5), unique (rfc, user),
   timestamps. Aggregate is average plus count per rfc.
-- popularity (scaffold): a curated ordered list of RFC ids (manually managed JSON,
-  per ticket #1), served read-only.
+- popularity.DocumentPopularity: rfc (identifier), score (float, 0 least to 1 most
+  popular), created_at, updated_at; a cache recomputed from the input tables, of
+  which popularity.MatomoRanking (same fields) is the first, served read-only. See
+  "Popularity from Matomo" below.
 - docsets.DocumentSet: owner (FK), title, description, deleted_at and
   deleted_reason, timestamps. docsets.DocumentSetEntry:
   set FK, doc (a canonical identifier), rank for display order, added_at, unique
@@ -463,7 +465,7 @@ Surveys (built):
 Scaffolded (models and endpoints stubbed, returning minimal real data):
 
 - GET /ratings/{rfc}/ (anonymous aggregate), PUT /ratings/{rfc}/ (bearer). Ticket #108.
-- GET /popularity/ (anonymous curated list). Tickets #101 and #102.
+- GET /popularity/ (anonymous ranking, {computed_at, entries}). Tickets #101 and #102.
 - GET/POST/DELETE /subscriptions/ (bearer) plus an internal ingest task hook. Kinds:
   new_rfc, by_status, obsoleted, rfc (one named RFC), set, and subject. POST is
   idempotent: a repeat returns 201 with the existing subscription rather than a
@@ -946,7 +948,7 @@ Then, for precomputed reads:
   3. A Response row is stored (POST .../responses/ returns 201) and is visible in
      /admin/.
   4. /admin/survey-builder/surveys/<id>/analytics/ renders the results.
-- Scaffolds: GET /popularity/ returns the curated list; PUT /ratings/{rfc}/ with a
+- Scaffolds: GET /popularity/ returns the ranking; PUT /ratings/{rfc}/ with a
   bearer stores a rating and the aggregate updates; POST /subscriptions/ stores a
   subscription and enqueues a confirmation caught by mailpit, and a second POST of the
   same subscription does not send a second one.
@@ -1835,10 +1837,13 @@ Three things, all on the `popularity` app in the admin index:
   `created_at`, `updated_at`; ordered by score descending; searchable by `rfc`; no add,
   change or delete permission. Two columns of timestamps on the changelist are how an
   admin answers "is this being updated".
-- **Upload page**, `/admin/popularity/matomoranking/import/`, reached by a button on
-  the `MatomoRanking` changelist and registered through that `ModelAdmin.get_urls`, as
-  the subject sync is. A one-field form (the file) and the ten most recent runs.
-- **Run page**, `/admin/popularity/matomoranking/import/runs/<id>/`, the
+- **Popularity page**, `/admin/popularity/` (`admin:popularity`), linked from the
+  admin header and shadowing the app's own index: what is ranked and when it was last
+  computed, links to both tables, and one section per input. Matomo's section holds
+  the upload form (one field, the file) and the ten most recent imports. Plain admin
+  views registered through `admin.site.get_urls`, as the precomputer's button is,
+  since the page belongs to no one table.
+- **Run page**, `/admin/popularity/runs/<id>/` (`admin:popularity-run`), the
   `PrecomputeRun` detail pattern: `<meta refresh>` until finished, the parse summary
   (rows seen, RFCs ranked, rows ignored, the truncation warning), then
   `progress_message` while the task runs, then output and errors.
