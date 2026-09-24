@@ -58,7 +58,7 @@ Naming a bucket without credentials is an error rather than a silent fallback.
 
 ```
 stats.json                          every document with any engagement
-popularity.json                     the curated most-popular list
+popularity.json                     the popularity ranking, most popular first
 subjects.json                       the vocabulary as a tree, with every
                                     assignment and every title, in one file
 subjects/<slug>.json                one subject and the documents carrying it
@@ -134,8 +134,8 @@ that fetches a list of identifiers and then has to resolve them loads slower
 than one that fetches a file it can render.
 
 Additions are new keys, never changes to existing ones. Where the payload is a
-list of objects — `stats`, `popularity`, `ratings` — each object gains the
-fields. Where a document is named as a bare string, as the subject detail's
+list of objects — `stats`, `ratings`, and the `entries` of `popularity` — each
+object gains the fields. Where a document is named as a bare string, as the subject detail's
 `documents` array does, a sibling `document_meta` map keyed by identifier is
 added rather than that array becoming a list of objects. Retyping an existing
 key is what breaks a caller, and it is what Reef asks Red not to do to it.

@@ -1,0 +1,69 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+
+<p>
+  Popularity is computed from ranking inputs, never typed in: each RFC scores from
+  0 (least popular) to 1 (most), and an RFC no input ranks has no score.
+  {% if computed_at %}
+    {{ ranked_count }} RFC(s) ranked, last computed {{ computed_at }}.
+  {% else %}
+    Nothing is ranked yet.
+  {% endif %}
+  See <a href="{% url 'admin:popularity_documentpopularity_changelist' %}">the
+  popularity table</a>.
+</p>
+
+<h2>Matomo</h2>
+<p>
+  The one input so far: {{ matomo_count }} RFC(s) in
+  <a href="{% url 'admin:popularity_matomoranking_changelist' %}">the Matomo
+  ranking</a>. Uploading an export here replaces that ranking with the RFCs in it,
+  then recomputes popularity and publishes <code>popularity.json</code>. The export
+  is Matomo's <code>Actions.getPageUrls</code> report as expanded JSON. Only RFC
+  identifiers and their relative ranking are kept from it; nothing else in the file
+  is stored or logged.
+</p>
+<p>
+  The file is read here; publishing runs in the background, on a page that shows
+  its progress.
+</p>
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+  <fieldset class="module aligned">
+    <div class="form-row{% if form.export.errors %} errors{% endif %}">
+      {{ form.export.errors }}
+      {{ form.export.label_tag }} {{ form.export }}
+      <div class="help">{{ form.export.help_text }}</div>
+    </div>
+  </fieldset>
+  <div class="submit-row">
+    <input type="submit" value="Import" class="default">
+  </div>
+</form>
+
+{% if recent_runs %}
+  <h3>Recent imports</h3>
+  <table>
+    <thead>
+      <tr><th>Started</th><th>Status</th><th>RFCs ranked</th><th>Triggered by</th></tr>
+    </thead>
+    <tbody>
+      {% for run in recent_runs %}
+        <tr>
+          <td>
+            <a href="{% url 'admin:popularity-run' run_id=run.pk %}">
+              {{ run.created_at }}
+            </a>
+          </td>
+          <td>{{ run.get_status_display }}</td>
+          <td>{{ run.rfcs_ranked }}</td>
+          <td>{{ run.triggered_by|default:"(unknown)" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% endblock %}

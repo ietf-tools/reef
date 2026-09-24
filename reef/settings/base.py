@@ -430,7 +430,10 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # takes and, once it resolves document metadata, a few megabytes of parsed index with
 # it; sharing the default queue would put that in front of subscription mail, where
 # the delay is a person waiting for a message.
-CELERY_TASK_ROUTES = {"precomputer.tasks.*": {"queue": "precompute"}}
+CELERY_TASK_ROUTES = {
+    "precomputer.tasks.*": {"queue": "precompute"},
+    "popularity.tasks.*": {"queue": "precompute"},
+}
 
 CELERY_BEAT_SCHEDULE = {
     # Daily. This is the only job that notices an RFC Red has published and Reef has

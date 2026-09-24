@@ -134,11 +134,11 @@ def stats(docs=None, index=None):
 
 @task("popularity", owns=r"^popularity\.json$")
 def popularity(docs=None, index=None):
-    """The curated most-popular list."""
+    """The popularity ranking, most popular first."""
     body = render_anonymous(PopularityList.as_view(), "/api/reef/popularity/")
 
-    def add(rows):
-        for row in rows:
+    def add(payload):
+        for row in payload["entries"]:
             row.update(_meta(index, row["rfc"]))
 
     yield "popularity.json", _augment(body, add)

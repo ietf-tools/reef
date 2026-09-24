@@ -15,8 +15,9 @@ from django.db import connections, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
-from popularity.models import PopularEntry
+from popularity.models import DocumentPopularity
 from precomputer.blobstore import LocalBlobStore, get_blob_store
 from precomputer.models import PrecomputeRun
 from precomputer.registry import TASKS
@@ -59,6 +60,17 @@ def fake_index(entries=None, created_on=None):
     return rfcmeta.DocumentIndex(
         rfcmeta._reduce(FAKE_INDEX_ENTRIES if entries is None else entries),
         created_on or datetime.date.today(),
+    )
+
+
+def rank(**scores):
+    """Rows in the popularity table, the way a recompute writes them."""
+    now = timezone.now()
+    DocumentPopularity.objects.bulk_create(
+        [
+            DocumentPopularity(rfc=rfc, score=score, created_at=now, updated_at=now)
+            for rfc, score in scores.items()
+        ]
     )
 
 
@@ -165,11 +177,11 @@ class OutputTests(PrecomputeTestCase):
     def test_an_augmented_payload_is_the_live_response_plus_added_keys(self):
         """Strip what the precomputer added and the rest must match the endpoint
         exactly, so nothing it writes can quietly disagree with what Reef serves."""
-        PopularEntry.objects.create(rfc="rfc9110", rank=1)
+        rank(rfc9110=1.0)
         self.precompute("popularity")
 
         written = self.read("popularity.json")
-        for row in written:
+        for row in written["entries"]:
             del row["title"]
             del row["subseries"]
 
@@ -393,9 +405,9 @@ class DocumentMetadataTests(PrecomputeTestCase):
         self.assertEqual(row["rating_count"], 1)  # the endpoint's own fields survive
 
     def test_popularity_rows_carry_metadata(self):
-        PopularEntry.objects.create(rfc="rfc2119", rank=1)
+        rank(rfc2119=1.0)
         self.precompute("popularity")
-        row = self.read("popularity.json")[0]
+        row = self.read("popularity.json")["entries"][0]
         self.assertEqual(row["title"], "Key words")
         self.assertEqual(row["subseries"], ["bcp14"])
 
@@ -897,7 +909,7 @@ class RegistryTests(PrecomputeTestCase):
         """A regex that missed its own keys would purge them on the next run."""
         user = User.objects.create(username="a", oidc_sub="a")
         Rating.objects.create(rfc="rfc9110", user=user, value=4)
-        PopularEntry.objects.create(rfc="rfc9110", rank=1)
+        rank(rfc9110=1.0)
         Subject.objects.create(name="Security", slug="security")
         Survey.objects.create(
             title="Open",
@@ -965,7 +977,7 @@ class AdvisoryLockTests(TransactionTestCase):
 class CeleryTaskTests(PrecomputeTestCase):
     def setUp(self):
         super().setUp()
-        PopularEntry.objects.create(rfc="rfc9110", rank=1)
+        rank(rfc9110=1.0)
 
     def test_precompute_all_runs_every_task(self):
         precompute_all()
@@ -1014,11 +1026,17 @@ class CuratedSignalTests(TestCase):
 
     def test_saving_a_curated_model_enqueues_a_run(self):
         with self.captureOnCommitCallbacks(execute=True):
-            PopularEntry.objects.create(rfc="rfc9110", rank=1)
+            Subject.objects.create(name="Security", slug="security")
         self.assertEqual(self.enqueue.call_count, 1)
         self.assertEqual(
             self.enqueue.call_args.kwargs["countdown"], CURATED_DEBOUNCE_SECONDS
         )
+
+    def test_a_recomputed_ranking_enqueues_nothing(self):
+        """Bulk-written, and published by the import that changed it."""
+        with self.captureOnCommitCallbacks(execute=True):
+            rank(rfc9110=1.0)
+        self.assertEqual(self.enqueue.call_count, 0)
 
     def test_deleting_a_curated_model_enqueues_a_run(self):
         subject = Subject.objects.create(name="Security", slug="security")
@@ -1064,15 +1082,15 @@ class CuratedSignalTests(TestCase):
     def test_a_rolled_back_edit_enqueues_nothing(self):
         with self.captureOnCommitCallbacks(execute=True):
             with contextlib.suppress(RuntimeError), transaction.atomic():
-                PopularEntry.objects.create(rfc="rfc7230", rank=3)
+                Subject.objects.create(name="Transport", slug="transport")
                 raise RuntimeError("rolled back")
         self.assertEqual(self.enqueue.call_count, 0)
 
     def test_a_broker_failure_does_not_break_the_edit(self):
         self.enqueue.side_effect = OSError("broker down")
         with self.captureOnCommitCallbacks(execute=True):
-            PopularEntry.objects.create(rfc="rfc8446", rank=2)  # must not raise
-        self.assertEqual(PopularEntry.objects.filter(rfc="rfc8446").count(), 1)
+            Subject.objects.create(name="Transport", slug="transport")  # must not raise
+        self.assertEqual(Subject.objects.filter(slug="transport").count(), 1)
 
 
 class RetiredSubjectOutputTests(PrecomputeTestCase):
