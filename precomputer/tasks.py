@@ -30,6 +30,7 @@ from django.utils import timezone
 from reef.locks import advisory_lock
 
 from .models import PrecomputeRun
+from .progress import ProgressOutput
 
 logger = logging.getLogger("reef")
 
@@ -79,29 +80,6 @@ def precompute_curated():
     return _run("popularity", "subjects", "surveys")
 
 
-class _ProgressOutput(io.StringIO):
-    """The command's stdout, kept whole for the finished page and mirrored line
-    by line onto a PrecomputeRun's progress_message for the polling one.
-
-    A stream rather than a callback threaded through the command: the command
-    already writes a line at each step, and BaseCommand hands every one of them
-    to whatever stdout it was given, one write per line.
-    """
-
-    def __init__(self, run_id):
-        super().__init__()
-        self.run_id = run_id
-
-    def write(self, text):
-        written = super().write(text)
-        line = text.strip()
-        if line:
-            PrecomputeRun.objects.filter(pk=self.run_id).update(
-                progress_message=line.splitlines()[-1][:255]
-            )
-        return written
-
-
 @shared_task(ignore_result=True)
 def precompute_from_admin(run_id):
     """Every task, for the admin button, reporting onto a PrecomputeRun row.
@@ -121,7 +99,7 @@ def precompute_from_admin(run_id):
     run.started_at = timezone.now()
     run.save(update_fields=["status", "started_at"])
 
-    out, err = _ProgressOutput(run_id), io.StringIO()
+    out, err = ProgressOutput(PrecomputeRun, run_id), io.StringIO()
     with advisory_lock(LOCK_NAME) as acquired:
         if not acquired:
             run.status = PrecomputeRun.Status.SKIPPED

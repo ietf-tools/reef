@@ -15,8 +15,9 @@ from django.db import connections, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
-from popularity.models import PopularEntry
+from popularity.models import DocumentPopularity
 from precomputer.blobstore import LocalBlobStore, get_blob_store
 from precomputer.models import PrecomputeRun
 from precomputer.registry import TASKS
@@ -59,6 +60,17 @@ def fake_index(entries=None, created_on=None):
     return rfcmeta.DocumentIndex(
         rfcmeta._reduce(FAKE_INDEX_ENTRIES if entries is None else entries),
         created_on or datetime.date.today(),
+    )
+
+
+def rank(**scores):
+    """Rows in the popularity table, the way a recompute writes them."""
+    now = timezone.now()
+    DocumentPopularity.objects.bulk_create(
+        [
+            DocumentPopularity(rfc=rfc, score=score, created_at=now, updated_at=now)
+            for rfc, score in scores.items()
+        ]
     )
 
 
@@ -162,22 +174,18 @@ class OutputTests(PrecomputeTestCase):
             (self.out_dir / "surveys/open.json").read_bytes(), live.content
         )
 
-    def test_an_augmented_payload_is_the_live_response_plus_added_keys(self):
-        """Strip what the precomputer added and the rest must match the endpoint
-        exactly, so nothing it writes can quietly disagree with what Reef serves."""
-        PopularEntry.objects.create(rfc="rfc9110", rank=1)
-        self.precompute("popularity")
+    def test_a_document_file_is_the_live_response_byte_for_byte(self):
+        """Nothing the precomputer writes may disagree with what Reef serves: the
+        contract describes the endpoint, and the file is a cache of it."""
+        Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
+        self.precompute("stats", "ratings")
 
-        written = self.read("popularity.json")
-        for row in written:
-            del row["title"]
-            del row["subseries"]
-
-        live = self.client.get("/api/reef/popularity/", HTTP_ACCEPT="application/json")
-        self.assertEqual(
-            json.dumps(written, ensure_ascii=False, separators=(",", ":")).encode(),
-            live.content,
-        )
+        for key, url in (
+            ("stats.json", "/api/reef/stats/"),
+            ("ratings/rfc9110.json", "/api/reef/ratings/rfc9110/"),
+        ):
+            live = self.client.get(url, HTTP_ACCEPT="application/json")
+            self.assertEqual((self.out_dir / key).read_bytes(), live.content, key)
 
     def test_stats_covers_engagement(self):
         Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
@@ -373,36 +381,28 @@ class SubjectIndexTests(PrecomputeTestCase):
 
 
 class DocumentMetadataTests(PrecomputeTestCase):
-    """Every file that names a document carries that document's metadata.
-
-    The reason is Red's rather than Reef's: an SPA route wants one resource, and a
-    page that fetches a list of identifiers and then resolves them loads slower than
-    one that fetches a file it can render.
+    """Only the subject files carry document metadata, and they declare it on
+    their own serializers, so the contract describes it. Every other file is the
+    endpoint's bytes, title-less, since its reader already holds the documents.
     """
 
     def setUp(self):
         super().setUp()
         self.user = User.objects.create(username="a", oidc_sub="a")
 
-    def test_stats_rows_carry_metadata(self):
+    def test_document_files_carry_no_metadata(self):
         Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
-        self.precompute("stats")
-        row = next(r for r in self.read("stats.json") if r["doc"] == "rfc9110")
-        self.assertEqual(row["title"], "HTTP Semantics")
-        self.assertEqual(row["subseries"], ["std97"])
-        self.assertEqual(row["rating_count"], 1)  # the endpoint's own fields survive
-
-    def test_popularity_rows_carry_metadata(self):
-        PopularEntry.objects.create(rfc="rfc2119", rank=1)
-        self.precompute("popularity")
-        row = self.read("popularity.json")[0]
-        self.assertEqual(row["title"], "Key words")
-        self.assertEqual(row["subseries"], ["bcp14"])
-
-    def test_rating_files_carry_metadata(self):
-        Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
-        self.precompute("ratings")
-        self.assertEqual(self.read("ratings/rfc9110.json")["title"], "HTTP Semantics")
+        rank(rfc2119=1.0)
+        self.precompute("stats", "ratings", "popularity")
+        stats_row = next(r for r in self.read("stats.json") if r["doc"] == "rfc9110")
+        for row in (
+            stats_row,
+            self.read("ratings/rfc9110.json"),
+            self.read("popularity.json")["entries"][0],
+        ):
+            self.assertNotIn("title", row)
+            self.assertNotIn("subseries", row)
+        self.assertEqual(stats_row["rating_count"], 1)
 
     def test_an_alias_gets_the_redirect_stub_as_its_own_file(self):
         """A name arrives from a link without the caller knowing which kind it is,
@@ -454,30 +454,20 @@ class DocumentMetadataTests(PrecomputeTestCase):
         self.assertEqual(detail["abstract"], "What HTTP means by semantics.")
         self.assertIn("status", detail)
 
-    def test_an_unresolvable_document_gets_null_metadata_not_omission(self):
-        """Null, so a reader can tell "no such document" from "not looked up"."""
-        Rating.objects.create(rfc="rfc8446", user=self.user, value=4)
-        self.precompute("stats")
-        row = next(r for r in self.read("stats.json") if r["doc"] == "rfc8446")
-        self.assertIsNone(row["title"])
-        self.assertEqual(row["subseries"], [])
-
     def test_red_being_unreachable_still_writes_every_file(self):
-        """Reef's own numbers do not depend on Red, so a failed fetch costs titles
-        and nothing else."""
+        """Reef's own numbers do not depend on Red, so a failed fetch costs the
+        stale-source check and nothing else."""
         self.index = None
         Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
         self.precompute()
-        row = next(r for r in self.read("stats.json") if r["doc"] == "rfc9110")
-        self.assertIsNone(row["title"])
+        self.assertIn("stats.json", self.written())
         self.assertIn("ratings/rfc9110.json", self.written())
 
     def test_no_metadata_skips_the_fetch_entirely(self):
         Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
         self.precompute("stats", "--no-metadata")
         self.get_index.assert_not_called()
-        row = next(r for r in self.read("stats.json") if r["doc"] == "rfc9110")
-        self.assertIsNone(row["title"])
+        self.assertIn("stats.json", self.written())
 
     def test_the_index_is_loaded_once_per_run_not_per_document(self):
         """Per-lookup validation of ten thousand entries would make a run unusable."""
@@ -897,7 +887,7 @@ class RegistryTests(PrecomputeTestCase):
         """A regex that missed its own keys would purge them on the next run."""
         user = User.objects.create(username="a", oidc_sub="a")
         Rating.objects.create(rfc="rfc9110", user=user, value=4)
-        PopularEntry.objects.create(rfc="rfc9110", rank=1)
+        rank(rfc9110=1.0)
         Subject.objects.create(name="Security", slug="security")
         Survey.objects.create(
             title="Open",
@@ -965,7 +955,7 @@ class AdvisoryLockTests(TransactionTestCase):
 class CeleryTaskTests(PrecomputeTestCase):
     def setUp(self):
         super().setUp()
-        PopularEntry.objects.create(rfc="rfc9110", rank=1)
+        rank(rfc9110=1.0)
 
     def test_precompute_all_runs_every_task(self):
         precompute_all()
@@ -1014,11 +1004,17 @@ class CuratedSignalTests(TestCase):
 
     def test_saving_a_curated_model_enqueues_a_run(self):
         with self.captureOnCommitCallbacks(execute=True):
-            PopularEntry.objects.create(rfc="rfc9110", rank=1)
+            Subject.objects.create(name="Security", slug="security")
         self.assertEqual(self.enqueue.call_count, 1)
         self.assertEqual(
             self.enqueue.call_args.kwargs["countdown"], CURATED_DEBOUNCE_SECONDS
         )
+
+    def test_a_recomputed_ranking_enqueues_nothing(self):
+        """Bulk-written, and published by the import that changed it."""
+        with self.captureOnCommitCallbacks(execute=True):
+            rank(rfc9110=1.0)
+        self.assertEqual(self.enqueue.call_count, 0)
 
     def test_deleting_a_curated_model_enqueues_a_run(self):
         subject = Subject.objects.create(name="Security", slug="security")
@@ -1064,15 +1060,15 @@ class CuratedSignalTests(TestCase):
     def test_a_rolled_back_edit_enqueues_nothing(self):
         with self.captureOnCommitCallbacks(execute=True):
             with contextlib.suppress(RuntimeError), transaction.atomic():
-                PopularEntry.objects.create(rfc="rfc7230", rank=3)
+                Subject.objects.create(name="Transport", slug="transport")
                 raise RuntimeError("rolled back")
         self.assertEqual(self.enqueue.call_count, 0)
 
     def test_a_broker_failure_does_not_break_the_edit(self):
         self.enqueue.side_effect = OSError("broker down")
         with self.captureOnCommitCallbacks(execute=True):
-            PopularEntry.objects.create(rfc="rfc8446", rank=2)  # must not raise
-        self.assertEqual(PopularEntry.objects.filter(rfc="rfc8446").count(), 1)
+            Subject.objects.create(name="Transport", slug="transport")  # must not raise
+        self.assertEqual(Subject.objects.filter(slug="transport").count(), 1)
 
 
 class RetiredSubjectOutputTests(PrecomputeTestCase):

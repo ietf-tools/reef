@@ -4,8 +4,9 @@
 Ratings, subscriptions and set entries are not here on purpose. They arrive
 continuously from readers through Red, so a task per write would enqueue thousands
 to rebuild a file nobody reads in between; precompute_engagement covers them on a
-period instead. What is here is the handful of models a person edits deliberately
-and then expects to see published.
+period instead. Popularity is not here either: it is bulk-written by a recompute,
+which no post_save sees, and the Matomo import publishes it itself. What is here is
+the handful of models a person edits deliberately and then expects to see published.
 
 Enqueued with a countdown so that saving a subject and its assignments in one sitting
 usually lands as one run rather than several, and on_commit so that a rolled-back
@@ -18,7 +19,6 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from popularity.models import PopularEntry
 from subjects.models import Subject, SubjectAlias, SubjectAssignment
 from surveys.models import Survey
 
@@ -47,7 +47,7 @@ def _schedule_curated(sender, **kwargs):
     transaction.on_commit(enqueue)
 
 
-for model in (PopularEntry, Subject, SubjectAlias, SubjectAssignment, Survey):
+for model in (Subject, SubjectAlias, SubjectAssignment, Survey):
     receiver(post_save, sender=model, dispatch_uid=f"precompute_{model.__name__}_save")(
         _schedule_curated
     )

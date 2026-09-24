@@ -78,8 +78,8 @@ class Command(BaseCommand):
             action="store_false",
             dest="metadata",
             help=(
-                "Skip resolving document titles from Red, writing null metadata "
-                "instead. For working offline; the files stay the right shape."
+                "Skip loading Red's index: subject files get null titles and the "
+                "run does not check its documents against Red. For working offline."
             ),
         )
         parser.add_argument(
@@ -124,10 +124,11 @@ class Command(BaseCommand):
             index = rfcmeta.get_index()
             if index is None:
                 # Red being unreachable is not a reason to publish nothing: the files
-                # are written with null metadata instead.
+                # are written, without the check against Red's index.
                 self.stderr.write(
                     self.style.WARNING(
-                        "Could not load Red's index; writing null document metadata."
+                        "Could not load Red's index; subject titles are null and "
+                        "documents are not checked against it."
                     )
                 )
 

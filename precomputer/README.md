@@ -58,7 +58,7 @@ Naming a bucket without credentials is an error rather than a silent fallback.
 
 ```
 stats.json                          every document with any engagement
-popularity.json                     the curated most-popular list
+popularity.json                     the popularity ranking, most popular first
 subjects.json                       the vocabulary as a tree, with every
                                     assignment and every title, in one file
 subjects/<slug>.json                one subject and the documents carrying it
@@ -125,35 +125,30 @@ A retired subject and an alias are published here too, as the redirect stubs the
 served read returns, because a blob store cannot answer with a 301. Neither
 carries `documents`, so neither gains the maps.
 
-## Document metadata
+## Files are the API responses
 
-Every file that names a document also carries that document's `title` and
-`subseries`, resolved through `reef.rfcmeta` from Red's published index. The
-reason is Red's rather than Reef's: an SPA route wants one resource, and a page
-that fetches a list of identifiers and then has to resolve them loads slower
-than one that fetches a file it can render.
+Every file is byte for byte what its endpoint serves to an anonymous caller, so
+the schema in `reef_api.yaml` describes the file as well as the endpoint, and a
+consumer generating types from the contract can read the file with them. The
+tests hold each task to that: the file's bytes equal the live response.
 
-Additions are new keys, never changes to existing ones. Where the payload is a
-list of objects — `stats`, `popularity`, `ratings` — each object gains the
-fields. Where a document is named as a bare string, as the subject detail's
-`documents` array does, a sibling `document_meta` map keyed by identifier is
-added rather than that array becoming a list of objects. Retyping an existing
-key is what breaks a caller, and it is what Reef asks Red not to do to it.
+The subject files are the ones that carry document titles and metadata, and they
+do it inside the contract: their views declare it on serializers of their own
+(`subjects/precompute.py`) and are described under `/api/reef/precomputed/` in
+the schema. `stats`, `ratings` and `popularity` name documents by identifier
+only; their readers already hold the documents.
 
-So the invariant is that a precomputed file is the live endpoint's response plus
-zero or more added keys, which stays testable: strip the additions and compare.
-
-A document Red's index does not have gets `{"title": null, "subseries": []}` —
-null rather than omitted or echoed back as the identifier, so a reader can tell
-"no such document" from "not looked up". The run warns and names it, which is
-the real staleness signal: a frozen index does no harm until Reef holds a
-document Red's copy lacks. Red being unreachable costs titles and nothing else;
+Red's index is still loaded once per run. The subject views resolve titles from
+it, and every document `stats` and `ratings` name is looked up in it so that the
+run can warn, at its end, about any that Red's index lacks. That miss is the
+real staleness signal: a frozen index does no harm until Reef holds a document
+Red's copy does not. Red being unreachable costs that check and nothing else;
 every file is still written.
 
 The index is fetched and schema-validated at most once an hour and shared with
 anything else in Reef that resolves an identifier, rather than fetched per run or
-per lookup. Pass
-`--no-metadata` to skip the fetch and write nulls, for working offline.
+per lookup. Pass `--no-metadata` to skip the fetch and the check, for working
+offline.
 
 ## Purging
 

@@ -100,9 +100,8 @@ class LiveSubjectManager(models.Manager.from_queryset(SubjectQuerySet)):
 class Subject(models.Model):
     """One topic in the curated vocabulary, maintained by staff in the admin.
 
-    Short and slow-moving, like popularity.PopularEntry and unlike a document
-    set: nobody self-serves a subject into existence, so the list stays small
-    enough to hand to a caller whole.
+    Short and slow-moving, unlike a document set: nobody self-serves a subject
+    into existence, so the list stays small enough to hand to a caller whole.
 
     A subject has two identities and needs both. The primary key is what a
     subscription points at, so that renaming a subject does not silently

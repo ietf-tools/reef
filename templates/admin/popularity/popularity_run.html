@@ -1,0 +1,52 @@
+{% extends "admin/base_site.html" %}
+
+{% block extrahead %}
+  {{ block.super }}
+  {% if not run.is_finished %}
+    <meta http-equiv="refresh" content="3">
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<h2>Matomo import</h2>
+<p>Started {{ run.created_at }}{% if run.triggered_by %} by {{ run.triggered_by }}{% endif %}.</p>
+
+<p>
+  {{ run.rows_seen }} row(s) read, {{ run.rfcs_ranked }} RFC(s) ranked,
+  {{ run.rows_ignored }} row(s) ignored. The Matomo ranking has been replaced.
+</p>
+
+{% if run.truncated %}
+  <p class="warning">
+    Matomo had folded the rows past its archiving cap into an "Others" row under
+    {{ run.truncated|join:", " }}, so the ranking covers only the documents it
+    kept. A fuller ranking needs
+    <code>datatable_archiving_maximum_rows_subtable_actions</code> and
+    <code>datatable_archiving_maximum_rows_actions</code> raised in Matomo's
+    configuration and the period re-archived.
+  </p>
+{% endif %}
+
+{% if not run.is_finished %}
+  <p>{{ run.get_status_display }}&hellip; this page refreshes itself every few
+    seconds. Safe to close and come back later -- the run keeps going either way.</p>
+  {% if run.progress_message %}
+    <p><code>{{ run.progress_message }}</code></p>
+  {% endif %}
+{% else %}
+  <p class="{% if run.status == 'succeeded' %}success{% else %}errornote{% endif %}">
+    {{ run.get_status_display }}{% if run.started_at and run.finished_at %}
+      in {{ run.started_at|timesince:run.finished_at }}{% endif %}.
+  </p>
+  {% if run.output %}
+    <h3>Output</h3>
+    <pre>{{ run.output }}</pre>
+  {% endif %}
+  {% if run.error %}
+    <h3>Errors</h3>
+    <pre class="errornote">{{ run.error }}</pre>
+  {% endif %}
+{% endif %}
+
+<p><a href="{% url 'admin:popularity' %}">Back to popularity</a></p>
+{% endblock %}
