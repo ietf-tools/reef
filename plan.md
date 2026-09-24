@@ -23,7 +23,8 @@ https://account.ietf.org/.
   - Red calls a Reef API for open surveys, then shows a popover linking to the
     survey on the Reef Nuxt runner. Red renders no survey UI.
 - Ratings, API only. Red renders the star widget; Reef stores and aggregates.
-- Popularity, API only. Reef serves a curated "most popular" list; Red consumes it.
+- Popularity, API only. Reef serves a most-popular ranking of RFCs for any consumer to
+  read; it is tied to none of them.
 - Document sets, API only. Red has the UI for creating a set, titling and describing
   it, and adding documents to it; Reef stores the sets and their membership. A set is
   a subscribable thing, which is the reason it exists here rather than in Red's own
@@ -148,8 +149,8 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
   the file is a view's bytes like every other key and reef_api.yaml describes it. The
   rest -- stats, popularity, ratings -- still have it added after rendering by
   registry._augment, which only ever adds keys, so those files stay the live response
-  plus zero or more of them. They can take the same treatment when Red's precomputer,
-  which is their consumer, exists to want it.
+  plus zero or more of them. They can take the same treatment when a consumer exists
+  to want it.
 
   The subject views are deliberately not routed. A published file needs no URL, since
   the precomputer invokes the view callable directly, and serving an unpaginated read
@@ -1689,3 +1690,274 @@ Staging and production now require `REEF_SITE_URL` (Reef's own origin, e.g.
 `https://reef.ietf.org`) or the app fails to start; it replaces the optional
 `REEF_SURVEY_RUNNER_BASE_URL`, which silently produced a bare `/s?slug=...` path
 when unset.
+
+## Popularity from Matomo (proposed)
+
+`popularity.PopularEntry` is a hand-typed list: an `rfc` and a `rank`, edited in the
+admin, served by `GET /api/reef/popularity/` and snapshotted to `popularity.json` by the
+precomputer. The ask is to stop curating it by hand. Popularity becomes a cached output
+derived from input tables, not editable, keyed by document, holding one float per RFC
+in `[0, 1]` (0 least popular, 1 most) and nothing else beyond the timestamps an admin
+needs to see that it is being refreshed. The first and, for now, only input is a
+ranking uploaded from Matomo. The output is generic: a ranking any consumer can read
+(the Typesense search indexing is the first), tied to none of them. This section is the
+design for that; nothing below is built yet.
+
+### What is stored, and what is not
+
+Three models, all in the `popularity` app, replacing `PopularEntry`:
+
+- **`MatomoRanking`** -- the input. `rfc` (canonical doc id, unique, via
+  `reef.docids`), `score` (FloatField, `[0, 1]`), `created_at`, `updated_at`. That is
+  the minimum a ranking needs: which document, and where it sits relative to the
+  others. No visit counts, no hits, no URLs, no period, no per-page breakdown.
+- **`DocumentPopularity`** -- the output. The same four fields. Today its `score` is
+  the Matomo score; when a second input exists it becomes a combination (below). It is
+  a cache of `recompute_popularity()`, never written by hand.
+- **`MatomoImportRun`** -- one upload. `status` (the `PrecomputeRun` choices), `triggered_by`,
+  `created_at`/`started_at`/`finished_at`, `progress_message`, `output`, `error`, and
+  the parse summary: `rows_seen`, `rfcs_ranked`, `rows_ignored` (integers) and
+  `truncated` (a JSON list drawn from the three fixed directory names, empty when the
+  export was complete). Same shape and purpose as `PrecomputeRun` and
+  `subjects.SubjectSyncRun`: the admin page polls this row, never Celery's result
+  backend.
+
+**Sensitivity is the constraint the whole design bends around.** A Matomo page-URL
+export carries personal data: `/person/<email>` rows, `?next=` login redirects, tracking
+query strings, translation-proxy URLs embedding whatever a visitor was reading. Nothing
+from the file other than canonical RFC identifiers and the scores derived from them is
+ever written anywhere: not a table, not a log line, not a run row, not the Celery broker,
+not disk. Concretely:
+
+- The parser (`popularity/matomo.py`) is pure functions with no logging and no Django
+  import, returning counts and a `{rfc: score}` dict. It never puts a label in an
+  exception message; a row that does not name an RFC is counted as ignored, not named.
+- The upload is held in memory only. Django's default handlers stream anything over
+  `FILE_UPLOAD_MAX_MEMORY_SIZE` (2.5 MB) to a temp file, so the view installs a single
+  `MemoryFileUploadHandler` subclass that accepts up to `MATOMO_UPLOAD_MAX_BYTES`
+  (50 MB; `matomo2.json` is 1.8 MB) and raises `StopUpload` beyond it. Handlers must be
+  set before `request.POST` is touched, and `CsrfViewMiddleware` touches it, so the view
+  follows Django's documented pattern: a `csrf_exempt` outer view that sets
+  `request.upload_handlers` and calls a `csrf_protect`ed inner one. `AdminSite.admin_view`
+  honours `csrf_exempt` on the view it wraps and still runs its staff check first, so an
+  anonymous request is redirected before the body is parsed.
+- Parsing happens in the request (see "Where the work runs"). The Celery task receives
+  a run id, so the broker only ever sees an integer.
+- A `JSONDecodeError` is reported as a form error by its position (`line N column M`),
+  which is all its message holds. Every other failure the parser can raise carries a
+  count or one of the three fixed directory names.
+
+**Timestamps.** "Clobber" means the table after an upload holds exactly the RFCs in the
+file. It is implemented as an upsert plus a delete of rows the file no longer names,
+in one transaction, rather than delete-all-and-insert, so that `created_at` says when an
+RFC first entered the ranking and `updated_at` when it was last written -- which is what
+makes the two columns worth having on a table that is otherwise rewritten whole. The
+same goes for `DocumentPopularity`. `auto_now` does not fire through
+`bulk_create(update_conflicts=True)`, so both timestamps are set explicitly by the
+writing function.
+
+### Reading the export
+
+The input is Matomo's `Actions.getPageUrls` report, expanded: a JSON array of rows, each
+with a `label`, `nb_visits` and the rest of Matomo's columns, and folder rows carrying a
+`subtable` of their children. A folder's label has no leading slash (`info`, `rfc7505`)
+and a page's does (`/rfc9110`, `/rfc959.txt.pdf`). A folder's `nb_visits` already sums
+its children, which is why `/info/rfc9110` is a folder (its query-string variants are
+the children) and why the parser never descends into a document it has matched.
+
+What counts, agreed against the example files:
+
+- Only the top-level directories `info`, `rfc` and `pdfrfc`, and only their direct
+  children. These are the three ways of reading a document on rfc-editor.org; the info
+  page and the text in any format. `rfc-index` ranges, `prerelease`, `doi.org`,
+  translation proxies, `/doc` and everything else are ignored.
+- A child counts when its label, stripped of a leading slash, matches
+  `^rfc0*(\d+)(\.[\w.]+)?$` (case-insensitive): `rfc9110`, `/rfc9110`, `/rfc9110.txt`,
+  `/rfc959.txt.pdf`. BCP, STD and FYI pages (`/info/bcp14`, `/bcp/bcp13.txt`) are
+  ignored and counted: the ranking is of RFCs.
+- Visits are summed per RFC across the three directories. The metric is `nb_visits`:
+  `nb_hits` inflates with reloads and multi-page reads, and `sum_daily_nb_uniq_visitors`
+  is only present on page rows, not on the folder rows every `/info/rfcNNNN` is.
+- Ties share a score. Every row whose label does not match is `rows_ignored`; nothing
+  fails on a row.
+
+**Truncation.** Matomo caps what it archives per directory
+(`datatable_archiving_maximum_rows_subtable_actions`, default 100; and
+`datatable_archiving_maximum_rows_actions`, default 500, for the top level) and folds the
+remainder into a row labelled `Others`. That is an archiving limit, not an export one:
+`filter_limit=-1` gives every archived row (`matomo2.json` has 487 at the top level) but
+`/info`, `/rfc` and `/search` still stop at exactly 100 with an `Others` row, so the
+policy above yields 163 RFCs from it. The upload accepts that and ranks what is there;
+an `Others` child under any of the three directories records that directory in
+`truncated`, and the run page shows a warning naming the two config keys and that a
+re-archive is needed for a fuller ranking. An RFC Matomo did not archive has no row
+anywhere: the tables and the file hold only ranked documents, and the consumer reads a
+missing RFC as unranked.
+
+**Score.** Rank percentile, chosen because it stores ordering and nothing else: with
+`n` matched RFCs sorted by summed visits, an RFC with `r` others strictly below it
+scores `r / (n - 1)`, so the most-visited scores 1.0, the least 0.0, equal visits give
+equal scores, and a single-RFC file scores it 1.0. A min-max of the counts, even
+log-scaled, would preserve the ratio of traffic between two documents, which is a
+function of the raw statistics rather than a ranking. A file matching zero RFCs is
+rejected as a form error and replaces nothing.
+
+```python
+# popularity/matomo.py -- no Django, no logging
+COUNTED_DIRECTORIES = ("info", "rfc", "pdfrfc")
+def parse_rankings(payload) -> MatomoParse   # scores, rows_seen, rows_ignored, truncated
+def percentile(visits: dict[str, int]) -> dict[str, float]
+```
+
+### Recomputing popularity
+
+`popularity/compute.py` holds `recompute_popularity() -> RecomputeResult` and is the
+only writer of `DocumentPopularity`. It reads each input source as a `{rfc: score}`
+map and combines them; with one source the combination is the identity, and the
+extension point for the next source is a tuple of source callables with the score
+being the mean of the sources that have the document. Written as an upsert plus a
+delete of documents no source ranks, in one transaction, timestamps set explicitly. It
+is called from the import task, and from `manage.py recompute_popularity` for an
+operator with a shell; there is no admin button for it, since between imports nothing
+changes.
+
+`PopularEntry` leaves `precomputer/signals.py`. Nothing edits `DocumentPopularity` by
+hand, and it is bulk-written, so a `post_save` receiver would never fire anyway; the
+import task publishes explicitly instead. `precompute_curated` keeps `popularity` in its
+task list so the daily and staff-triggered runs still refresh the file.
+
+### The admin
+
+Three things, all on the `popularity` app in the admin index:
+
+- **Read-only changelists** for `DocumentPopularity` and `MatomoRanking`: `rfc`, the
+  title (`DocumentTitleMixin`, as the popularity admin already has), `score`,
+  `created_at`, `updated_at`; ordered by score descending; searchable by `rfc`; no add,
+  change or delete permission. Two columns of timestamps on the changelist are how an
+  admin answers "is this being updated".
+- **Upload page**, `/admin/popularity/matomoranking/import/`, reached by a button on
+  the `MatomoRanking` changelist and registered through that `ModelAdmin.get_urls`, as
+  the subject sync is. A one-field form (the file) and the ten most recent runs.
+- **Run page**, `/admin/popularity/matomoranking/import/runs/<id>/`, the
+  `PrecomputeRun` detail pattern: `<meta refresh>` until finished, the parse summary
+  (rows seen, RFCs ranked, rows ignored, the truncation warning), then
+  `progress_message` while the task runs, then output and errors.
+
+### Where the work runs
+
+The request parses; Celery publishes. In the POST:
+
+1. Read the upload from memory, `json.loads`, `parse_rankings`. A decode error or a
+   zero-RFC result is a form error; nothing is written and no run row is created.
+2. In one transaction: replace `MatomoRanking` (upsert plus delete-missing) and create
+   the `MatomoImportRun` with its counts and `truncated`, status pending.
+3. Enqueue `popularity.tasks.publish_matomo_import.delay(run.pk)` and redirect to the
+   run page. The file is garbage when the request ends.
+
+Parsing in the request rather than in the worker is the choice that keeps the raw file
+in one process: handing it to Celery means the broker or a temp file holds it, a second
+place sensitive data lives. The cost is that the browser waits for the parse, which for
+a file this size is well under a second, and no progress is shown during it. What the
+run page then shows live is the publishing.
+
+`publish_matomo_import(run_id)`, `bind=True`, routed to the `precompute` queue with the
+other precomputer tasks (`CELERY_TASK_ROUTES` gains `popularity.tasks.*`):
+
+1. Mark running. `recompute_popularity()`, reporting `Recomputed popularity for N
+   documents` as progress.
+2. Take the precomputer's advisory lock. Held by another run: set the progress message
+   to say so and `self.retry(countdown=30, max_retries=20)`; on exhaustion, fail the run
+   with a message that the scheduled run will publish the file. A retry here is the
+   right kind: it waits for a lock, it does not recompute a broken thing.
+3. Under the lock, `call_command("precompute", "popularity", stdout=progress,
+   stderr=err)`, with `precomputer.tasks._ProgressOutput` generalised to take the run
+   model it mirrors onto (it is `PrecomputeRun`-specific today; it becomes a small class
+   in `precomputer/progress.py` parameterised by queryset and pk). Status and output as
+   `precompute_from_admin` records them. A traceback in `error` is safe: by the time the
+   task runs, the only data in flight is what the tables hold.
+
+### Output contract
+
+`GET /api/reef/popularity/` and `popularity.json` become
+
+```json
+{"computed_at": "2026-09-24T22:16:03Z",
+ "entries": [{"rfc": "rfc9110", "popularity": 1.0, "title": "...", "subseries": []}, ...]}
+```
+
+ordered by popularity descending then `rfc`; `computed_at` is the latest `updated_at`
+in the table, and null when it is empty. `rank` is gone. Title and subseries are the
+precomputer's additions, made as they are for every list file: the registry's
+`popularity` task walks `payload["entries"]` instead of the top-level array, and the
+byte-for-byte augment test holds unchanged. The served view stays, because the
+precomputer renders the file from it. `reef_api.yaml` is regenerated: `PopularEntry`
+gives way to a `Popularity` schema wrapping `PopularityEntry` rows (`popularity` a
+number in `[0, 1]`), the serializer declared to drf-spectacular so the wrapper is
+described rather than guessed. The worker route for `/api/v1/popularity.json` does not
+change. This breaks the current `{rfc, rank}[]` shape on purpose: the plan calls
+popularity a scaffold and nothing consumes it yet, so every consumer starts from the
+new shape.
+
+### Migration
+
+`popularity/migrations/0003`: delete `PopularEntry`, create the three models. The
+hand-curated rows are discarded, not backfilled -- hand curation is what this replaces,
+and a rank has no meaning as a percentile. The first upload populates both tables.
+
+### Steps
+
+1. Models and output: the three models and migration, `recompute_popularity` and its
+   command, read-only admins, the wrapped serializer and view, the registry task and
+   `precompute_curated` unchanged in effect, `PopularEntry` out of the signals,
+   `reef_api.yaml` regenerated, and the tests in `popularity/tests.py` and
+   `precomputer/tests.py` that build a `PopularEntry(rank=...)` rewritten against
+   `DocumentPopularity`. Commit: "Derive popularity from ranking sources".
+2. The parser: `popularity/matomo.py` with `parse_rankings` and `percentile`, and its
+   tests against synthetic nested payloads built inside each test (never the example
+   exports, which hold personal data and stay out of the repository). Commit: "Parse
+   Matomo page-URL exports into a ranking".
+3. The admin: upload form, memory-only upload handler, run model and pages, the publish
+   task and its queue route, the generalised progress stream. Commit: "Import Matomo
+   rankings in the admin".
+4. Documentation: README's "curated" wording, the `popularity.json` line and the
+   metadata section in `precomputer/README.md`, the scaffold lines under "Data model"
+   and "API surface" above, `docs/development.md`, and the `PopularEntry` reference in
+   `subjects/models.py`. Commit: "Document derived popularity".
+
+### Verification
+
+- `percentile`: ordering, ties sharing a score, a single document scoring 1.0, empty
+  input giving empty output.
+- `parse_rankings`: an RFC under `/info` and `/rfc` and `/pdfrfc` summed; folder rows
+  taken at their own visits and not descended; `.txt`, `.html`, `.pdf`, `.txt.pdf`
+  suffixes and leading zeros resolving to one id; BCP/STD children, `Others`, `/doc` and
+  unrelated top-level directories ignored and counted; an `Others` child recording its
+  directory in `truncated`; a label containing an email address appearing in no
+  exception message.
+- `recompute_popularity`: upsert keeps `created_at` and moves `updated_at`; a document
+  gone from every source is deleted; a run against unchanged inputs leaves `updated_at`
+  moved and nothing else.
+- The upload view: staff-only and anonymous coverage as `PrecomputeAdminViewTests` has;
+  a bad file or a zero-RFC file writes nothing and creates no run; a good file replaces
+  the table, creates a run with the right counts, enqueues the task once, and redirects;
+  a file over the cap is refused; a `MatomoRanking` row absent from the file is deleted;
+  the temp-file upload handler is never installed (no `TemporaryUploadedFile` in
+  `request.FILES`).
+- The task: recomputes, precomputes only `popularity` under the lock, records
+  succeeded; retries while the lock is held; a precompute failure is recorded on the run
+  with the tables already updated.
+- Contract: the served body and `popularity.json` agree byte for byte after stripping
+  the added keys; `computed_at` is null on an empty table; the schema validates.
+
+### Deployment dependencies
+
+- Body size: the upload is capped at 50 MB in the handler; the dev nginx has
+  `client_max_body_size 0`, and the production edge must allow at least that much for
+  the admin path.
+- Memory: parsing a 50 MB export inside a gunicorn worker is a few hundred megabytes
+  for the duration of one staff request. Acceptable for a rare, staff-only action; the
+  cap is what keeps it bounded.
+- Matomo: a ranking of more than the top hundred per directory needs
+  `datatable_archiving_maximum_rows_subtable_actions` (and the top-level
+  `datatable_archiving_maximum_rows_actions`) raised in Matomo's `config.ini.php` and
+  the affected period re-archived. The run page says so whenever it sees `Others`.
