@@ -5,7 +5,14 @@ Named registry rather than tasks.py so that "task" means one thing per module: t
 Celery tasks that schedule a run live in tasks.py, where celery autodiscovery looks
 for them, and the units of precomputing work live here.
 
-One task per public read endpoint. A task yields ``(key, body)`` pairs and
+One task per public read endpoint, and a key holds that endpoint's anonymous
+response byte for byte. The files are cached API responses at another URL, so the
+schema in reef_api.yaml describes each file exactly, and a task never adds, removes
+or retypes a key after rendering. Anything a file needs beyond what its endpoint
+serves goes into a view of its own, declared in reef.urls_contract so the contract
+still describes it, the way the subject files are done.
+
+A task yields ``(key, body)`` pairs and
 declares, with ``owns``, the keys in the store that are its own, so that a full
 run can purge what it no longer produces: a subject that was deleted leaves a
 stale ``subjects/<slug>.json`` behind otherwise, and a stale payload in a blob
@@ -56,45 +63,17 @@ from .render import render_anonymous
 TASKS = {}
 
 
-def _reserialize(payload):
-    """Back to bytes the way DRF's JSONRenderer would have written them.
+def _check_resolvable(index, doc_ids):
+    """Ask the index for each document, for the sake of its unresolved report.
 
-    Matched deliberately: every task that adds nothing writes the view's own bytes
-    untouched, and the ones that do add something must differ only by the keys they
-    added. The test strips the additions and compares byte for byte, which holds only
-    if the separators and escaping agree with the renderer's.
+    Nothing is written from the answer. A document Reef holds that Red's index
+    lacks is the one signal that the index has gone stale, and the run reports
+    every miss at its end.
     """
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-
-
-def _augment(body, add):
-    """Parse a rendered payload, let `add` put keys into it, and re-serialise.
-
-    Only ever adds keys. Retyping an existing one is the change that breaks a caller,
-    and it is what Reef asks Red not to do to it, so the precomputer holds itself to
-    the same rule.
-    """
-    payload = json.loads(body)
-    add(payload)
-    return _reserialize(payload)
-
-
-# What a precomputed row carries. rfcmeta's reduction holds more than this, for
-# change detection, and projecting here rather than passing it through keeps a field
-# added there from silently appearing in what Reef publishes.
-PUBLISHED_FIELDS = ("title", "subseries")
-
-
-def _meta(index, doc_id):
-    """The metadata block a row carries, null when it cannot be resolved.
-
-    Null rather than omitted or echoed back as the identifier, so a reader can tell
-    "no such document" from "not looked up".
-    """
-    resolved = index.get(doc_id) if index is not None else None
-    if resolved is None:
-        return {"title": None, "subseries": []}
-    return {field: resolved[field] for field in PUBLISHED_FIELDS}
+    if index is None:
+        return
+    for doc_id in doc_ids:
+        index.get(doc_id)
 
 
 def task(name, *, owns, per_document=False):
@@ -124,24 +103,17 @@ def stats(docs=None, index=None):
     aggregates every rating, subscription and set entry on each request.
     """
     body = render_anonymous(DocumentStatsList.as_view(), "/api/reef/stats/")
-
-    def add(rows):
-        for row in rows:
-            row.update(_meta(index, row["doc"]))
-
-    yield "stats.json", _augment(body, add)
+    _check_resolvable(index, (row["doc"] for row in json.loads(body)))
+    yield "stats.json", body
 
 
 @task("popularity", owns=r"^popularity\.json$")
 def popularity(docs=None, index=None):
     """The popularity ranking, most popular first."""
-    body = render_anonymous(PopularityList.as_view(), "/api/reef/popularity/")
-
-    def add(payload):
-        for row in payload["entries"]:
-            row.update(_meta(index, row["rfc"]))
-
-    yield "popularity.json", _augment(body, add)
+    yield (
+        "popularity.json",
+        render_anonymous(PopularityList.as_view(), "/api/reef/popularity/"),
+    )
 
 
 @task("subjects", owns=r"^subjects\.json$|^subjects/[^/]+\.json$")
@@ -281,9 +253,8 @@ def ratings(docs=None, index=None):
         rated = rated.filter(rfc__in=docs)
     detail = RatingDetail.as_view()
     for doc in rated:
-        body = render_anonymous(detail, f"/api/reef/ratings/{doc}/", rfc=doc)
-
-        def add(payload, doc=doc):
-            payload.update(_meta(index, doc))
-
-        yield f"ratings/{doc}.json", _augment(body, add)
+        _check_resolvable(index, [doc])
+        yield (
+            f"ratings/{doc}.json",
+            render_anonymous(detail, f"/api/reef/ratings/{doc}/", rfc=doc),
+        )

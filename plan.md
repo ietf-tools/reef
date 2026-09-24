@@ -144,13 +144,15 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
   fetch, so it carries what the route renders rather than identifiers the caller must
   resolve elsewhere. Run on a schedule; nothing serves traffic from it inside Reef.
 
-  The document metadata a file needs and Reef does not store gets there two ways. The
-  subject files declare it on serializers of their own, in subjects/precompute.py, so
-  the file is a view's bytes like every other key and reef_api.yaml describes it. The
-  rest -- stats, popularity, ratings -- still have it added after rendering by
-  registry._augment, which only ever adds keys, so those files stay the live response
-  plus zero or more of them. They can take the same treatment when a consumer exists
-  to want it.
+  Every file is the endpoint's response byte for byte, so reef_api.yaml describes the
+  file as well as the endpoint: the files are cached API responses in a blob store,
+  and a consumer generating types from the contract reads them with those types. The
+  document metadata a file needs and Reef does not store therefore lives inside the
+  contract or not at all: the subject files declare it on serializers of their own, in
+  subjects/precompute.py, described under /api/reef/precomputed/; stats, ratings and
+  popularity name documents by identifier only, since their readers already hold the
+  documents. Red's index is still loaded per run, for the subject views and so that
+  every document stats and ratings name is checked against it.
 
   The subject views are deliberately not routed. A published file needs no URL, since
   the precomputer invokes the view callable directly, and serving an unpaginated read
@@ -1887,15 +1889,15 @@ other precomputer tasks (`CELERY_TASK_ROUTES` gains `popularity.tasks.*`):
 
 ```json
 {"computed_at": "2026-09-24T22:16:03Z",
- "entries": [{"rfc": "rfc9110", "popularity": 1.0, "title": "...", "subseries": []}, ...]}
+ "entries": [{"rfc": "rfc9110", "popularity": 1.0}, ...]}
 ```
 
 ordered by popularity descending then `rfc`; `computed_at` is the latest `updated_at`
-in the table, and null when it is empty. `rank` is gone. Title and subseries are the
-precomputer's additions, made as they are for every list file: the registry's
-`popularity` task walks `payload["entries"]` instead of the top-level array, and the
-byte-for-byte augment test holds unchanged. The served view stays, because the
-precomputer renders the file from it. `reef_api.yaml` is regenerated: `PopularEntry`
+in the table, and null when it is empty. `rank` is gone. Unlike the other list files,
+no title or subseries is added: the file is written byte for byte as the view serves
+it, since its consumer already holds the documents and a title per row would double
+the file for nothing. The served view stays, because the precomputer renders the file
+from it. `reef_api.yaml` is regenerated: `PopularEntry`
 gives way to a `Popularity` schema wrapping `PopularityEntry` rows (`popularity` a
 number in `[0, 1]`), the serializer declared to drf-spectacular so the wrapper is
 described rather than guessed. The worker route for `/api/v1/popularity.json` does not
@@ -1951,8 +1953,8 @@ and a rank has no meaning as a percentile. The first upload populates both table
 - The task: recomputes, precomputes only `popularity` under the lock, records
   succeeded; retries while the lock is held; a precompute failure is recorded on the run
   with the tables already updated.
-- Contract: the served body and `popularity.json` agree byte for byte after stripping
-  the added keys; `computed_at` is null on an empty table; the schema validates.
+- Contract: the served body and `popularity.json` agree byte for byte, no keys added;
+  `computed_at` is null on an empty table; the schema validates.
 
 ### Deployment dependencies
 

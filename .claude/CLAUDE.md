@@ -30,6 +30,16 @@ themselves, or say so unprompted.
 Staging is part of committing — leave `git add` alone too. Reading the repository
 is fine: `status`, `diff`, `log` and `show` are how you check your own work.
 
+## Precomputed files are the API, at another URL
+
+Every file the precomputer uploads to the blob store is byte for byte the
+anonymous response of the endpoint it caches, so the schema in `reef_api.yaml`
+describes the file exactly. Never add, remove or retype a key after rendering.
+If a file needs something its endpoint does not serve, give it a view of its own
+in `reef.urls_contract`, so the contract still describes it (see
+`subjects/precompute.py`), and write that view's bytes. Every task has a test
+comparing the file's bytes to the live response; keep it.
+
 # Coding conventions
 
 ## Comments
