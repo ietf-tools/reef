@@ -51,9 +51,11 @@ https://account.ietf.org/.
 
 ### Scope of this plan
 
-Surveys are built end to end. Ratings, popularity, and subscriptions are scaffolded
-as Django API app modules (models, endpoints, and test stubs) to be completed in a
-later phase. Subscription email is built: reef.mail carries the project's mail
+Surveys are built end to end. Ratings are built as far as Reef's half goes: the
+model, the anonymous aggregate read, and submit and delete under a bearer, with the
+star widget in Red. Popularity is built, derived from an uploaded Matomo ranking (see
+the section at the end). Subscriptions are built through to delivery, as steps 26 to
+31 describe. Subscription email is built: reef.mail carries the project's mail
 defaults, templates/subscriptions/mail holds the two message bodies and the sentence
 they share, and both send on a retrying celery task. A confirmation goes out when a
 subscription is created, which is the one of the two that is wired end to end. The
@@ -84,10 +86,10 @@ this is one command.
 Document sets are built: models, the owner-scoped API, the public read path, and
 subscribing to a set. They were new scope rather than a gap in the scaffold, so they
 still need a ticket of their own and a cross-repo agreement with Red on the UI, in
-the way the open-survey list did. Matching a set to a change event is written and
-tested, and sending the resulting digest now is too. What is still missing between
-them is ingestion: nothing turns a datatracker feed record into an event, coalesces a
-subscriber's matches, or answers the subseries question under open items.
+the way the open-survey list did. Matching a set to a change event, coalescing a
+subscriber's matches into one digest, and sending it are all built; the events come
+from the daily diff of Red's published index (steps 27 to 31), since the datatracker
+has no feed to ingest, and the subseries question is settled under open items.
 
 ### Ticket alignment
 
@@ -136,7 +138,8 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
   bearer (JWT) access tokens. Anonymous access is allowed for public reads.
 - Break-glass: one local Django superuser for admin access if Authentik is
   unavailable.
-- Async: Celery plus a broker for subscription emails (scaffolded in this phase).
+- Async: Celery plus a broker, for subscription mail, the daily change detection,
+  and the precomputer.
 - Precomputer: a management command, run by celery beat rather than a process of its
   own. It renders the public reads by
   calling the DRF views in process, so a precomputed file cannot describe a different
@@ -214,13 +217,13 @@ reef/
     templates/surveys/{creator,analytics,list}.html
     static/surveys/{init-creator,init-analytics}.js
     rules.py  factories.py  tests.py  migrations/
-  ratings/                 scaffold: Rating model, aggregate/submit API, test stub
+  ratings/                 Rating model; anonymous aggregate read, submit and delete under a bearer
   popularity/              DocumentPopularity derived from MatomoRanking, Matomo import admin, read API
   docsets/                 DocumentSet and DocumentSetEntry, owner-scoped API, public read
   subjects/                Subject vocabulary and SubjectAssignment, public read API, admin curation
     tree.py                roll-up over the tree, in one place because four callers need it
     precompute.py          the two published subject payloads: serializers and unrouted views
-  subscriptions/           scaffold: Subscription model, API, email task, datatracker-feed ingest interface
+  subscriptions/           Subscription model and API, change detection against Red's index, per-reader digests and their delivery
   stats/                   per-document engagement numbers for Red; no models of its own
   precomputer/             renders the public reads to a blob store; one management command
     blobstore.py           S3 when a bucket is configured, a local directory when not
@@ -249,7 +252,7 @@ reef/
   subscriptions for user-specific offers), created_by, timestamps.
 - surveys.Response: survey FK, data (JSON), submitted_by (FK, nullable for anonymous),
   submitted_at, meta (JSON).
-- ratings.Rating (scaffold): rfc (identifier), user, value (1-5), unique (rfc, user),
+- ratings.Rating: rfc (identifier), user, value (1-5), unique (rfc, user),
   timestamps. Aggregate is average plus count per rfc.
 - popularity.DocumentPopularity: rfc (identifier), score (float, 0 least to 1 most
   popular), created_at, updated_at; a cache recomputed from the input tables, of
@@ -345,7 +348,7 @@ reef/
   drift that comes with one, because a route that fetches one file beats a route that
   fetches a list of identifiers and then resolves them. The rule holds where it was
   aimed, which is Reef's own tables.
-- Document identifiers, shared: ratings.Rating.rfc and popularity.PopularEntry.rfc
+- Document identifiers, shared: ratings.Rating.rfc and popularity's rfc columns
   store whatever string they are handed, while subscriptions canonicalizes through
   normalize_doc_id. Sets would be a third rule in a fourth place, and a set cannot be
   joined to its documents' ratings or subscriptions unless all of them agree. So
@@ -355,7 +358,7 @@ reef/
   four-table backfill.
 - subjects.Subject: slug, name, description, parent, path, depth, retired_at,
   merged_into, upstream_uuid. The curated vocabulary, maintained by staff in the admin
-  and served read-only, in the way popularity.PopularEntry is. upstream_uuid links a
+  and served read-only. upstream_uuid links a
   subject to the rfc-subject-tags tag it mirrors (see the subject tag sync below).
 
   It is a tree, four levels at the deepest, and the shape is a stored path rather
@@ -395,8 +398,9 @@ reef/
   nothing about identity has to follow a name around. Resolution is one lookup on the
   detail read and one join in a survey audience, and a subject's own slug always wins
   it, which makes an alias that shadows one inert rather than ambiguous.
-- subscriptions.Subscription (scaffold): user or email, kind (new_rfc, by_status,
-  obsoleted, rfc, set, subject, and similar), params (JSON), verified flag. The
+- subscriptions.Subscription: user, kind (new_rfc, by_status, obsoleted, rfc, set,
+  subject), params (JSON), set FK, subject FK, created_at. User-only and unverified
+  by design; see the open items on bare-email subscriptions. The
   rfc kind watches one RFC, identified by params {"rfc": "rfc9110"}; matching it
   against an event is an equality test on that id. Unique on
   (user, kind, params, set, subject).
@@ -464,11 +468,11 @@ Surveys (built):
 - GET /surveys/{id}/results/: aggregated results feeding the Analytics dashboard.
   Ticket #118.
 
-Scaffolded (models and endpoints stubbed, returning minimal real data):
+Engagement APIs:
 
 - GET /ratings/{rfc}/ (anonymous aggregate), PUT /ratings/{rfc}/ (bearer). Ticket #108.
 - GET /popularity/ (anonymous ranking, {computed_at, entries}). Tickets #101 and #102.
-- GET/POST/DELETE /subscriptions/ (bearer) plus an internal ingest task hook. Kinds:
+- GET/POST/DELETE /subscriptions/ (bearer), fed by the daily change detection. Kinds:
   new_rfc, by_status, obsoleted, rfc (one named RFC), set, and subject. POST is
   idempotent: a repeat returns 201 with the existing subscription rather than a
   duplicate, so Red's subscribe button needs no error branch for a double click, a
@@ -731,6 +735,8 @@ Then, for precomputed reads:
     the additions and comparing. Metadata rfcmeta cannot resolve is null rather than
     omitted or echoed back as the identifier, so a reader can tell "no such document"
     from "not looked up". Which fields a row needs beyond title is the open item below.
+    Reversed in step 35: the added keys were never read, and a file that differs from
+    its endpoint is a shape the contract does not describe.
     Commit: "Add document metadata to precomputed reads".
 23. Stale-source guard: a run warns when a document Reef holds cannot be resolved
     against Red's index, and separately when the index is older than
@@ -929,6 +935,23 @@ Then, for precomputed reads:
     slug and alias_of, the precomputer writes that stub as subjects/<alias>.json beside
     the real ones, and a survey audience resolves subject slugs through aliases, so that
     a rename stops silently emptying one. Commit: "Add subject aliases".
+35. Precomputed files as served: every file the precomputer uploads is byte for byte
+    the anonymous response of the endpoint it caches, so reef_api.yaml describes the
+    file exactly and a consumer generating types from the contract reads the file
+    with them. The title and subseries that step 22 added to stats.json,
+    ratings/{doc}.json and popularity.json after rendering go, and registry._augment
+    with them: Red's code was checked and reads neither field from those files, and
+    their readers already hold the documents. The subject files keep their metadata,
+    because theirs is declared on views of their own in reef.urls_contract and so is
+    inside the contract, which is the only way a file may carry more than its served
+    endpoint does. What the augment path also did was ask Red's index for every
+    document a file named, which is what the stale-source guard of step 23 listens
+    for; that lookup stays, as registry._check_resolvable, writing nothing. The
+    --no-metadata flag keeps its name and now means: do not load the index, so
+    subject titles are null and documents are not checked against Red. The rule is
+    written into .claude/CLAUDE.md so it binds later work, and every task has a test
+    comparing its file's bytes to the live response. Commit: "Write precomputed files
+    as served".
 ## Verification
 
 - Dev bring-up: devcontainer (or docker/run); migrate and collectstatic run; tmux
@@ -950,7 +973,7 @@ Then, for precomputed reads:
   3. A Response row is stored (POST .../responses/ returns 201) and is visible in
      /admin/.
   4. /admin/survey-builder/surveys/<id>/analytics/ renders the results.
-- Scaffolds: GET /popularity/ returns the ranking; PUT /ratings/{rfc}/ with a
+- Engagement APIs: GET /popularity/ returns the ranking; PUT /ratings/{rfc}/ with a
   bearer stores a rating and the aggregate updates; POST /subscriptions/ stores a
   subscription and enqueues a confirmation caught by mailpit, and a second POST of the
   same subscription does not send a second one.
@@ -959,9 +982,8 @@ Then, for precomputed reads:
   duplicate it, a taken-down set is invisible to every GET, and a subscription to
   the set is matched by a change to a document added after it was made, and a batch of
   three changes to a subscribed set produces one mail naming all three rather than one
-  mail per document. All covered by manage.py test. Not yet verifiable end to end:
-  that a real datatracker change arrives as such a batch, because ingestion is still a
-  stub.
+  mail per document. All covered by manage.py test; the batch arriving from a real
+  change is the change-notification bullet below, which diffs Red's index.
 - Subjects: GET /subjects/ with no token returns the vocabulary and no membership;
   ?doc= narrows it to one document's subjects and canonicalizes the identifier;
   GET /subjects/{slug}/ returns the documents carrying it; a POST is a 405. A
@@ -997,12 +1019,12 @@ Then, for precomputed reads:
   covered by manage.py test; those were exercised by hand against the dev containers.
 - Document metadata: rfcmeta resolves rfc9110 to its title and std97 from Red's live
   index, expands bcp14 to RFC 2119 and RFC 8174, and returns None for an identifier that
-  names nothing. Every precomputed file that names a document carries title and
-  subseries; the subject detail keeps its documents array and gains a document_meta map
-  beside it. Stripping the added keys from a payload leaves the live endpoint's response
-  byte for byte, and a task that adds nothing matches it directly. An unresolvable
-  identifier carries null metadata rather than being dropped, and the run warns naming
-  it. Red unreachable still writes every file, with null metadata throughout. An index
+  names nothing. The subject files carry title and subseries through their own views;
+  the subject detail keeps its documents array and gains a document_meta map beside
+  it. Every other file is its endpoint's response byte for byte, with no title or
+  subseries in stats.json, ratings/{doc}.json or popularity.json. A document the index
+  cannot resolve is still written and the run warns naming it. Red unreachable still
+  writes every file, with null titles in the subject files. An index
   older than REEF_RFC_INDEX_MAX_AGE_DAYS warns and the run still exits 0. The index is
   fetched once per run, not per lookup. All covered by manage.py test, with Red's index
   stubbed so the suite neither reaches the network nor validates ten thousand entries
@@ -1150,10 +1172,10 @@ Then, for precomputed reads:
   one mail per reader, and the unsubscribe hold. What is left open is the wording of
   that notice, which is composed in subjects/merge.py rather than in a template, and
   whether a merge should ever be undoable: unretiring the source brings it back empty,
-  since its documents and followers have gone, and now its aliases as well. One gap
-  that is not a decision: merge_and_notify has no caller. It is reachable from a shell
-  and from its tests, and neither an admin action nor a management command offers it,
-  so the operation exists and nobody can perform it.
+  since its documents and followers have gone, and now its aliases as well.
+  merge_and_notify is offered two ways: the "Merge selected subject into another
+  subject" admin action, and the "Merge into this" suggestions a sync run makes for
+  each subject it retires.
 - Subject aliases: built, as step 34. What is left is where else a name should resolve.
   The detail read and survey audiences do; the vocabulary list carries no aliases array
   and nothing searches on them, because whether Red wants a typeahead over other names
@@ -1289,20 +1311,14 @@ Then, for precomputed reads:
   without anything noticing, which is the accepted cost of not fetching the schema at
   runtime; if that stops being acceptable, the fix is a scheduled job that diffs the two
   rather than a runtime fetch, so that Reef still validates offline.
-- Which document fields a precomputed row carries. The rule is that a file serves a
-  route in one fetch, so the field set is whatever Red's rows render, and that is Red's
-  to name rather than Reef's to guess. Title is certain, and subseries is now settled:
-  the mini index did not carry it, and rfcToRfcMini was changed in Red to pass it
-  through, which is what the additive-only guarantee is for. What the mini index carries
-  is number, title, published, authors, formats, identifiers, status, stream, obsoletes,
-  obsoleted_by, updates, updated_by and subseries. What it does not, and an earlier
-  draft of this item wrongly said it did, is abstract and keywords, along with area,
-  group and pages: those are rfc-common only, so wanting one of them means either a
-  second change in Red or a per-document fetch, which is a different cost from a field
-  that is already in the sweep. Worth settling in the same exchange as the open/
-  contract and the additive-only guarantee, since all three are the same cross-repo
-  agreement about shapes. Until then title and subseries are the safe subset, and adding
-  a field later is additive.
+- Which document fields a precomputed row carries: settled by step 35. A row carries
+  what its endpoint serves and nothing more, so the field set is the contract's. A
+  file that needs document metadata gets a view of its own in reef.urls_contract, as
+  the subject files have, and what that view may draw from Red's mini index is number,
+  title, published, authors, formats, identifiers, status, stream, obsoletes,
+  obsoleted_by, updates, updated_by and subseries; abstract, keywords, area, group and
+  pages are rfc-common only and would need either a change in Red or a per-document
+  fetch.
 - Nuxt OIDC client registration: confirm a public (PKCE) Authentik client for the runner
   versus reusing Red's client configuration.
 - Survey targeting: half built. Where a survey is offered is settled and done — an
@@ -1316,15 +1332,16 @@ Then, for precomputed reads:
   document and starts being personal, and because the audience field would then hold two
   unrelated kinds of rule.
 
-## Subject tag sync from rfc-subject-tags (proposed)
+## Subject tag sync from rfc-subject-tags
 
 The subject vocabulary is empty in practice: `SubjectAdmin` (subjects/admin.py) and the
 one-off `seed_subjects`/`import_subjects`/`import_assignments` commands exist, but
 nobody has run one with `--write`. Rather than a second one-off load, the ask is a
 standing sync against `rfc-editor/rfc-subject-tags` — an admin button that mirrors
 Reef's vocabulary and assignments from it, replacing whatever is there, run by a staff
-member and never on a schedule (see below). This section is the design for that;
-nothing below is built yet.
+member and never on a schedule (see below). This section is the design for that, and
+it is built as described, in subjects/sync.py with the admin views in subjects/admin.py
+and the task in subjects/tasks.py.
 
 ### Two files, two purposes
 
@@ -1481,9 +1498,12 @@ def validate_taxonomy(taxonomy: dict) -> list[str]    # problems found, empty if
 def match_subjects(entries, subjects) -> dict[str, Subject]  # uuid, then slug, then name
 def diff_vocabulary(taxonomy: dict) -> VocabularyDiff # to_create, to_update, to_retire, conflicts
 def diff_assignments(rfc_tags: dict, taxonomy: dict) -> AssignmentDiff  # to_create, to_delete
-def suggest_merges(retiring: list[Subject], old_docs: dict[str, set[str]],
-                    new_docs: dict[str, set[str]]) -> dict[str, list[Suggestion]]
-def apply_sync(vocab_diff, assignment_diff) -> SyncResult  # the only function that writes
+def suggest_merges(retiring_slugs, old_docs, old_parent_slug, old_description)
+                                                      # -> dict[str, list[Suggestion]]
+def apply_vocabulary(diff: VocabularyDiff)            # the two functions that write
+def apply_assignments(diff: AssignmentDiff)
+def run_sync(vocabulary_url=TAXONOMY_URL, assignments_url=RFC_TAGS_URL,
+             confirm_large_change=False, write=True) -> SyncResult
 ```
 
 **Fetching.** `urllib.request.urlopen(url, timeout=30)`, same stdlib approach
@@ -1695,7 +1715,7 @@ Staging and production now require `REEF_SITE_URL` (Reef's own origin, e.g.
 `REEF_SURVEY_RUNNER_BASE_URL`, which silently produced a bare `/s?slug=...` path
 when unset.
 
-## Popularity from Matomo (proposed)
+## Popularity from Matomo
 
 `popularity.PopularEntry` is a hand-typed list: an `rfc` and a `rank`, edited in the
 admin, served by `GET /api/reef/popularity/` and snapshotted to `popularity.json` by the
@@ -1705,7 +1725,7 @@ in `[0, 1]` (0 least popular, 1 most) and nothing else beyond the timestamps an 
 needs to see that it is being refreshed. The first and, for now, only input is a
 ranking uploaded from Matomo. The output is generic: a ranking any consumer can read
 (the Typesense search indexing is the first), tied to none of them. This section is the
-design for that; nothing below is built yet.
+design for that, and it is built as described.
 
 ### What is stored, and what is not
 
@@ -1718,7 +1738,8 @@ Three models, all in the `popularity` app, replacing `PopularEntry`:
 - **`DocumentPopularity`** -- the output. The same four fields. Today its `score` is
   the Matomo score; when a second input exists it becomes a combination (below). It is
   a cache of `recompute_popularity()`, never written by hand.
-- **`MatomoImportRun`** -- one upload. `status` (the `PrecomputeRun` choices), `triggered_by`,
+- **`MatomoImportRun`** -- one upload. `status` (pending, running, succeeded, failed;
+  never skipped, since the task waits for the lock rather than yielding), `triggered_by`,
   `created_at`/`started_at`/`finished_at`, `progress_message`, `output`, `error`, and
   the parse summary: `rows_seen`, `rfcs_ranked`, `rows_ignored` (integers) and
   `truncated` (a JSON list drawn from the three fixed directory names, empty when the
@@ -1901,9 +1922,8 @@ from it. `reef_api.yaml` is regenerated: `PopularEntry`
 gives way to a `Popularity` schema wrapping `PopularityEntry` rows (`popularity` a
 number in `[0, 1]`), the serializer declared to drf-spectacular so the wrapper is
 described rather than guessed. The worker route for `/api/v1/popularity.json` does not
-change. This breaks the current `{rfc, rank}[]` shape on purpose: the plan calls
-popularity a scaffold and nothing consumes it yet, so every consumer starts from the
-new shape.
+change. This broke the earlier `{rfc, rank}[]` shape on purpose: popularity was a
+scaffold nothing consumed, so every consumer starts from the new shape.
 
 ### Migration
 
