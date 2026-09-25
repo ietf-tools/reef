@@ -17,9 +17,10 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
+from docsets.models import DocumentSet, DocumentSetEntry
 from popularity.models import DocumentPopularity
 from precomputer.blobstore import LocalBlobStore, get_blob_store
-from precomputer.models import PrecomputeRun
+from precomputer.models import PendingDocumentChange, PrecomputeRun
 from precomputer.registry import TASKS
 from precomputer.signals import CURATED_DEBOUNCE_SECONDS
 from precomputer.tasks import (
@@ -27,6 +28,7 @@ from precomputer.tasks import (
     precompute_curated,
     precompute_engagement,
     precompute_from_admin,
+    push_document_changes,
 )
 from ratings.models import Rating
 from reef import rfcmeta
@@ -34,6 +36,7 @@ from reef.locks import _key, advisory_lock
 from subjects.models import Subject, SubjectAlias, SubjectAssignment
 from subjects.precompute import build_index
 from subjects.tree import rollup
+from subscriptions.models import Subscription
 from surveys.models import Survey
 
 User = get_user_model()
@@ -1236,3 +1239,149 @@ class ProgressOutputTests(PrecomputeTestCase):
     def test_a_dry_run_counts_nothing_as_uploaded(self):
         output = self.precompute("stats", dry_run=True)
         self.assertNotIn("uploaded", output)
+
+
+class DocumentChangeMarkTests(TestCase):
+    """Reader activity marks the document; it does not enqueue a run."""
+
+    def setUp(self):
+        self.user = User.objects.create(username="reader", oidc_sub="reader")
+
+    def pending(self):
+        return list(PendingDocumentChange.objects.values_list("doc", flat=True))
+
+    def test_a_rating_marks_its_document_once(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
+        first = PendingDocumentChange.objects.get(doc="rfc9110")
+        other = User.objects.create(username="other", oidc_sub="other")
+        with self.captureOnCommitCallbacks(execute=True):
+            Rating.objects.create(rfc="rfc9110", user=other, value=2)
+        self.assertEqual(self.pending(), ["rfc9110"])
+        self.assertGreater(
+            PendingDocumentChange.objects.get(doc="rfc9110").last_seen, first.last_seen
+        )
+
+    def test_deleting_a_rating_marks_its_document(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            rating = Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
+        PendingDocumentChange.objects.all().delete()
+        with self.captureOnCommitCallbacks(execute=True):
+            rating.delete()
+        self.assertEqual(self.pending(), ["rfc9110"])
+
+    def test_a_set_entry_marks_its_document(self):
+        document_set = DocumentSet.objects.create(owner=self.user, title="Mine")
+        with self.captureOnCommitCallbacks(execute=True):
+            DocumentSetEntry.objects.create(document_set=document_set, doc="rfc2119")
+        self.assertEqual(self.pending(), ["rfc2119"])
+
+    def test_an_rfc_subscription_marks_its_document(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            Subscription.objects.create(
+                user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+            )
+        self.assertEqual(self.pending(), ["rfc9110"])
+
+    def test_other_subscription_kinds_mark_nothing(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            Subscription.objects.create(user=self.user, kind=Subscription.Kind.NEW_RFC)
+        self.assertEqual(self.pending(), [])
+
+    def test_a_rolled_back_rating_marks_nothing(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            with contextlib.suppress(RuntimeError), transaction.atomic():
+                Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
+                raise RuntimeError("rolled back")
+        self.assertEqual(self.pending(), [])
+
+
+@override_settings(
+    REEF_TRIGGER_RED_PRECOMPUTE_URL="http://el-precompute-multiple.red/",
+    REEF_DOCUMENT_CHANGE_QUIET_SECONDS=60,
+    REEF_RED_PRECOMPUTE_BATCH_SIZE=2,
+)
+class PushDocumentChangesTests(TestCase):
+    """Marked documents are republished and Red is told, once the writes go quiet."""
+
+    def setUp(self):
+        run = mock.patch("precomputer.tasks._run", return_value=True)
+        self.run = run.start()
+        self.addCleanup(run.stop)
+        post = mock.patch("precomputer.tasks._post_json")
+        self.post = post.start()
+        self.addCleanup(post.stop)
+
+    def mark(self, *docs, seconds_ago=120):
+        seen = timezone.now() - datetime.timedelta(seconds=seconds_ago)
+        for doc in docs:
+            row = PendingDocumentChange.objects.create(doc=doc)
+            PendingDocumentChange.objects.filter(pk=row.pk).update(
+                first_seen=seen, last_seen=seen
+            )
+
+    def test_nothing_pending_does_nothing(self):
+        self.assertFalse(push_document_changes())
+        self.run.assert_not_called()
+        self.post.assert_not_called()
+
+    def test_a_document_still_being_written_to_waits(self):
+        self.mark("rfc9110", seconds_ago=5)
+        self.assertFalse(push_document_changes())
+        self.run.assert_not_called()
+        self.assertEqual(PendingDocumentChange.objects.count(), 1)
+
+    def test_quiet_documents_are_republished_and_red_is_told(self):
+        self.mark("rfc9110", "rfc2119", "bcp14")
+        self.assertTrue(push_document_changes())
+        self.run.assert_called_once_with(
+            "stats", "ratings", docs=["rfc9110", "rfc2119", "bcp14"]
+        )
+        # bcp14 is republished but has no page on Red, so Red is not told about it.
+        self.assertEqual(
+            self.post.call_args.args,
+            ("http://el-precompute-multiple.red/", {"rfcs": "9110,2119"}),
+        )
+        self.assertEqual(PendingDocumentChange.objects.count(), 0)
+
+    def test_red_is_told_in_batches(self):
+        self.mark("rfc1", "rfc2", "rfc3")
+        push_document_changes()
+        self.assertEqual(
+            [call.args[1]["rfcs"] for call in self.post.call_args_list],
+            ["1,2", "3"],
+        )
+
+    @override_settings(REEF_TRIGGER_RED_PRECOMPUTE_URL="")
+    def test_without_a_listener_reef_still_publishes(self):
+        self.mark("rfc9110")
+        self.assertTrue(push_document_changes())
+        self.run.assert_called_once()
+        self.post.assert_not_called()
+        self.assertEqual(PendingDocumentChange.objects.count(), 0)
+
+    def test_a_failed_republish_keeps_the_rows(self):
+        self.run.return_value = False
+        self.mark("rfc9110")
+        self.assertFalse(push_document_changes())
+        self.post.assert_not_called()
+        self.assertEqual(PendingDocumentChange.objects.count(), 1)
+
+    def test_a_failed_notification_keeps_the_rows(self):
+        self.post.side_effect = OSError("listener down")
+        self.mark("rfc9110")
+        self.assertFalse(push_document_changes())
+        self.assertEqual(PendingDocumentChange.objects.count(), 1)
+
+    def test_a_document_written_to_during_the_run_stays_pending(self):
+        self.mark("rfc9110")
+
+        def write_again(*args, **kwargs):
+            PendingDocumentChange.objects.filter(doc="rfc9110").update(
+                last_seen=timezone.now() + datetime.timedelta(seconds=1)
+            )
+            return True
+
+        self.run.side_effect = write_again
+        self.assertTrue(push_document_changes())
+        self.assertEqual(PendingDocumentChange.objects.count(), 1)

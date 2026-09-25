@@ -414,10 +414,23 @@ REEF_PRECOMPUTE_REQUIRE_S3 = False
 # resulting files are in flight to the store at once.
 REEF_PRECOMPUTE_CONCURRENCY = int(os.environ.get("REEF_PRECOMPUTE_CONCURRENCY", "8"))
 
+# Red's precompute-multiple EventListener, taking {"rfcs": "9110,9111"}. Empty: Red
+# is not told and picks the change up on its own daily run.
+REEF_TRIGGER_RED_PRECOMPUTE_URL = os.environ.get("REEF_TRIGGER_RED_PRECOMPUTE_URL", "")
+# How long a document must go unwritten before its change is pushed, so that a
+# burst of writes costs one run.
+REEF_DOCUMENT_CHANGE_QUIET_SECONDS = int(
+    os.environ.get("REEF_DOCUMENT_CHANGE_QUIET_SECONDS", "60")
+)
+# RFC numbers per request to Red; one pipeline run per batch.
+REEF_RED_PRECOMPUTE_BATCH_SIZE = int(
+    os.environ.get("REEF_RED_PRECOMPUTE_BATCH_SIZE", "100")
+)
+
 # Celery
 CELERY_TIMEZONE = "UTC"
 CELERY_BROKER_URL = os.environ.get("REEF_BROKER_URL", "amqp://mq/")
-CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_CONNECTION_RETN_STARTUP = True
 CELERY_TASK_IGNORE_RESULT = True
 
 # Schedules live in the database (django-celery-beat) so that staff can retime a job
@@ -447,6 +460,11 @@ CELERY_BEAT_SCHEDULE = {
     "precompute-engagement": {
         "task": "precomputer.tasks.precompute_engagement",
         "schedule": crontab(minute="20"),
+    },
+    # Every five minutes: the documents readers changed, once quiet, then Red is told.
+    "push-document-changes": {
+        "task": "precomputer.tasks.push_document_changes",
+        "schedule": crontab(minute="*/5"),
     },
     # Daily, after the precomputer's full run has refreshed the shared index. Red
     # rebuilds when RFCs are published and publication is bursty, so a daily diff

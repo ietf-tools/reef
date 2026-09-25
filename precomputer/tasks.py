@@ -19,17 +19,23 @@ non-zero; a Celery exception on top would add a retry that recomputes the same
 broken thing, and an alert for something the next scheduled run fixes by itself.
 """
 
+import datetime
 import io
+import json
 import logging
+import re
 import traceback
+import urllib.error
+import urllib.request
 
 from celery import shared_task
+from django.conf import settings
 from django.core.management import CommandError, call_command
 from django.utils import timezone
 
 from reef.locks import advisory_lock
 
-from .models import PrecomputeRun
+from .models import PendingDocumentChange, PrecomputeRun
 from .progress import ProgressOutput
 
 logger = logging.getLogger("reef")
@@ -37,7 +43,7 @@ logger = logging.getLogger("reef")
 LOCK_NAME = "precomputer.run"
 
 
-def _run(*task_names):
+def _run(*task_names, docs=None):
     """Run the precompute command under the lock, reporting rather than raising."""
     label = ", ".join(task_names) if task_names else "all tasks"
     with advisory_lock(LOCK_NAME) as acquired:
@@ -48,7 +54,7 @@ def _run(*task_names):
             return False
         logger.info("Precomputing %s", label)
         try:
-            call_command("precompute", *task_names)
+            call_command("precompute", *task_names, docs=docs)
         except Exception:
             logger.error("Precompute of %s failed", label, exc_info=True)
             return False
@@ -65,6 +71,96 @@ def precompute_all():
 def precompute_engagement():
     """The files that move with reader activity rather than with curation."""
     return _run("stats", "ratings")
+
+
+PUSH_LOCK_NAME = "precomputer.push_document_changes"
+
+_RFC_DOC_RE = re.compile(r"^rfc(\d+)$")
+
+
+@shared_task(ignore_result=True)
+def push_document_changes():
+    """Push the documents readers changed: rewrite their files, then tell Red.
+
+    Red bakes stats.json values into its own page data, so both runs are needed, in
+    this order. Waits until writes have stopped for the quiet window, so a burst
+    costs one run. Rows stay on failure; the scheduled runs remain the floor.
+    """
+    with advisory_lock(PUSH_LOCK_NAME) as acquired:
+        if not acquired:
+            logger.info("Skipping push of document changes: another run is on")
+            return False
+        return _push_document_changes()
+
+
+def _push_document_changes():
+    taken_at = timezone.now()
+    pending = list(PendingDocumentChange.objects.order_by("first_seen"))
+    if not pending:
+        return False
+    newest = max(row.last_seen for row in pending)
+    quiet_for = datetime.timedelta(seconds=settings.REEF_DOCUMENT_CHANGE_QUIET_SECONDS)
+    if taken_at - newest < quiet_for:
+        logger.info(
+            "Deferring push of %d document change(s): still being written to",
+            len(pending),
+        )
+        return False
+
+    docs = [row.doc for row in pending]
+    if not _run("stats", "ratings", docs=docs):
+        return False
+    if not _notify_red(docs):
+        return False
+
+    # A document written to during the run keeps its row for the next tick.
+    PendingDocumentChange.objects.filter(
+        pk__in=[row.pk for row in pending], last_seen__lte=taken_at
+    ).delete()
+    logger.info("Pushed %d document change(s) to Red", len(docs))
+    return True
+
+
+def _notify_red(docs):
+    """POST the RFC numbers among docs to Red's listener, in batches.
+
+    True also when there is nothing to tell: Red has pages only for the rfc series,
+    and without a listener configured it picks the change up on its own schedule.
+    """
+    url = settings.REEF_TRIGGER_RED_PRECOMPUTE_URL
+    rfcs = [match.group(1) for doc in docs if (match := _RFC_DOC_RE.match(doc))]
+    if not url:
+        logger.info(
+            "REEF_TRIGGER_RED_PRECOMPUTE_URL is not set; %d RFC(s) republished "
+            "without telling Red",
+            len(rfcs),
+        )
+        return True
+    if not rfcs:
+        return True
+    size = settings.REEF_RED_PRECOMPUTE_BATCH_SIZE
+    for start in range(0, len(rfcs), size):
+        batch = rfcs[start : start + size]
+        try:
+            _post_json(url, {"rfcs": ",".join(batch)})
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            logger.error("Telling Red to rebuild %d RFC(s) failed: %s", len(batch), exc)
+            return False
+        logger.info("Asked Red to rebuild %d RFC(s)", len(batch))
+    return True
+
+
+def _post_json(url, payload):
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(
+        request, timeout=settings.REEF_RFC_DATA_TIMEOUT
+    ) as response:
+        response.read()
 
 
 @shared_task(ignore_result=True)

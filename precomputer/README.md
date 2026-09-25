@@ -150,6 +150,25 @@ anything else in Reef that resolves an identifier, rather than fetched per run o
 per lookup. Pass `--no-metadata` to skip the fetch and the check, for working
 offline.
 
+## Pushing changes to Red
+
+Red bakes each document's rating average and subscriber and set counts into its
+own precomputed page data, read from `stats.json` at the time Red's precomputer
+runs. So a rating reaches readers only after two runs, in order: Reef republishes
+`stats.json`, then Red rebuilds that document's page.
+
+Reader writes do not run the precomputer directly. A rating, a set entry or an
+`rfc` subscription marks its document in `PendingDocumentChange`, one row per
+document however many writes arrive. Every five minutes
+`push_document_changes` takes the marked documents that have not been written
+to for `REEF_DOCUMENT_CHANGE_QUIET_SECONDS`, runs `stats` and `ratings --doc` for
+them, and POSTs their RFC numbers to `REEF_TRIGGER_RED_PRECOMPUTE_URL`, the
+EventListener of Red's `precompute-multiple` Tekton pipeline, in batches of
+`REEF_RED_PRECOMPUTE_BATCH_SIZE`. Rows are deleted only once Red has been told;
+a failure leaves them for the next tick, and the hourly and daily runs remain
+the floor. With the URL unset Reef publishes and Red picks the change up on its
+own daily run.
+
 ## Purging
 
 A full run deletes keys that a task owns but no longer produces, so a renamed
