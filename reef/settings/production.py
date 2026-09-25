@@ -60,6 +60,14 @@ REEF_REQUIRE_UNSUBSCRIBE_URL = True
 # an ephemeral worker would log a successful run every hour and publish nothing.
 REEF_PRECOMPUTE_REQUIRE_S3 = True
 
+# JSON only. The browsable API is DRF's HTML renderer, which turns every endpoint
+# into an interactive page with forms whenever a browser asks for text/html. That
+# is a development convenience; Red and the Nuxt runner only ever ask for JSON.
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+}
+
 # Caches. Use the memcached service if the k8s environment provides one.
 _memcached_host = os.environ.get("MEMCACHED_SERVICE_HOST")
 if _memcached_host is not None:
