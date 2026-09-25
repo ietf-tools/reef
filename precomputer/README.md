@@ -164,7 +164,10 @@ document however many writes arrive. Every five minutes
 to for `REEF_DOCUMENT_CHANGE_QUIET_SECONDS`, runs `stats` and `ratings --doc` for
 them, and POSTs their RFC numbers to `REEF_TRIGGER_RED_PRECOMPUTE_URL`, the
 EventListener of Red's `precompute-multiple` Tekton pipeline, in batches of
-`REEF_RED_PRECOMPUTE_BATCH_SIZE`. Rows are deleted only once Red has been told;
+`REEF_RED_PRECOMPUTE_BATCH_SIZE`. Each POST asks Red to skip its indices: every
+RFC named is already indexed there, and rebuilding the indices means paging the
+whole series out of the datatracker, which is most of what a Red run costs. Rows
+are deleted only once Red has been told;
 a failure leaves them for the next tick, and the hourly and daily runs remain
 the floor. With the URL unset Reef publishes and Red picks the change up on its
 own daily run.

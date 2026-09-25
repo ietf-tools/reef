@@ -142,7 +142,9 @@ def _notify_red(docs):
     for start in range(0, len(rfcs), size):
         batch = rfcs[start : start + size]
         try:
-            _post_json(url, {"rfcs": ",".join(batch)})
+            # Every RFC named here is already indexed on Red; rebuilding the
+            # indices is most of what a run costs.
+            _post_json(url, {"rfcs": ",".join(batch), "skipIndices": "true"})
         except (urllib.error.URLError, OSError, ValueError) as exc:
             logger.error("Telling Red to rebuild %d RFC(s) failed: %s", len(batch), exc)
             return False

@@ -1340,7 +1340,10 @@ class PushDocumentChangesTests(TestCase):
         # bcp14 is republished but has no page on Red, so Red is not told about it.
         self.assertEqual(
             self.post.call_args.args,
-            ("http://el-precompute-multiple.red/", {"rfcs": "9110,2119"}),
+            (
+                "http://el-precompute-multiple.red/",
+                {"rfcs": "9110,2119", "skipIndices": "true"},
+            ),
         )
         self.assertEqual(PendingDocumentChange.objects.count(), 0)
 
