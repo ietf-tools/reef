@@ -2,6 +2,8 @@
 from django.conf import settings
 from django.db import models
 
+from reef.docids import DOC_ID_MAX_LENGTH
+
 
 class PrecomputeRun(models.Model):
     """One press of the admin "Run precompute now" button.
@@ -55,3 +57,20 @@ class PrecomputeRun(models.Model):
     @property
     def is_finished(self):
         return self.status not in (self.Status.PENDING, self.Status.RUNNING)
+
+
+class PendingDocumentChange(models.Model):
+    """A document whose stats row changed since Red was last told.
+
+    One row per document, not per event: Red needs the list of documents to rebuild.
+    """
+
+    doc = models.CharField(max_length=DOC_ID_MAX_LENGTH, unique=True)
+    first_seen = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["first_seen"]
+
+    def __str__(self):
+        return f"{self.doc} changed, last at {self.last_seen:%Y-%m-%d %H:%M}"
