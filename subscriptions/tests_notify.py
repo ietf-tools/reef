@@ -18,6 +18,7 @@ from subscriptions.models import (
     PendingNotification,
     SubjectNotificationEvent,
     Subscription,
+    WebNotification,
 )
 from subscriptions.tasks import detect_rfc_changes
 
@@ -133,6 +134,33 @@ class NotifyRfcChangesTests(TestCase):
         notification = PendingNotification.objects.get()
         self.assertEqual(notification.user, self.user)
         self.assertEqual(notification.events[0]["doc"], "rfc9999")
+
+        web_notification = WebNotification.objects.get()
+        self.assertEqual(web_notification.user_id, self.user.pk)
+        self.assertEqual(web_notification.kind, "rfc_change")
+        self.assertEqual(web_notification.event["doc"], "rfc9999")
+
+    def test_a_consolidated_subject_event_does_not_get_a_second_web_notification(self):
+        """It already got one when it was staged (see stage_subject_event); the
+        daily digest folding it into the mail here must not create a second."""
+        self.seed()
+        subject = Subject.objects.create(name="Security", slug="security")
+        SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
+        subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        SubjectNotificationEvent.objects.create(
+            user=self.user,
+            subscription_ids=[subscription.pk],
+            event={
+                "doc": "rfc9110",
+                "change": "Added to the subject Security.",
+                "url": "https://www.rfc-editor.org/info/rfc9110/",
+            },
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            detect_rfc_changes()
+        self.assertEqual(WebNotification.objects.count(), 0)
 
     def test_a_subject_event_is_consolidated_into_the_daily_digest(self):
         self.seed()

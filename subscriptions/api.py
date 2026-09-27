@@ -1,11 +1,20 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.db import transaction
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import extend_schema
 from rest_framework import generics
+from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from .models import Subscription
-from .serializers import SubscriptionSerializer
+from .models import Subscription, WebNotification
+from .serializers import (
+    DigestPreferenceSerializer,
+    SubscriptionSerializer,
+    WebNotificationSerializer,
+)
 from .tasks import send_subscription_confirmation
 
 
@@ -67,3 +76,53 @@ class SubscriptionDetail(OwnSubscriptionsMixin, generics.DestroyAPIView):
     """Delete one of the current user's subscriptions."""
 
     serializer_class = SubscriptionSerializer
+
+
+class NotificationCursorPagination(CursorPagination):
+    """Ordered by row rather than by created_at: two notifications written in the
+    same instant would otherwise tie, and pk is monotonic without one."""
+
+    ordering = "-pk"
+    page_size = 20
+
+
+class OwnWebNotificationsMixin:
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return WebNotification.objects.filter(user=self.request.user)
+
+
+class WebNotificationList(OwnWebNotificationsMixin, generics.ListAPIView):
+    """The caller's own notification feed, newest first."""
+
+    serializer_class = WebNotificationSerializer
+    pagination_class = NotificationCursorPagination
+
+
+class MarkNotificationRead(OwnWebNotificationsMixin, APIView):
+    """Mark one of the caller's own notifications read.
+
+    Idempotent: a notification already read stays read rather than erroring.
+    """
+
+    @extend_schema(request=None, responses={200: WebNotificationSerializer})
+    def post(self, request, pk):
+        notification = get_object_or_404(self.get_queryset(), pk=pk)
+        if not notification.read:
+            notification.read = True
+            notification.save(update_fields=["read"])
+        return Response(WebNotificationSerializer(notification).data)
+
+
+class DigestPreferenceDetail(generics.RetrieveUpdateAPIView):
+    """Read or set whether the caller receives the subscription digest by mail.
+
+    Always the caller's own account: there is nothing else this could name.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = DigestPreferenceSerializer
+
+    def get_object(self):
+        return self.request.user

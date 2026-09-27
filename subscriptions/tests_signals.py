@@ -10,7 +10,7 @@ from django.test import TestCase
 
 from subjects.models import Subject, SubjectAssignment
 
-from .models import SubjectNotificationEvent, Subscription
+from .models import SubjectNotificationEvent, Subscription, WebNotification
 
 User = get_user_model()
 
@@ -40,6 +40,11 @@ class NewAssignmentNotificationTests(TestCase):
         self.assertEqual(
             notification.event_key, f"subject-assignment:{self.subject.pk}:rfc9110"
         )
+
+        web_notification = WebNotification.objects.get()
+        self.assertEqual(web_notification.user_id, self.user.pk)
+        self.assertEqual(web_notification.kind, "subject_assignment")
+        self.assertEqual(web_notification.event, notification.event)
 
     def test_a_subscriber_to_a_covering_ancestor_is_also_notified(self):
         parent = Subject.objects.create(name="Messaging", slug="messaging")
@@ -131,6 +136,9 @@ class NewAssignmentNotificationTests(TestCase):
             SubjectAssignment.objects.create(subject=self.subject, doc="rfc9110")
 
         self.assertEqual(SubjectNotificationEvent.objects.count(), 1)
+        # Piggybacks on the constraint above: the second stage never reaches the
+        # WebNotification write either, so retagging does not surface it twice.
+        self.assertEqual(WebNotification.objects.count(), 1)
 
     def test_unassigning_notifies_nobody(self):
         """Removing an assignment is a correction to the vocabulary, not news
@@ -163,6 +171,7 @@ class NewAssignmentNotificationTests(TestCase):
 
         self.assertIn("Could not stage a notification", logs.output[0])
         self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
+        self.assertEqual(WebNotification.objects.count(), 0)
 
     def test_a_rolled_back_assignment_notifies_nobody(self):
         self.follow(self.subject)

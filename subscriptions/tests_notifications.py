@@ -12,7 +12,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from subscriptions.delivery import SendEmailError
-from subscriptions.models import PendingNotification, Subscription
+from subscriptions.models import PendingNotification, Subscription, WebNotification
 from subscriptions.tasks import (
     deliver_notification,
     notification_key,
@@ -51,6 +51,49 @@ class QueueNotificationTests(TestCase):
         with mock.patch("subscriptions.tasks.deliver_notification.delay") as delay:
             with self.captureOnCommitCallbacks(execute=False):
                 queue_notification(self.user.pk, [self.subscription.pk], EVENTS)
+        delay.assert_not_called()
+
+    def test_a_web_notification_is_created_for_each_event(self):
+        events = [
+            {"doc": "rfc9110", "change": "Published", "url": ""},
+            {"doc": "rfc8446", "change": "Published", "url": ""},
+        ]
+        queue_notification(self.user.pk, [self.subscription.pk], events)
+        notifications = WebNotification.objects.filter(user=self.user)
+        self.assertEqual(notifications.count(), 2)
+        self.assertTrue(all(n.kind == "rfc_change" for n in notifications))
+
+    def test_web_events_narrows_which_events_are_surfaced(self):
+        """A subject-tagging event already got its own WebNotification when it was
+        staged (see stage_subject_event) and must not get a second one when the
+        daily digest folds it back in here."""
+        rfc_event = {"doc": "rfc9110", "change": "Published", "url": ""}
+        subject_event = {"doc": "rfc8446", "change": "Tagged", "url": ""}
+        queue_notification(
+            self.user.pk,
+            [self.subscription.pk],
+            [rfc_event, subject_event],
+            web_events=[rfc_event],
+        )
+        self.assertEqual(WebNotification.objects.filter(user=self.user).count(), 1)
+        self.assertEqual(WebNotification.objects.get().event, rfc_event)
+
+    def test_a_web_notification_is_created_even_when_digest_email_is_off(self):
+        """The web feed has no opt-out."""
+        self.user.receive_digest_email = False
+        self.user.save()
+        queue_notification(self.user.pk, [self.subscription.pk], EVENTS)
+        self.assertEqual(WebNotification.objects.filter(user=self.user).count(), 1)
+        self.assertEqual(PendingNotification.objects.count(), 0)
+
+    def test_no_pending_notification_is_queued_when_digest_email_is_off(self):
+        self.user.receive_digest_email = False
+        self.user.save()
+        with mock.patch("subscriptions.tasks.deliver_notification.delay") as delay:
+            notification = queue_notification(
+                self.user.pk, [self.subscription.pk], EVENTS
+            )
+        self.assertIsNone(notification)
         delay.assert_not_called()
 
 
@@ -116,6 +159,16 @@ class DeliverNotificationTests(TestCase):
         """Permanently nothing to send, so the obligation is discharged. Leaving the
         row would have the sweeper offer it hourly for ever."""
         self.subscription.delete()
+        with self.assertLogs("reef", level="INFO"):
+            deliver_notification(self.notification.pk)
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(PendingNotification.objects.count(), 0)
+
+    def test_a_reader_who_opted_out_after_queueing_gets_no_mail(self):
+        """Queued before the opt-out and left in place (see queue_notification);
+        settled here without sending, so the sweeper does not keep offering it."""
+        self.user.receive_digest_email = False
+        self.user.save()
         with self.assertLogs("reef", level="INFO"):
             deliver_notification(self.notification.pk)
         self.assertEqual(mail.outbox, [])

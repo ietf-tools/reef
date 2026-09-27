@@ -305,3 +305,46 @@ class SubjectNotificationEvent(models.Model):
                 name="unique_pending_subject_event",
             ),
         ]
+
+
+class WebNotification(models.Model):
+    """One event surfaced to a reader on Red, independent of whether it was ever
+    mailed.
+
+    One row per event, not per digest, and it outlives delivery: unlike
+    PendingNotification this is a feed a reader browses, not a queue that empties
+    once worked off. read is a plain flag rather than a timestamp because nothing
+    here needs to know when, only whether.
+
+    No uniqueness constraint of its own. A subject-tagging event already can't
+    double up here -- it is written alongside SubjectNotificationEvent, inside the
+    same transaction, so the constraint that stops a second SubjectNotificationEvent
+    stops a second row here too -- and an RFC change repeating months later is
+    deliberately a new notification, the same choice PendingNotification.dedupe_key
+    already makes for mail.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="web_notifications",
+    )
+    # "rfc_change", or a SubjectNotificationEvent.event_kind value
+    # ("subject_assignment" today) -- the vocabulary is shared with the mail side
+    # rather than redeclared.
+    kind = models.CharField(max_length=64)
+    # Same shape as_event() and the subject-assignment signal already build: doc,
+    # change, url (RFC events add doc_display). Stored as given, not re-rendered
+    # later, so a notification still reads correctly after its subscription is gone.
+    event = models.JSONField()
+    subscription_ids = models.JSONField(default=list)
+    read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "-created_at"])]
+
+    def __str__(self):
+        state = "read" if self.read else "unread"
+        return f"{self.kind} notification for {self.user} ({state})"

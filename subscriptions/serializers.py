@@ -1,11 +1,12 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from docsets.models import DocumentSet
 from subjects.models import Subject
 
-from .models import Subscription, normalize_params, relation_problems
+from .models import Subscription, WebNotification, normalize_params, relation_problems
 
 # What each relation field is called on the wire. The model field names read
 # oddly to a caller, since nothing outside Reef calls a set a "document set",
@@ -82,3 +83,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         }:
             raise serializers.ValidationError(problems)
         return attrs
+
+
+class WebNotificationSerializer(serializers.ModelSerializer):
+    """One row of the caller's own notification feed.
+
+    subscription_ids stays off the wire: nothing on Red needs it yet, and event
+    already carries doc and url, everything a display needs to render and link.
+    """
+
+    class Meta:
+        model = WebNotification
+        fields = ["id", "kind", "event", "read", "created_at"]
+        read_only_fields = fields
+
+
+class DigestPreferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = get_user_model()
+        fields = ["receive_digest_email"]

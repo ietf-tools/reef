@@ -1988,3 +1988,189 @@ and a rank has no meaning as a percentile. The first upload populates both table
   `datatable_archiving_maximum_rows_subtable_actions` (and the top-level
   `datatable_archiving_maximum_rows_actions`) raised in Matomo's `config.ini.php` and
   the affected period re-archived. The run page says so whenever it sees `Others`.
+
+## Web notifications and the digest opt-out
+
+Today a reader only hears about a subscription match once a day, by mail. This adds a
+second, persistent channel: the same events, shown on Red as soon as they happen,
+independent of whether the mail goes out at all. A reader who would rather check Red
+than receive mail can turn the mail off; the web feed cannot be turned off, since not
+visiting Red already has that effect.
+
+### Data model
+
+`reefauth.User` gains one field:
+
+```python
+receive_digest_email = models.BooleanField(default=True)
+```
+
+`subscriptions` gains one model, sitting beside `PendingNotification` and
+`SubjectNotificationEvent` since it is filled from the same two places:
+
+```python
+class WebNotification(models.Model):
+    """One event surfaced to a reader on Red, independent of whether it was ever
+    mailed.
+
+    One row per event, not per digest, and it outlives delivery: unlike
+    PendingNotification this is a feed a reader browses, not a queue that empties
+    once worked off. read is a plain flag rather than a timestamp because nothing
+    here needs to know when, only whether.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="web_notifications",
+    )
+    # "rfc_change", or a SubjectNotificationEvent.event_kind value ("subject_assignment"
+    # today) -- the vocabulary is shared with the mail side rather than redeclared.
+    kind = models.CharField(max_length=64)
+    # Same shape as_event() and the subject-assignment signal already build: doc,
+    # change, url (RFC events add doc_display). Stored as given, not re-rendered later,
+    # so a notification still reads correctly after its subscription is gone.
+    event = models.JSONField()
+    subscription_ids = models.JSONField(default=list)
+    read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "-created_at"])]
+```
+
+No uniqueness constraint of its own. A subject-tagging event already can't double up
+(see below), and an RFC change repeating months later is deliberately a new
+notification, the same choice `PendingNotification.dedupe_key` already makes for mail.
+
+### Where notifications are created
+
+Two existing per-user queuing points, both in `subscriptions/tasks.py`:
+
+- **`stage_subject_event`**, called immediately (`subscriptions/signals.py`) when a
+  document is tagged with a subject a reader follows. A `WebNotification` is created
+  right after the existing `SubjectNotificationEvent.objects.create()` call, inside the
+  same `transaction.atomic()` the caller already wraps it in. That means a retagging
+  that hits the `(user, event_kind, event_key)` constraint -- already staged, not yet
+  folded into a digest -- raises before reaching the new line, so it does not produce a
+  second web notification either; one fact, told once, matches what the mail side
+  already guarantees.
+
+- **`queue_notification`**, called once a day per reader from `_detect_and_notify`,
+  with the reader's whole day combined: RFC changes and any staged subject events
+  folded into one `events` list for the mail. Folding those two sources into one list is
+  right for a single digest mail, but wrong for the web feed, which must not repeat a
+  subject-tagging event `stage_subject_event` already surfaced. So `_detect_and_notify`
+  keeps a second, RFC-only dict per reader alongside the combined one it already builds,
+  and `queue_notification` takes a new `web_events` argument -- the subset to explode
+  into individual `WebNotification` rows, one per event, `kind="rfc_change"` -- kept
+  separate from `events`, the full list `PendingNotification` still stores for the mail
+  body. Nothing needs inspecting or inferring at the point the rows are written; the
+  caller already knows which events are new.
+
+### The opt-out
+
+`receive_digest_email=False` stops a reader entering the mail path, gated at one point
+only: `queue_notification`, the one place a `PendingNotification` -- the only row that
+is ever mailed -- gets created.
+
+- `stage_subject_event` stays unconditional. Gating it too was the first design here,
+  but it breaks the dedupe a `WebNotification` piggybacks on: with no
+  `SubjectNotificationEvent` row written for an opted-out reader, a tag removed and
+  re-added has nothing to trip the `(user, event_kind, event_key)` constraint against,
+  and the retagging surfaces a second web notification for the same fact. Leaving the
+  staging row unconditional keeps that guarantee for every reader alike, and it costs
+  nothing extra: the row is consolidated (or dropped) by the next
+  `_detect_and_notify` run regardless, same as it is today.
+- `queue_notification` checks the flag (one query per call; digest volume makes this
+  cheap) and skips creating the `PendingNotification` when it is unset -- the
+  `WebNotification` writes above it are unconditional, reached whether or not the mail
+  row was, since the feed was never gated by this flag.
+- A `SubjectNotificationEvent` consumed by `_detect_and_notify` is still deleted in
+  that run's existing unconditional cleanup, whether or not `queue_notification` went
+  on to write a `PendingNotification` for it. Nothing extra needed there.
+- A `PendingNotification` already queued before the opt-out is left in place --
+  deleting it out from under a possibly in-flight `deliver_notification` adds a race for
+  no benefit. Instead `deliver_notification` re-checks the flag immediately before
+  calling `send_subscription_digest`, and if it has gone false, skips straight to the
+  existing stamp-and-delete cleanup without composing or sending anything. The row is
+  settled either way, so `sweep_unsent_notifications` never sees it again.
+
+### API surface
+
+All three endpoints live in `subscriptions/api.py` and `subscriptions/urls.py`,
+alongside the existing subscription views, following `OwnSubscriptionsMixin`'s
+shape -- a mixin scoping `get_queryset()` to `request.user` with
+`permission_classes = [IsAuthenticated]`, reused here as `OwnWebNotificationsMixin`.
+
+**`GET /api/reef/notifications/`** -- the caller's own notifications, newest first.
+The first paginated endpoint in the codebase (nothing else paginates today; the
+existing lists are either small and curated or scoped to one caller's few rows). A
+notification feed is exactly the case page-number pagination handles badly -- new
+rows keep arriving at the head, which shifts every later page -- so this gets its own
+`NotificationCursorPagination(CursorPagination)`, `ordering = "-pk"` (monotonic across
+the table, so no tie-break needed the way `-created_at` alone would). Response fields:
+`id`, `kind`, `event`, `read`, `created_at`. `subscription_ids` stays a model field but
+is not serialized -- nothing on Red needs it yet, and the event JSON already carries
+`doc` and `url`, everything a display needs to render and link.
+
+**`POST /api/reef/notifications/<int:pk>/read/`** -- `MarkNotificationRead`, a plain
+`APIView` (matching `docsets.api.DocumentSetOrder`'s shape for a verb that is not a
+CRUD method), scoped to the caller's own rows, idempotent -- a notification already
+read stays read -- 404 for a pk the caller does not own, 200 with the updated row
+otherwise. No bulk "mark all read" yet; add one only if Red turns out to need it.
+
+**`GET`/`PATCH /api/reef/digest-preference/`** -- `generics.RetrieveUpdateAPIView`,
+`get_object` returning `self.request.user` (there is nothing to scope a queryset by;
+the resource is always the caller), serializing the one new field,
+`receive_digest_email`. No existing user-profile endpoint to fold this into --
+`reefauth` has none today, authentication being entirely Authentik's -- so this is the
+first.
+
+`reef_api.yaml` is regenerated once the views exist, per the usual
+`./manage.py spectacular` step; nothing here is precomputed or blob-served, so
+`reef.urls_contract` is untouched.
+
+### Migration
+
+- `reefauth/migrations/0004_user_receive_digest_email.py` -- the new field, default
+  `True`, so every existing account keeps getting mail unless they say otherwise.
+- `subscriptions/migrations/0014_webnotification.py` -- the new model.
+
+### Steps
+
+1. Models and migrations: `User.receive_digest_email`, `WebNotification`, both
+   migrations. Commit: "Add web notifications and a digest email opt-out".
+2. Creation: the `web_events` split in `_detect_and_notify`, the `WebNotification`
+   write in `queue_notification` and in `stage_subject_event`, the opt-out checks in
+   both, and the re-check in `deliver_notification`. Commit: "Surface digest events as
+   web notifications, gated by opt-out".
+3. API: `NotificationCursorPagination`, `OwnWebNotificationsMixin`, the list view,
+   `MarkNotificationRead`, the digest-preference view and serializer, `urls.py`,
+   `reef_api.yaml` regenerated. Commit: "Add the web notification and digest
+   preference APIs".
+
+### Verification
+
+- `stage_subject_event`: a `WebNotification` is created alongside the
+  `SubjectNotificationEvent`; a retagging that hits the existing unique constraint
+  creates neither a second `SubjectNotificationEvent` nor a second `WebNotification`.
+- `_detect_and_notify` / `queue_notification`: an RFC change produces one
+  `WebNotification` per matched reader; a subject event already surfaced by
+  `stage_subject_event` does not produce a second one when the day's digest folds it
+  in; a reader with only subject events and no RFC changes still gets their digest
+  mailed with both kinds of event in it.
+- Opt-out: `receive_digest_email=False` before an event arrives means no
+  `SubjectNotificationEvent`/`PendingNotification` row is created for that reader, but
+  a `WebNotification` still is; flipping it off after a `PendingNotification` already
+  exists leaves the row in place but `deliver_notification` sends nothing and still
+  deletes it; flipping it back on before the row is picked up sends the mail normally.
+- `MarkNotificationRead`: marks the caller's own row read; 404 on another user's pk;
+  a second call on an already-read row is a no-op, not an error.
+- The list endpoint: only the caller's own rows; cursor pagination survives new rows
+  being created between two page fetches (no repeat, no skip); `reef_api.yaml`
+  documents all three endpoints and validates.
+- The preference endpoint: defaults to `true` for an existing account with no
+  migration data change; GET and PATCH both scoped to the caller, never another user's
+  row.

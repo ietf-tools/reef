@@ -21,7 +21,7 @@ from subjects.models import Subject, SubjectAssignment
 from .delivery import SendEmailError, send_subscription_digest
 from .matching import subscriptions_for_document
 from .messages import CONFIRMATION_SUBJECT, digest_subject
-from .models import Subscription
+from .models import Subscription, WebNotification
 from .tasks import send_subscription_confirmation
 
 User = get_user_model()
@@ -110,6 +110,109 @@ class SubscriptionApiTests(APITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 400)
+
+
+class WebNotificationApiTests(APITestCase):
+    EVENT = {"doc": "rfc9110", "change": "Published", "url": ""}
+
+    def test_requires_auth(self):
+        self.assertIn(
+            self.client.get("/api/reef/notifications/").status_code, (401, 403)
+        )
+
+    def test_lists_only_the_callers_own_notifications(self):
+        user = User.objects.create(username="u", oidc_sub="s")
+        other = User.objects.create(username="o", oidc_sub="s2")
+        WebNotification.objects.create(user=user, kind="rfc_change", event=self.EVENT)
+        WebNotification.objects.create(user=other, kind="rfc_change", event=self.EVENT)
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get("/api/reef/notifications/")
+        self.assertEqual(len(response.json()["results"]), 1)
+
+    def test_newest_first(self):
+        user = User.objects.create(username="u", oidc_sub="s")
+        first = WebNotification.objects.create(
+            user=user, kind="rfc_change", event=self.EVENT
+        )
+        second = WebNotification.objects.create(
+            user=user, kind="rfc_change", event=self.EVENT
+        )
+
+        self.client.force_authenticate(user=user)
+        results = self.client.get("/api/reef/notifications/").json()["results"]
+        self.assertEqual([row["id"] for row in results], [second.pk, first.pk])
+
+    def test_mark_read_is_scoped_to_the_caller(self):
+        user = User.objects.create(username="u", oidc_sub="s")
+        other = User.objects.create(username="o", oidc_sub="s2")
+        theirs = WebNotification.objects.create(
+            user=other, kind="rfc_change", event=self.EVENT
+        )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.post(f"/api/reef/notifications/{theirs.pk}/read/")
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(WebNotification.objects.get(pk=theirs.pk).read)
+
+    def test_mark_read(self):
+        user = User.objects.create(username="u", oidc_sub="s")
+        notification = WebNotification.objects.create(
+            user=user, kind="rfc_change", event=self.EVENT
+        )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.post(f"/api/reef/notifications/{notification.pk}/read/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["read"])
+        self.assertTrue(WebNotification.objects.get(pk=notification.pk).read)
+
+    def test_marking_an_already_read_notification_is_a_no_op(self):
+        user = User.objects.create(username="u", oidc_sub="s")
+        notification = WebNotification.objects.create(
+            user=user, kind="rfc_change", event=self.EVENT, read=True
+        )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.post(f"/api/reef/notifications/{notification.pk}/read/")
+        self.assertEqual(response.status_code, 200)
+
+
+class DigestPreferenceApiTests(APITestCase):
+    def test_requires_auth(self):
+        self.assertIn(
+            self.client.get("/api/reef/digest-preference/").status_code, (401, 403)
+        )
+
+    def test_defaults_to_true(self):
+        user = User.objects.create(username="u", oidc_sub="s")
+        self.client.force_authenticate(user=user)
+        response = self.client.get("/api/reef/digest-preference/")
+        self.assertEqual(response.json(), {"receive_digest_email": True})
+
+    def test_can_be_turned_off(self):
+        user = User.objects.create(username="u", oidc_sub="s")
+        self.client.force_authenticate(user=user)
+        response = self.client.patch(
+            "/api/reef/digest-preference/",
+            {"receive_digest_email": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        user.refresh_from_db()
+        self.assertFalse(user.receive_digest_email)
+
+    def test_scoped_to_the_caller(self):
+        user = User.objects.create(username="u", oidc_sub="s")
+        other = User.objects.create(
+            username="o", oidc_sub="s2", receive_digest_email=False
+        )
+
+        self.client.force_authenticate(user=user)
+        response = self.client.get("/api/reef/digest-preference/")
+        self.assertTrue(response.json()["receive_digest_email"])
+        other.refresh_from_db()
+        self.assertFalse(other.receive_digest_email)
 
 
 class SubscriptionUniquenessTests(APITestCase):
