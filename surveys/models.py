@@ -2,6 +2,7 @@
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from simple_history.models import HistoricalRecords
 
 from .audience import normalize_audience, validate_audience
 
@@ -142,6 +143,9 @@ class Survey(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # The definition is edited in place, so without this nothing says which
+    # wording a response answered.
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["-updated_at"]
