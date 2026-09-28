@@ -31,6 +31,12 @@ const config = useRuntimeConfig()
 const colorMode = useColorMode()
 const model = new Model(props.definition)
 
+// The page around the runner shows its own thank-you once save() resolves, so
+// the completed page must not say anything of its own meanwhile; unset, it falls
+// back to SurveyJS's "Thank you for completing the survey". It stays shown, blank,
+// because the saving and save-error notifications render inside it.
+model.completedHtml = ''
+
 // A survey's own theme (from the SurveyJS Theme Editor) only carries the colors a
 // designer picked, not a light/dark pair, so we still need a base that follows
 // Reef's own colour mode for the chrome the custom theme doesn't touch — otherwise
