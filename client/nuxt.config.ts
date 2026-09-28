@@ -49,7 +49,11 @@ export default defineNuxtConfig({
       // "Default", "Flat", "Sharp"), applied as the runner's base so it follows
       // this site's colour mode. Set NUXT_PUBLIC_SURVEY_THEME_FAMILY to restyle
       // every survey's chrome without a code change.
-      surveyThemeFamily: 'Default' // NUXT_PUBLIC_SURVEY_THEME_FAMILY
+      surveyThemeFamily: 'Default', // NUXT_PUBLIC_SURVEY_THEME_FAMILY
+      // Origin of Red, the rfc-editor.org site that links into this runner. A
+      // survey's returnTo is a path on Red, resolved against this so the runner
+      // never sends anyone to another host.
+      rfceditorBase: 'https://www.rfc-editor.org' // NUXT_PUBLIC_RFCEDITOR_BASE
     }
   },
   app: {

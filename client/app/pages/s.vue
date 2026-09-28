@@ -1,7 +1,13 @@
 <template>
   <div class="mx-auto max-w-3xl p-6">
-    <div v-if="submitted" class="rounded font-bold bg-green-50 dark:bg-green-950 p-6 text-green-800 dark:text-green-100">
-      Thank you. Your response has been recorded.
+    <div
+      v-if="submitted"
+      class="rounded font-bold bg-green-50 dark:bg-green-950 p-6 text-green-800 dark:text-white">
+      <p>Thank you. Your response has been recorded.</p>
+
+      <p v-if="returnToHref" class="mt-6">
+        <a :href="returnToHref">Return to RFC-Editor.org</a>
+      </p>
     </div>
     <div v-else-if="pending" class="rounded bg-gray-50 dark:bg-blue-900 p-6">
       <p v-if="resumeError" class="font-bold text-red-800 dark:text-red-200">{{ resumeError }}</p>
@@ -32,6 +38,20 @@ const slug = Array.isArray(route.query.slug) ? route.query.slug[0] : route.query
 const api = useSurveyApi()
 const oidc = useOidc()
 const { submitted, pending, resuming, resumeError, save, resume } = useSurveySubmission(slug ?? '')
+
+// Where the survey-taker came from on Red. Only a path is accepted, so the
+// query cannot send anyone off rfc-editor.org.
+const {
+  public: { rfceditorBase }
+} = useRuntimeConfig()
+const returnToHref = computed(() => {
+  const MAX_RETURNTO_LENGTH = 50
+  const path = Array.isArray(route.query.returnTo) ? route.query.returnTo[0] : route.query.returnTo
+  if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//') || path.length > MAX_RETURNTO_LENGTH) {
+    return null
+  }
+  return `${rfceditorBase}${path}`
+})
 
 const { data: survey, error } = await useAsyncData(`survey-${slug}`, () =>
   slug ? api.getDefinition(slug) : Promise.resolve(null)
