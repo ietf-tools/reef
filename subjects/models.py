@@ -480,6 +480,8 @@ class SubjectAlias(models.Model):
         Subject, on_delete=models.CASCADE, related_name="aliases"
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    # Preserve alias ownership changes separately from Subject history.
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["slug"]

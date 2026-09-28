@@ -4,6 +4,7 @@ import uuid
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from simple_history.models import HistoricalRecords
 
 from reef.docids import DOC_ID_MAX_LENGTH, normalize_doc_id
 
@@ -81,6 +82,8 @@ class DocumentSet(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Retains an audit record after hard deletion.
+    history = HistoricalRecords()
 
     objects = LiveDocumentSetManager()
     all_objects = models.Manager.from_queryset(DocumentSetQuerySet)()
@@ -119,6 +122,7 @@ class DocumentSetEntry(models.Model):
     doc = models.CharField(max_length=DOC_ID_MAX_LENGTH, db_index=True)
     rank = models.PositiveIntegerField(default=0, help_text="Lower sorts first")
     added_at = models.DateTimeField(auto_now_add=True)
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["rank", "id"]
