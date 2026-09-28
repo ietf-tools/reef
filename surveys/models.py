@@ -143,8 +143,7 @@ class Survey(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    # The definition is edited in place, so without this nothing says which
-    # wording a response answered.
+    # Preserves the definition shown to respondents.
     history = HistoricalRecords()
 
     class Meta:

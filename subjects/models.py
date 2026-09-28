@@ -480,7 +480,7 @@ class SubjectAlias(models.Model):
         Subject, on_delete=models.CASCADE, related_name="aliases"
     )
     created_at = models.DateTimeField(auto_now_add=True)
-    # A merge deletes aliases, and Subject's own history does not record that.
+    # Preserve alias ownership changes separately from Subject history.
     history = HistoricalRecords()
 
     class Meta:

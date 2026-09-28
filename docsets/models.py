@@ -82,7 +82,7 @@ class DocumentSet(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    # An owner's delete is a hard delete, and this is the only trace it leaves.
+    # Retains an audit record after hard deletion.
     history = HistoricalRecords()
 
     objects = LiveDocumentSetManager()
