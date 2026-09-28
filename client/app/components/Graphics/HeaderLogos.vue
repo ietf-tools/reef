@@ -7,7 +7,7 @@
       'inline-block md:px-2 pt-1 pb-1 rounded-md'
     ]">
     <img :src="LogoMobile" class="lg:hidden" alt="RFC Editor Surveys" width="146" height="19" />
-    <img :src="LogoDesktop" class="hidden lg:block" alt="RFC Editor Surveys" width="297" height="37" />
+    <img :src="LogoDesktop" class="hidden lg:block" alt="RFC Editor Surveys: Community Engagement" width="297" height="37" />
   </Anchor>
 </template>
 
