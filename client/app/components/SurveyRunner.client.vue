@@ -40,18 +40,44 @@ function themeForMode(mode: string): Record<string, unknown> {
   const themeMap = surveyThemes as unknown as Record<string, Record<string, unknown>>
   const name = `${config.public.surveyThemeFamily}${mode === 'dark' ? 'Dark' : 'Light'}`
   const base = themeMap[name] ?? (mode === 'dark' ? surveyThemes.DefaultDark : surveyThemes.DefaultLight)
-  // Same navy the header/footer bars use (bg-blue-900 dark:bg-blue-950), referenced
-  // via the Tailwind CSS variable rather than a copied hex so the two stay in sync.
-  const primary = `var(--color-blue-${mode === 'dark' ? '950' : '900'})`
+  // Light mode uses the same navy as the header/footer bars (bg-blue-900). Dark
+  // mode cannot: SurveyJS paints checked boxes, selected ratings, the progress bar,
+  // focus borders and the Next button with the primary colour, and the navy is
+  // nearly the same darkness as its dark panels (about 1.5:1). A light accent with
+  // dark text on it keeps those controls visible. Both are referenced via the
+  // Tailwind CSS variables rather than copied hexes so the palette stays in sync.
+  const dark = mode === 'dark'
+  const primary = `var(--color-blue-${dark ? '100' : '900'})`
+  const primaryText = dark ? 'var(--color-blue-975)' : 'var(--color-white)'
+  // DefaultDark's secondary text (white at 42%) and borders (white at 8-12%) fall
+  // short of WCAG AA (4.5:1 for text, 3:1 for control outlines) on its panels;
+  // these opacities clear it (about 6.6:1 and 3.5:1). Text inputs, checkbox and
+  // radio decorators, the boolean toggle, buttons and rating items have no CSS
+  // border at all: their outline is the shadow, which DefaultDark keeps as a black
+  // drop shadow that vanishes on its dark panels. A 1px light ring stands in for
+  // it. The *-reset variants stay as SurveyJS defines them, since they only clear
+  // the shadow while the focus ring is shown.
+  const darkContrast = dark
+    ? {
+        '--sjs-general-forecolor-light': 'rgba(255, 255, 255, 0.65)',
+        '--sjs-general-dim-forecolor-light': 'rgba(255, 255, 255, 0.65)',
+        '--sjs-border-default': 'rgba(255, 255, 255, 0.4)',
+        '--sjs-border-light': 'rgba(255, 255, 255, 0.3)',
+        '--sjs-border-inside': 'rgba(255, 255, 255, 0.3)',
+        '--sjs-shadow-small': '0px 0px 0px 1px rgba(255, 255, 255, 0.3)',
+        '--sjs-shadow-inner': 'inset 0px 0px 0px 1px rgba(255, 255, 255, 0.4)'
+      }
+    : {}
   return {
     ...base,
     cssVariables: {
       ...(base.cssVariables as Record<string, string>),
+      ...darkContrast,
       '--sjs-primary-backcolor': primary,
       '--sjs-primary-backcolor-light': `color-mix(in srgb, ${primary} 10%, transparent)`,
       '--sjs-primary-backcolor-dark': `color-mix(in srgb, ${primary} 85%, black)`,
-      '--sjs-primary-forecolor': 'var(--color-white)',
-      '--sjs-primary-forecolor-light': 'color-mix(in srgb, var(--color-white) 25%, transparent)'
+      '--sjs-primary-forecolor': primaryText,
+      '--sjs-primary-forecolor-light': `color-mix(in srgb, ${primaryText} 25%, transparent)`
     }
   }
 }
