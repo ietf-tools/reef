@@ -55,30 +55,29 @@ function themeForMode(mode: string): Record<string, unknown> {
   const dark = mode === 'dark'
   const primary = `var(--color-blue-${dark ? '100' : '900'})`
   const primaryText = dark ? 'var(--color-blue-975)' : 'var(--color-white)'
-  // DefaultDark's secondary text (white at 42%) and borders (white at 8-12%) fall
-  // short of WCAG AA (4.5:1 for text, 3:1 for control outlines) on its panels;
-  // these opacities clear it (about 6.6:1 and 3.5:1). Text inputs, checkbox and
-  // radio decorators, the boolean toggle, buttons and rating items have no CSS
-  // border at all: their outline is the shadow, which DefaultDark keeps as a black
-  // drop shadow that vanishes on its dark panels. A 1px light ring stands in for
-  // it. The *-reset variants stay as SurveyJS defines them, since they only clear
-  // the shadow while the focus ring is shown.
-  const darkContrast = dark
-    ? {
-        '--sjs-general-forecolor-light': 'rgba(255, 255, 255, 0.65)',
-        '--sjs-general-dim-forecolor-light': 'rgba(255, 255, 255, 0.65)',
-        '--sjs-border-default': 'rgba(255, 255, 255, 0.4)',
-        '--sjs-border-light': 'rgba(255, 255, 255, 0.3)',
-        '--sjs-border-inside': 'rgba(255, 255, 255, 0.3)',
-        '--sjs-shadow-small': '0px 0px 0px 1px rgba(255, 255, 255, 0.3)',
-        '--sjs-shadow-inner': 'inset 0px 0px 0px 1px rgba(255, 255, 255, 0.4)'
-      }
-    : {}
+  // Both SurveyJS Default themes set secondary text at under half opacity and
+  // borders at under a fifth, short of WCAG AA (4.5:1 for text, 3:1 for control
+  // outlines) on their own panels; these opacities clear it (about 5.7:1 and
+  // 3.4:1). Text inputs, checkbox and radio decorators, the boolean toggle,
+  // buttons and rating items have no CSS border at all: their outline is the
+  // shadow, which both themes keep as a faint drop shadow. A 1px ring stands in
+  // for it. The *-reset variants stay as SurveyJS defines them, since they only
+  // clear the shadow while the focus ring is shown.
+  const ink = (alpha: number) => `rgba(${dark ? '255, 255, 255' : '0, 0, 0'}, ${alpha})`
+  const contrast = {
+    '--sjs-general-forecolor-light': ink(dark ? 0.65 : 0.6),
+    '--sjs-general-dim-forecolor-light': ink(dark ? 0.65 : 0.6),
+    '--sjs-border-default': ink(dark ? 0.4 : 0.45),
+    '--sjs-border-light': ink(dark ? 0.3 : 0.35),
+    '--sjs-border-inside': ink(dark ? 0.3 : 0.45),
+    '--sjs-shadow-small': `0px 0px 0px 1px ${ink(dark ? 0.3 : 0.35)}`,
+    '--sjs-shadow-inner': `inset 0px 0px 0px 1px ${ink(dark ? 0.4 : 0.45)}`
+  }
   return {
     ...base,
     cssVariables: {
       ...(base.cssVariables as Record<string, string>),
-      ...darkContrast,
+      ...contrast,
       '--sjs-primary-backcolor': primary,
       '--sjs-primary-backcolor-light': `color-mix(in srgb, ${primary} 10%, transparent)`,
       '--sjs-primary-backcolor-dark': `color-mix(in srgb, ${primary} 85%, black)`,
@@ -141,3 +140,13 @@ model.onComplete.add((sender, options) => {
   void attemptSave()
 })
 </script>
+
+<style>
+/* The boolean thumb is the selected yes/no answer. SurveyJS gives it the same
+   1px --sjs-shadow-small edge as every button and frame and exposes no variable
+   of its own, so this draws its edge as a thicker ring in the theme's border
+   colour. Read-only and preview thumbs draw their own edge and are left alone. */
+.sd-boolean:not(.sd-boolean--readonly, .sd-boolean--preview) .sd-boolean__thumb {
+  box-shadow: 0 0 0 2px var(--sjs-border-default);
+}
+</style>
