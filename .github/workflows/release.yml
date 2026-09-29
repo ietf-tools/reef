@@ -155,6 +155,31 @@ jobs:
           inputs: '{ "environment":"${{ secrets.GHA_K8S_CLUSTER }}", "app":"reef", "appVersion":"${{ env.BUILD_VERSION }}", "remoteRef":"${{ github.sha }}", "deployStrategy":"${{ inputs.deployStrategy }}" }'
           waitForCompletionTimeout: 30m
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: frontend
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+
+      - name: Install worker dependencies
+        # wrangler bundles src/index.ts itself, but still needs itty-router resolvable
+        # from node_modules to do it -- excluded from the artifact in reusable-build.yml
+        # since shipping it cross-artifact is fragile, so it's installed fresh here.
+        working-directory: worker
+        run: npm ci
+
+      - name: Deploy worker to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CF_WORKER_DEPLOY_TOKEN }}
+          accountId: ${{ secrets.CF_WORKER_DEPLOY_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy --env staging --name reef-frontend-staging
+          environment: staging
+
+
   # -----------------------------------------------------------------
   # PROD
   # -----------------------------------------------------------------
@@ -178,3 +203,27 @@ jobs:
           token: ${{ secrets.GH_INFRA_K8S_TOKEN }}
           inputs: '{ "environment":"${{ secrets.GHA_K8S_CLUSTER }}", "app":"reef", "appVersion":"${{ env.BUILD_VERSION }}", "remoteRef":"${{ github.sha }}", "deployStrategy":"${{ inputs.deployStrategy }}" }'
           waitForCompletionTimeout: 30m
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: frontend
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+
+      - name: Install worker dependencies
+        # wrangler bundles src/index.ts itself, but still needs itty-router resolvable
+        # from node_modules to do it -- excluded from the artifact in reusable-build.yml
+        # since shipping it cross-artifact is fragile, so it's installed fresh here.
+        working-directory: worker
+        run: npm ci
+
+      - name: Deploy worker to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CF_WORKER_DEPLOY_TOKEN }}
+          accountId: ${{ secrets.CF_WORKER_DEPLOY_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy --env production --name reef-frontend
+          environment: production
