@@ -105,8 +105,7 @@ in the local hostname, and the headers that mark a notification as automatically
 generated. Message bodies are plain-text Django templates under `templates/`, one per
 message with the subject composed in Python, both conventions from Purple. There is
 one template per *message*, not per subscription kind: all six kinds produce the same
-digest and differ only in an opening sentence, which is an include shared with the
-confirmation.
+digest and differ only in an opening sentence.
 
 - `REEF_DEFAULT_FROM_EMAIL` - from address. Defaults to `reef@ietf.org`.
 - `REEF_MESSAGE_ID_DOMAIN` - domain for generated Message-IDs. Defaults to

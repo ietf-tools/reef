@@ -11,12 +11,10 @@ from django.template.loader import render_to_string
 from reef.docids import display_doc_id
 
 DIGEST_TEMPLATE = "subscriptions/mail/digest.txt"
-CONFIRMATION_TEMPLATE = "subscriptions/mail/confirmation.txt"
 
 # Subjects name the series rather than Reef: the reader subscribed to the RFC
 # series and has no reason to know which service sent the mail.
 DIGEST_SUBJECT_PREFIX = "RFC series updates"
-CONFIRMATION_SUBJECT = "You are now subscribed to RFC series updates"
 
 
 def digest_subject(events):
@@ -33,17 +31,6 @@ def digest_subject(events):
         return f"{DIGEST_SUBJECT_PREFIX}: {len(docs)} documents"
     # Every event was a predicate match with no document of its own.
     return DIGEST_SUBJECT_PREFIX
-
-
-def _subscriber_context(subscription, **extra):
-    """The context every message about a subscription needs."""
-    return {
-        "subscription": subscription,
-        # Only the rfc kind has one, and the template only asks for it there.
-        "watched_doc": display_doc_id(subscription.params.get("rfc", "")),
-        "subscriptions_url": settings.REEF_SUBSCRIPTIONS_URL,
-        **extra,
-    }
 
 
 def _reason(subscription):
@@ -77,11 +64,4 @@ def render_digest(subscriptions, events):
                 for event in events
             ],
         },
-    )
-
-
-def render_confirmation(subscription):
-    """Render the confirmation body for one subscription."""
-    return render_to_string(
-        CONFIRMATION_TEMPLATE, context=_subscriber_context(subscription)
     )

@@ -13,16 +13,14 @@ from rest_framework.test import APITestCase
 
 from docsets.models import DocumentSet, DocumentSetEntry
 from reef import rfcmeta
-from reef.celery import app as celery_app
 from reef.mail import EmailMessage
 from reef.testing import stub_rfc_index
 from subjects.models import Subject, SubjectAssignment
 
 from .delivery import SendEmailError, send_subscription_digest
 from .matching import subscriptions_for_document
-from .messages import CONFIRMATION_SUBJECT, digest_subject
+from .messages import digest_subject
 from .models import Subscription, WebNotification
-from .tasks import send_subscription_confirmation
 
 User = get_user_model()
 
@@ -885,151 +883,22 @@ class SendSubscriptionDigestTests(APITestCase):
                 )
 
 
-@override_settings(MESSAGE_ID_DOMAIN="example.org", REEF_SUBSCRIPTIONS_URL="")
-class SendSubscriptionConfirmationTests(APITestCase):
-    def setUp(self):
-        mail.outbox = []
-        self.user = User.objects.create(
+class SubscribingSendsNoMailTests(APITestCase):
+    def test_creating_a_subscription_sends_no_email(self):
+        user = User.objects.create(
             username="u",
             oidc_sub="s",
             email="reader@example.org",
             receive_digest_email=True,
         )
-
-    def test_says_what_was_subscribed_to_and_that_nothing_is_needed(self):
-        subscription = Subscription.objects.create(
-            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
-        )
-        send_subscription_confirmation(subscription.pk)
-        self.assertEqual(len(mail.outbox), 1)
-        sent = mail.outbox[0]
-        self.assertEqual(sent.to, ["reader@example.org"])
-        self.assertEqual(sent.subject, CONFIRMATION_SUBJECT)
-        self.assertIn("now subscribed to changes to RFC 9110", sent.body)
-        # A courtesy, not a verification: a reader who has met double opt-in
-        # elsewhere must not be left waiting for a link.
-        self.assertIn("nothing to confirm", sent.body)
-        self.assertEqual(sent.extra_headers["Auto-Submitted"], "auto-generated")
-
-    def test_the_wording_is_shared_with_the_digest(self):
-        # One include renders the sentence for both messages, so the same
-        # subscription is described the same way in each.
-        document_set = DocumentSet.objects.create(owner=self.user, title="HTTP")
-        DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
-        subscription = Subscription.objects.create(
-            user=self.user, kind=Subscription.Kind.SET, document_set=document_set
-        )
-        send_subscription_confirmation(subscription.pk)
-        send_subscription_digest(
-            subscription.user_id, [subscription.pk], [{"doc": "rfc9110"}]
-        )
-        # Compared unwrapped, because the two leads are different lengths and
-        # so the shared sentence breaks in different places. Only the lead
-        # differs; the description of the subscription does not.
-        phrase = 'changes to anything in your document set "HTTP".'
-        for sent in mail.outbox:
-            self.assertIn(phrase, " ".join(sent.body.split()))
-        self.assertIn(
-            "You are now subscribed to", " ".join(mail.outbox[0].body.split())
-        )
-        self.assertIn(
-            "You asked to be notified about", " ".join(mail.outbox[1].body.split())
-        )
-
-    @override_settings(REEF_SUBSCRIPTIONS_URL="https://example.org/subscriptions")
-    def test_the_reader_is_told_how_to_stop(self):
-        subscription = Subscription.objects.create(
-            user=self.user, kind=Subscription.Kind.NEW_RFC
-        )
-        send_subscription_confirmation(subscription.pk)
-        sent = mail.outbox[0]
-        self.assertIn("https://example.org/subscriptions", sent.body)
-        self.assertEqual(
-            sent.extra_headers["List-Unsubscribe"],
-            "<https://example.org/subscriptions>",
-        )
-
-    def test_a_deleted_subscription_is_not_an_error(self):
-        subscription = Subscription.objects.create(
-            user=self.user, kind=Subscription.Kind.NEW_RFC
-        )
-        pk = subscription.pk
-        subscription.delete()
-        send_subscription_confirmation(pk)
-        self.assertEqual(mail.outbox, [])
-
-    def test_nothing_is_sent_once_the_set_has_been_taken_down(self):
-        document_set = DocumentSet.objects.create(owner=self.user, title="HTTP")
-        subscription = Subscription.objects.create(
-            user=self.user, kind=Subscription.Kind.SET, document_set=document_set
-        )
-        document_set.soft_delete()
-        send_subscription_confirmation(subscription.pk)
-        self.assertEqual(mail.outbox, [])
-
-    def test_nothing_is_sent_without_an_address(self):
-        user = User.objects.create(username="noaddr", oidc_sub="s2", email="")
-        subscription = Subscription.objects.create(
-            user=user, kind=Subscription.Kind.NEW_RFC
-        )
-        send_subscription_confirmation(subscription.pk)
-        self.assertEqual(mail.outbox, [])
-
-    def test_a_send_failure_is_retryable(self):
-        subscription = Subscription.objects.create(
-            user=self.user, kind=Subscription.Kind.NEW_RFC
-        )
-        with mock.patch.object(EmailMessage, "send", side_effect=OSError("no relay")):
-            with self.assertRaises(SendEmailError):
-                send_subscription_confirmation(subscription.pk)
-
-
-@override_settings(MESSAGE_ID_DOMAIN="example.org", REEF_SUBSCRIPTIONS_URL="")
-class SubscribeSendsAConfirmationTests(APITestCase):
-    """The create endpoint enqueues the confirmation, and only on a real create."""
-
-    def setUp(self):
-        mail.outbox = []
-        self.user = User.objects.create(
-            username="u",
-            oidc_sub="s",
-            email="reader@example.org",
-            receive_digest_email=True,
-        )
-        self.client.force_authenticate(user=self.user)
-        # Run the enqueued task in this process. The point of these tests is
-        # which enqueues happen, not that celery works.
-        celery_app.conf.task_always_eager = True
-        celery_app.conf.task_eager_propagates = True
-        self.addCleanup(
-            celery_app.conf.update,
-            task_always_eager=False,
-            task_eager_propagates=False,
-        )
-
-    def subscribe(self, body):
-        # on_commit, so the callback needs capturing inside the test's
-        # transaction or it would never run.
+        self.client.force_authenticate(user=user)
         with self.captureOnCommitCallbacks(execute=True):
-            return self.client.post("/api/reef/subscriptions/", body, format="json")
-
-    def test_creating_a_subscription_sends_one_confirmation(self):
-        response = self.subscribe({"kind": "rfc", "params": {"rfc": "rfc9110"}})
+            response = self.client.post(
+                "/api/reef/subscriptions/",
+                {"kind": "rfc", "params": {"rfc": "rfc9110"}},
+                format="json",
+            )
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].subject, CONFIRMATION_SUBJECT)
-        self.assertIn("now subscribed to changes to RFC 9110", mail.outbox[0].body)
-
-    def test_a_repeated_post_does_not_send_a_second_one(self):
-        body = {"kind": "rfc", "params": {"rfc": "rfc9110"}}
-        self.assertEqual(self.subscribe(body).status_code, 201)
-        self.assertEqual(self.subscribe(body).status_code, 201)
-        self.assertEqual(Subscription.objects.count(), 1)
-        self.assertEqual(len(mail.outbox), 1)
-
-    def test_a_rejected_subscription_sends_nothing(self):
-        response = self.subscribe({"kind": "rfc", "params": {}})
-        self.assertEqual(response.status_code, 400)
         self.assertEqual(mail.outbox, [])
 
 

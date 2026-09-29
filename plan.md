@@ -56,13 +56,12 @@ model, the anonymous aggregate read, and submit and delete under a bearer, with 
 star widget in Red. Popularity is built, derived from an uploaded Matomo ranking (see
 the section at the end). Subscriptions are built through to delivery, as steps 26 to
 31 describe. Subscription email is built: reef.mail carries the project's mail
-defaults, templates/subscriptions/mail holds the two message bodies and the sentence
-they share, and both send on a retrying celery task. A confirmation goes out when a
-subscription is created, which is the one of the two that is wired end to end. The
-digest is sent by the daily change run; see the detection steps below.
+defaults, templates/subscriptions/mail holds the digest body and the sentence it uses
+to name a subscription, and it sends on a retrying celery task. The digest is sent by
+the daily change run; see the detection steps below. Creating a subscription sends no
+email: the reader has just asked for it and can see it in Red.
 
-The confirmation is a courtesy rather than a verification, and no verification exists
-anywhere in Reef, because none is needed: every subscriber authenticates through
+No verification exists anywhere in Reef, because none is needed: every subscriber authenticates through
 Authentik and the address is the one on that account, which account.ietf.org has already
 verified. Reef never accepts an address typed into a form, so there is nothing for it to
 prove. Subscription.verified, which came from a design where it might have been, is
@@ -306,11 +305,11 @@ reef/
   /api/v1/rfc-mini-index.json for the whole series in one response, which is where the
   precomputer's per-run sweep gets title and subseries membership;
   /api/v1/rfc-common/{n}.json for one document, which is fuller and is what an admin
-  page or a confirmation email reads; and /api/v1/info-subseries/{type}{n}.json for a
+  page reads; and /api/v1/info-subseries/{type}{n}.json for a
   container's contents. All three are anonymous, so there is no key to hold and no
   client to generate. The rule above survives intact, because the argument for it was
   staleness and nothing here is written to a column: a precomputer run fetches the index
-  once and holds it for that run, and an admin page or a confirmation email fetches one
+  once and holds it for that run, and an admin page fetches one
   document. Existence checking becomes possible on the same read, which is what would
   close the curation gap in the paragraph above; whether to enforce it at write time is
   not decided.
@@ -707,8 +706,7 @@ Then, for precomputed reads:
     9,800 entries and about two seconds. Callers to follow it, in the order they are
     worth doing: titles beside the bare identifiers in the subjects, popularity and
     document-set admin, which is where staff curate against 9,800 documents they
-    currently see only as numbers; the subscription confirmation email, which names a
-    document at a moment when no change event exists to carry a title; and subseries
+    currently see only as numbers; and subseries
     expansion for set and subscription matching. What the precomputer's own output
     should carry is settled in the next step, not here. Adds jsonschema to requirements.
     Commit: "Resolve document titles from Red's published files".
@@ -975,8 +973,7 @@ Then, for precomputed reads:
   4. /admin/survey-builder/surveys/<id>/analytics/ renders the results.
 - Engagement APIs: GET /popularity/ returns the ranking; PUT /ratings/{rfc}/ with a
   bearer stores a rating and the aggregate updates; POST /subscriptions/ stores a
-  subscription and enqueues a confirmation caught by mailpit, and a second POST of the
-  same subscription does not send a second one.
+  subscription and sends no email.
 - Document sets: a set is created with a title and description, an RFC and a BCP are
   added and reordered, a second add of the same document in another spelling does not
   duplicate it, a taken-down set is invisible to every GET, and a subscription to
