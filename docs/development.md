@@ -44,11 +44,11 @@ values:
 - `REEF_OIDC_STAFF_GROUPS` - comma-separated Authentik groups granted staff
   access when they log into the admin/builder site. A bearer token grants
   neither staff nor superuser, whatever groups it carries. Empty means no one is
-  staff via OIDC; use the break-glass superuser for admin access instead.
+  staff via OIDC.
 - `REEF_OIDC_SUPERUSER_GROUPS` - comma-separated Authentik groups granted full
   superuser access via OIDC (implies staff, regardless of the setting above).
-  Empty by default, so the local break-glass superuser remains the only one
-  until an operator opts a group in — being staff alone shows an empty admin
+  Empty by default, so nobody is a superuser until an operator opts a group
+  in — being staff alone shows an empty admin
   with no models visible, since Django's permission system is separate from
   is_staff.
 - `REEF_SURVEYJS_LICENSE_KEY` - required in production for Creator and Analytics.
@@ -140,17 +140,6 @@ a response submitted on the runner then doesn't count as answered when Red asks.
 OIDC endpoints are derived from the host and application slug in
 `reef/settings/base.py`; only credentials and the redirect URI need
 configuring.
-
-## Break-glass superuser
-
-For access when Authentik is unavailable, create a local superuser:
-
-```
-./manage.py createsuperuser
-```
-
-It can sign in at `/admin/`, using the username/password form below the
-"Sign in with Authentik" link.
 
 ## Authentication summary
 

@@ -328,12 +328,14 @@ class UserDisplayNameTests(SimpleTestCase):
 
 
 class AdminLoginPageTests(TestCase):
-    """/admin/login/ must still offer the break-glass username/password form
-    (for when Authentik is unavailable) alongside the Authentik link, since
-    that form is the only way in for the local superuser."""
+    """There is no local login: /admin/login/ offers only the Authentik link."""
 
-    def test_login_page_offers_both_authentik_and_the_local_form(self):
+    def test_login_page_offers_only_authentik(self):
         response = self.client.get("/admin/login/")
         oidc_url = reverse("oidc_authentication_init")
         self.assertContains(response, f'href="{oidc_url}')
-        self.assertContains(response, 'name="password"')
+        self.assertNotContains(response, 'name="password"')
+
+    def test_a_password_does_not_authenticate(self):
+        User.objects.create_user(username="local", password="secret", is_staff=True)
+        self.assertFalse(self.client.login(username="local", password="secret"))

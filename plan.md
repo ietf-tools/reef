@@ -177,7 +177,7 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 
 | Surface | Mechanism |
 |---|---|
-| Django /admin, including the builder and analytics nested under it at /admin/survey-builder/ | mozilla_django_oidc code flow to a Django session (the "reef-admin" application); or, when Authentik is unavailable, the local superuser (break-glass) |
+| Django /admin, including the builder and analytics nested under it at /admin/survey-builder/ | mozilla_django_oidc code flow to a Django session (the "reef-admin" application); there is no local login |
 | Nuxt survey runner | oidc-client-ts (Auth Code plus PKCE) to an access token; required only for protected surveys |
 | Reef DRF APIs | resource server: validate Authentik bearer JWT. Optional on the open-survey list (adds user-specific surveys when present), required for rating submit and subscriptions, anonymous for popularity and open surveys |
 
@@ -209,7 +209,7 @@ reef/
                              auth plus custom User: models, backends, authentication, apps, utils, migrations
   surveys/                 full build
     models.py              Survey, Response
-    admin.py               break-glass listing and inspection
+    admin.py               listing and inspection
     audience.py            which documents a survey is offered on, resolved at read time
     serializers.py  api.py DRF endpoints (manage, open list, runner fetch, submit, results)
     views.py  urls.py      /admin/survey-builder/ builder and analytics template views
@@ -957,8 +957,8 @@ Then, for precomputed reads:
   serves the runner; /api/reef/schema/ responds; mailpit catches mail.
 - Auth:
   - /admin/ (and its nested /admin/survey-builder/) redirects to OIDC login at
-    account.ietf.org and returns a session; unauthorized users are blocked; the
-    local superuser works there too, as break-glass when Authentik is unavailable.
+    account.ietf.org and returns a session; unauthorized users are blocked, and
+    there is no local username/password login.
   - Nuxt: an open survey loads anonymously; a survey with visibility authenticated
     triggers oidc-client-ts login before rendering.
   - GET /api/reef/surveys/open/ with no token returns open surveys only; with a user

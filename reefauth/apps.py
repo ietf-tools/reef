@@ -11,8 +11,8 @@ class ReefAuthConfig(AppConfig):
 
         from . import checks  # noqa: F401 - registers the system checks
 
-        # Point the admin login page at our template, which adds a link into
-        # the reef-admin OIDC flow above the break-glass username/password form.
+        # Point the admin login page at our template, which sends staff into the
+        # reef-admin OIDC flow in place of Django's username/password form.
         admin.site.login_template = "reefauth/admin_login.html"
 
         admin.site.site_header = "REEF Admin"

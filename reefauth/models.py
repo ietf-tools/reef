@@ -4,11 +4,7 @@ from django.db import models
 
 
 class User(AbstractUser):
-    """Reef user, authenticated through Authentik OIDC.
-
-    A local superuser (created with createsuperuser) is retained as a
-    break-glass account for when the identity provider is unavailable.
-    """
+    """Reef user, authenticated through Authentik OIDC. There is no local login."""
 
     name = models.CharField(
         max_length=255,

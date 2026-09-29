@@ -81,7 +81,6 @@ AUTH_USER_MODEL = "reefauth.User"
 AUTHENTICATION_BACKENDS = (
     "reefauth.backends.ReefOIDCAuthBackend",
     "rules.permissions.ObjectPermissionBackend",
-    "django.contrib.auth.backends.ModelBackend",  # break-glass local superuser
 )
 
 # OIDC (Authentik at account.ietf.org). Endpoints are derived from the host and
@@ -90,8 +89,8 @@ AUTHENTICATION_BACKENDS = (
 # These OIDC_* settings are Reef as a *relying party*, logging staff into the
 # Django admin, including the builder/analytics site nested under it at
 # /admin/survey-builder/, under the "reef-admin-staging" application
-# (REEF_ADMIN_OIDC_APP_SLUG) — the only interactive login Reef performs; anyone
-# else gets the break-glass local superuser. Public survey-taking is never
+# (REEF_ADMIN_OIDC_APP_SLUG) — the only interactive login Reef performs.
+# Public survey-taking is never
 # logged into here: it authenticates against the separate "reef-staging"
 # application entirely client-side (the Nuxt runner talks to Authentik
 # directly), so Reef only ever sees the resulting access token as an API
@@ -214,8 +213,8 @@ REEF_OIDC_STAFF_GROUPS = [
     if g.strip()
 ]
 # Comma-separated Authentik groups granted full superuser access via OIDC —
-# empty by default, so the local break-glass superuser is the only one until
-# an operator opts a group in. A superuser is always staff too, regardless of
+# empty by default, so nobody is a superuser until an operator opts a group
+# in. A superuser is always staff too, regardless of
 # REEF_OIDC_STAFF_GROUPS; see is_staff_from_claims().
 REEF_OIDC_SUPERUSER_GROUPS = [
     g.strip()

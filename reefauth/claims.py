@@ -28,8 +28,8 @@ def is_superuser_from_claims(claims) -> bool:
     """Return whether the claims grant superuser access, by group membership.
 
     Only granted when REEF_OIDC_SUPERUSER_GROUPS is configured and the token's
-    groups claim intersects it. Empty by default: the local break-glass
-    superuser remains the only one until an operator opts a group in.
+    groups claim intersects it. Empty by default: nobody is a superuser
+    until an operator opts a group in.
     """
     superuser_groups = set(getattr(settings, "REEF_OIDC_SUPERUSER_GROUPS", []))
     if not superuser_groups:
