@@ -130,6 +130,12 @@ LOGOUT_REDIRECT_URL = "/"
 # runs unlicensed with a watermark). Passed to the browser bundles.
 REEF_SURVEYJS_LICENSE_KEY = os.environ.get("REEF_SURVEYJS_LICENSE_KEY", "")
 
+# The largest response accepted, as compact JSON bytes: a free-text answer is the
+# biggest thing a person types, and this leaves it room many times over.
+REEF_SURVEY_RESPONSE_MAX_BYTES = int(
+    os.environ.get("REEF_SURVEY_RESPONSE_MAX_BYTES", "65536")
+)
+
 # Reef's own public origin, scheme included and no trailing slash. Needed for one
 # thing: the link Red's toast follows to the survey runner, which is Reef's own
 # Nuxt client sharing this same origin, not a separate service -- see
