@@ -31,7 +31,7 @@ class PredicateMatchingTests(TestCase):
     def setUp(self):
         stub_rfc_index(self, {"rfc9110": meta()})
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="r@example.org"
+            username="u", oidc_sub="s", email="r@example.org", receive_digest_email=True
         )
 
     def change(self, before, after, doc="rfc9110"):
@@ -106,7 +106,10 @@ class NotifyRfcChangesTests(TestCase):
     def setUp(self):
         stub_rfc_index(self, {"rfc9110": meta()})
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="reader@example.org"
+            username="u",
+            oidc_sub="s",
+            email="reader@example.org",
+            receive_digest_email=True,
         )
 
     def rewarm(self, mapping, created_on):
@@ -269,7 +272,10 @@ class NotifyRfcChangesTests(TestCase):
     def test_two_readers_get_one_notification_each(self):
         self.seed()
         other = User.objects.create(
-            username="o", oidc_sub="o", email="other@example.org"
+            username="o",
+            oidc_sub="o",
+            email="other@example.org",
+            receive_digest_email=True,
         )
         for user in (self.user, other):
             Subscription.objects.create(user=user, kind=Subscription.Kind.OBSOLETED)
@@ -344,7 +350,7 @@ class SubseriesMembershipTests(TestCase):
     def setUp(self):
         stub_rfc_index(self, {"rfc2119": meta()})
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="r@example.org"
+            username="u", oidc_sub="s", email="r@example.org", receive_digest_email=True
         )
         self.follows_bcp14 = Subscription.objects.create(
             user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "bcp14"}
@@ -410,7 +416,7 @@ class ConcurrentRunTests(TestCase):
     def setUp(self):
         stub_rfc_index(self, {"rfc9110": meta()})
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="r@example.org"
+            username="u", oidc_sub="s", email="r@example.org", receive_digest_email=True
         )
         Subscription.objects.create(user=self.user, kind=Subscription.Kind.NEW_RFC)
 
