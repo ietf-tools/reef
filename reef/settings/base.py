@@ -122,7 +122,8 @@ OIDC_STORE_ID_TOKEN = True  # kept in session for RP-initiated logout
 OIDC_OP_LOGOUT_URL_METHOD = "reefauth.utils.op_logout_url"
 
 LOGIN_URL = "oidc_authentication_init"  # send @login_required through Authentik
-LOGIN_REDIRECT_URL = "/"
+# Every session Reef starts is a reef-admin login, so the fallback is the admin.
+LOGIN_REDIRECT_URL = "/admin/"
 LOGOUT_REDIRECT_URL = "/"
 
 # SurveyJS commercial license key for Creator and Analytics (empty in dev, which
