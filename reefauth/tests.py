@@ -1,8 +1,10 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 import datetime
+import time
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from django.conf import settings
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from rest_framework import exceptions
@@ -12,6 +14,7 @@ from reefauth.authentication import BearerTokenAuthentication
 from reefauth.backends import ReefOIDCAuthBackend
 from reefauth.checks import cors_origins_configured
 from reefauth.models import User
+from reefauth.testing import login
 
 _ISSUER = "https://account.ietf.org/application/o/reef/"
 _AUDIENCE = "reef-client"
@@ -220,9 +223,6 @@ class BearerTokenAuthenticationTests(TestCase):
         with self.assertRaises(exceptions.AuthenticationFailed):
             self.auth.authenticate(request)
 
-    @override_settings(
-        REEF_OIDC_STAFF_GROUPS=["rpc-staff"], REEF_OIDC_SUPERUSER_GROUPS=["team-dev"]
-    )
     def test_groups_in_a_bearer_token_grant_nothing(self):
         token = _make_token(self.key, groups=["rpc-staff", "team-dev"])
         request = self.factory.get(
@@ -255,37 +255,51 @@ class BearerTokenAuthenticationTests(TestCase):
 
 
 class OIDCLoginBackendPermissionTests(TestCase):
-    """The reef-admin login is what decides is_staff and is_superuser."""
+    """The reef-admin login is the only thing that grants is_staff and is_superuser."""
 
     def setUp(self):
         self.backend = ReefOIDCAuthBackend()
 
-    @override_settings(
-        REEF_OIDC_STAFF_GROUPS=["rpc-staff"], REEF_OIDC_GROUPS_CLAIM="groups"
-    )
-    def test_staff_group_grants_staff(self):
-        user = self.backend.create_user(
-            {"sub": "abc-123", "groups": ["rpc-staff", "other"]}
-        )
+    def test_a_valid_login_grants_staff_and_superuser(self):
+        user = self.backend.create_user({"sub": "abc-123"})
         self.assertTrue(user.is_staff)
-
-    @override_settings(REEF_OIDC_SUPERUSER_GROUPS=["team-dev"])
-    def test_superuser_group_grants_superuser_and_staff(self):
-        user = self.backend.create_user({"sub": "abc-123", "groups": ["team-dev"]})
         self.assertTrue(user.is_superuser)
-        self.assertTrue(user.is_staff)  # the admin refuses a superuser who isn't
 
-    @override_settings(REEF_OIDC_STAFF_GROUPS=[], REEF_OIDC_SUPERUSER_GROUPS=[])
-    def test_no_superuser_groups_configured_grants_neither(self):
-        user = self.backend.create_user({"sub": "abc-123", "groups": ["team-dev"]})
-        self.assertFalse(user.is_superuser)
-        self.assertFalse(user.is_staff)
+    def test_groups_are_not_consulted(self):
+        user = self.backend.create_user({"sub": "abc-123", "groups": []})
+        self.assertTrue(user.is_superuser)
 
-    @override_settings(REEF_OIDC_STAFF_GROUPS=["rpc-staff"])
-    def test_leaving_the_staff_group_revokes_staff_at_next_login(self):
-        user = self.backend.create_user({"sub": "abc-123", "groups": ["rpc-staff"]})
-        user = self.backend.update_user(user, {"sub": "abc-123", "groups": []})
-        self.assertFalse(user.is_staff)
+    def test_a_returning_login_restores_access(self):
+        user = self.backend.create_user({"sub": "abc-123"})
+        User.objects.filter(pk=user.pk).update(is_staff=False, is_superuser=False)
+        user = self.backend.update_user(user, {"sub": "abc-123"})
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_superuser)
+
+
+class SessionRefreshTests(TestCase):
+    """An admin session is confirmed with Authentik again once its id token expires."""
+
+    def setUp(self):
+        self.staff = User.objects.create_superuser(username="staff", oidc_sub="staff")
+
+    def test_an_expired_session_is_sent_back_through_authentik(self):
+        self.client.force_login(self.staff)
+        session = self.client.session
+        session["oidc_id_token_expiration"] = time.time() - 1
+        session.save()
+
+        response = self.client.get("/admin/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            response["Location"].startswith(settings.OIDC_OP_AUTHORIZATION_ENDPOINT)
+        )
+        self.assertIn("prompt=none", response["Location"])
+
+    def test_a_current_session_reaches_the_admin(self):
+        login(self.client, self.staff)
+        self.assertEqual(self.client.get("/admin/").status_code, 200)
 
 
 class CorsOriginsCheckTests(SimpleTestCase):
@@ -328,12 +342,14 @@ class UserDisplayNameTests(SimpleTestCase):
 
 
 class AdminLoginPageTests(TestCase):
-    """/admin/login/ must still offer the break-glass username/password form
-    (for when Authentik is unavailable) alongside the Authentik link, since
-    that form is the only way in for the local superuser."""
+    """There is no local login: /admin/login/ offers only the Authentik link."""
 
-    def test_login_page_offers_both_authentik_and_the_local_form(self):
+    def test_login_page_offers_only_authentik(self):
         response = self.client.get("/admin/login/")
         oidc_url = reverse("oidc_authentication_init")
         self.assertContains(response, f'href="{oidc_url}')
-        self.assertContains(response, 'name="password"')
+        self.assertNotContains(response, 'name="password"')
+
+    def test_a_password_does_not_authenticate(self):
+        User.objects.create_user(username="local", password="secret", is_staff=True)
+        self.assertFalse(self.client.login(username="local", password="secret"))

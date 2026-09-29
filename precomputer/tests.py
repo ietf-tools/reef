@@ -33,6 +33,7 @@ from precomputer.tasks import (
 from ratings.models import Rating
 from reef import rfcmeta
 from reef.locks import _key, advisory_lock
+from reefauth.testing import login
 from subjects.models import Subject, SubjectAlias, SubjectAssignment
 from subjects.precompute import build_index
 from subjects.tree import rollup
@@ -1122,14 +1123,14 @@ class PrecomputeAdminViewTests(PrecomputeTestCase):
 
     def test_non_staff_is_sent_to_login(self):
         user = User.objects.create(username="plain", oidc_sub="s-plain", is_staff=False)
-        self.client.force_login(user)
+        login(self.client, user)
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 302)
 
     def test_staff_get_shows_the_form_and_recent_runs(self):
         staff = self._staff()
         PrecomputeRun.objects.create(triggered_by=staff)
-        self.client.force_login(staff)
+        login(self.client, staff)
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Run precompute now")
@@ -1137,7 +1138,7 @@ class PrecomputeAdminViewTests(PrecomputeTestCase):
 
     def test_staff_post_creates_a_run_and_enqueues_it_without_running_it(self):
         staff = self._staff()
-        self.client.force_login(staff)
+        login(self.client, staff)
         with mock.patch("precomputer.admin.precompute_from_admin.delay") as delay:
             resp = self.client.post(self.url)
         run = PrecomputeRun.objects.get()
@@ -1153,7 +1154,7 @@ class PrecomputeAdminViewTests(PrecomputeTestCase):
             status=PrecomputeRun.Status.RUNNING,
             progress_message="[subjects] 150/660 uploaded",
         )
-        self.client.force_login(self._staff())
+        login(self.client, self._staff())
         resp = self.client.get(reverse("admin:precomputer-run-detail", args=[run.pk]))
         self.assertContains(resp, 'http-equiv="refresh"')
         self.assertContains(resp, "[subjects] 150/660 uploaded")
@@ -1162,7 +1163,7 @@ class PrecomputeAdminViewTests(PrecomputeTestCase):
         run = PrecomputeRun.objects.create(
             status=PrecomputeRun.Status.FAILED, output="[stats] 1 file(s)", error="boom"
         )
-        self.client.force_login(self._staff())
+        login(self.client, self._staff())
         resp = self.client.get(reverse("admin:precomputer-run-detail", args=[run.pk]))
         self.assertNotContains(resp, 'http-equiv="refresh"')
         self.assertContains(resp, "[stats] 1 file(s)")

@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
+from reefauth.testing import login
 from subscriptions.models import SubjectNotificationEvent, Subscription
 
 from .admin import RootSubjectFilter, SubjectAdminForm
@@ -32,7 +33,7 @@ class SubjectAdminTestCase(TestCase):
         self.staff = User.objects.create_superuser(
             username="staff", oidc_sub="staff", password="x"
         )
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         self.made = tree(*BRANCH)
         SubjectAssignment.objects.create(subject=self.made["smtp"], doc="rfc5321")
 

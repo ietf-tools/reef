@@ -4,11 +4,7 @@ from django.db import models
 
 
 class User(AbstractUser):
-    """Reef user, authenticated through Authentik OIDC.
-
-    A local superuser (created with createsuperuser) is retained as a
-    break-glass account for when the identity provider is unavailable.
-    """
+    """Reef user, authenticated through Authentik OIDC. There is no local login."""
 
     name = models.CharField(
         max_length=255,
@@ -27,10 +23,10 @@ class User(AbstractUser):
     # generated avatar image, easily running to several KB — not just a link.
     avatar = models.TextField(blank=True)
 
-    # Defaults true so an existing account keeps getting mail unless they say
-    # otherwise. Turning it off never touches the web notification feed, which
-    # has no equivalent switch — see subscriptions.models.WebNotification.
-    receive_digest_email = models.BooleanField(default=True)
+    # Opt-in: new accounts get no digest mail until they turn it on. This never
+    # touches the web notification feed, which has no equivalent switch — see
+    # subscriptions.models.WebNotification.
+    receive_digest_email = models.BooleanField(default=False)
 
     def get_username(self):
         """Prefer a human-readable identifier for display.

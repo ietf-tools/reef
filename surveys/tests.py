@@ -4,6 +4,8 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 from rest_framework.test import APITestCase
 
+from reefauth.testing import login
+
 from .models import Response, Survey
 
 User = get_user_model()
@@ -118,6 +120,28 @@ class DefinitionAndResponseTests(APITestCase):
         self.assertEqual(resp.status_code, 403)
         self.assertEqual(Response.objects.count(), 0)
 
+    @override_settings(REEF_SURVEY_RESPONSE_MAX_BYTES=32)
+    def test_submission_over_the_size_limit_is_rejected(self):
+        make_survey(slug="s10")
+        resp = self.client.post(
+            "/api/reef/surveys/s10/responses/",
+            {"data": {"q1": "x" * 40}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("bytes", resp.json()["data"][0])
+        self.assertEqual(Response.objects.count(), 0)
+
+    def test_submission_ignores_meta_from_the_caller(self):
+        make_survey(slug="s11")
+        resp = self.client.post(
+            "/api/reef/surveys/s11/responses/",
+            {"data": {"q1": "yes"}, "meta": {"planted": True}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(Response.objects.get().meta, {})
+
 
 class ManagementPermissionTests(APITestCase):
     def test_anonymous_cannot_list_management(self):
@@ -170,18 +194,18 @@ class ManageBuilderTests(TestCase):
 
     def test_non_staff_forbidden(self):
         user = User.objects.create(username="plain", oidc_sub="s-plain", is_staff=False)
-        self.client.force_login(user)
+        login(self.client, user)
         resp = self.client.get("/admin/survey-builder/surveys/")
         self.assertEqual(resp.status_code, 302)  # redirected to login
 
     def test_staff_sees_list(self):
-        self.client.force_login(self._staff())
+        login(self.client, self._staff())
         resp = self.client.get("/admin/survey-builder/surveys/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Surveys")
 
     def test_create_then_edit_renders_creator(self):
-        self.client.force_login(self._staff())
+        login(self.client, self._staff())
         create = self.client.post(
             "/admin/survey-builder/surveys/new/", {"title": "My Survey", "slug": ""}
         )
@@ -210,7 +234,7 @@ class ManageAnalyticsTests(TestCase):
 
     def test_staff_analytics_page_renders(self):
         survey = make_survey(slug="a1")
-        self.client.force_login(self._staff())
+        login(self.client, self._staff())
         resp = self.client.get(f"/admin/survey-builder/surveys/{survey.pk}/analytics/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'id="surveyVizPanel"')
@@ -224,7 +248,7 @@ class ManageStatusControlTests(TestCase):
 
     def test_staff_can_publish_from_list(self):
         survey = make_survey(slug="p1", status=Survey.Status.DRAFT)
-        self.client.force_login(self._staff())
+        login(self.client, self._staff())
         resp = self.client.post(
             f"/admin/survey-builder/surveys/{survey.pk}/status/",
             {"status": "published"},
@@ -235,7 +259,7 @@ class ManageStatusControlTests(TestCase):
 
     def test_invalid_status_ignored(self):
         survey = make_survey(slug="p2", status=Survey.Status.DRAFT)
-        self.client.force_login(self._staff())
+        login(self.client, self._staff())
         self.client.post(
             f"/admin/survey-builder/surveys/{survey.pk}/status/", {"status": "bogus"}
         )

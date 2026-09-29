@@ -14,6 +14,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils.text import slugify
 
+from reefauth.testing import login
 from subscriptions.models import (
     SubjectNotificationEvent,
     Subscription,
@@ -681,18 +682,18 @@ class SyncAdminViewTests(TestCase):
 
     def test_non_staff_is_sent_to_login(self):
         user = User.objects.create(username="plain", oidc_sub="plain", is_staff=False)
-        self.client.force_login(user)
+        login(self.client, user)
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 302)
 
     def test_staff_get_shows_the_form_and_recent_runs(self):
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Sync now")
 
     def test_staff_post_creates_a_run_and_enqueues_it_without_blocking(self):
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         with mock.patch("subjects.admin.run_subject_sync.delay") as delay:
             resp = self.client.post(self.url)
         run = SubjectSyncRun.objects.get()
@@ -703,7 +704,7 @@ class SyncAdminViewTests(TestCase):
         delay.assert_called_once_with(run.pk)
 
     def test_confirm_large_change_is_recorded_on_the_run(self):
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         with mock.patch("subjects.admin.run_subject_sync.delay"):
             self.client.post(self.url, {"confirm_large_change": "1"})
         run = SubjectSyncRun.objects.get()
@@ -715,7 +716,7 @@ class SyncRunViewTests(TestCase):
         self.staff = User.objects.create_superuser(
             username="staff", oidc_sub="staff", password="x"
         )
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
 
     def url(self, run):
         return reverse("admin:subjects_subject_sync_run", kwargs={"run_id": run.pk})
@@ -901,7 +902,7 @@ class SyncMergeViewTests(TestCase):
         self.staff = User.objects.create_superuser(
             username="staff", oidc_sub="staff", password="x"
         )
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         self.source = Subject.objects.create(slug="old-tag", name="Old")
         self.source.retire()
         self.target = Subject.objects.create(slug="new-tag", name="New")

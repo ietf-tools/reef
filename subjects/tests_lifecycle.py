@@ -56,7 +56,7 @@ class MergeTests(TestCase):
             name="Security and privacy", slug="security-and-privacy"
         )
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="r@example.org"
+            username="u", oidc_sub="s", email="r@example.org", receive_digest_email=True
         )
 
     def follow(self, subject, user=None):
@@ -115,7 +115,9 @@ class MergeTests(TestCase):
 
     def test_everybody_affected_is_told(self):
         self.follow(self.source)
-        other = User.objects.create(username="o", oidc_sub="o", email="o@example.org")
+        other = User.objects.create(
+            username="o", oidc_sub="o", email="o@example.org", receive_digest_email=True
+        )
         self.follow(self.source, user=other)
         with self.captureOnCommitCallbacks(execute=True):
             merge_and_notify(self.source, self.target)
