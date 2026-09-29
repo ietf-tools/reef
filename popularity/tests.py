@@ -13,6 +13,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from reef.testing import stub_rfc_index
+from reefauth.testing import login
 
 from .compute import recompute_popularity, replace_ranking
 from .matomo import parse_rankings, percentile
@@ -251,14 +252,12 @@ class ImportViewTests(TestCase):
         self.assertFalse(MatomoRanking.objects.exists())
 
     def test_non_staff_is_sent_to_login(self):
-        self.client.force_login(
-            User.objects.create(username="plain", oidc_sub="s-plain")
-        )
+        login(self.client, User.objects.create(username="plain", oidc_sub="s-plain"))
         self.assertEqual(self.client.get(self.url).status_code, 302)
 
     def test_staff_get_shows_the_form_and_recent_runs(self):
         MatomoImportRun.objects.create(triggered_by=self.staff, rfcs_ranked=3)
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         resp = self.client.get(self.url)
         self.assertContains(resp, "Matomo export")
         self.assertContains(resp, "Recent imports")
@@ -266,7 +265,7 @@ class ImportViewTests(TestCase):
     def test_the_page_shadows_the_app_index_and_links_the_tables(self):
         self.staff.is_superuser = True
         self.staff.save()
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         resp = self.client.get("/admin/popularity/")
         self.assertContains(resp, "Matomo export")
         self.assertContains(resp, reverse("admin:popularity_matomoranking_changelist"))
@@ -276,7 +275,7 @@ class ImportViewTests(TestCase):
 
     def test_a_good_file_replaces_the_ranking_and_enqueues_one_publish(self):
         replace_ranking(MatomoRanking, {"rfc1": 1.0})
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         resp = self.upload(
             export(
                 info=[page("rfc9110", 100), page("bcp14", 5), page("Others", 1)],
@@ -301,7 +300,7 @@ class ImportViewTests(TestCase):
 
     def test_a_file_naming_no_rfc_replaces_nothing(self):
         replace_ranking(MatomoRanking, {"rfc1": 1.0})
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         resp = self.upload(export(person=[page("/someone@example.com", 9)]))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "No RFC page was found")
@@ -311,7 +310,7 @@ class ImportViewTests(TestCase):
         self.delay.assert_not_called()
 
     def test_invalid_json_is_a_form_error_by_position(self):
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         resp = self.upload(b'[{"label": "info", "secret@example.com')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Not valid JSON")
@@ -330,7 +329,7 @@ class ImportViewTests(TestCase):
         big = export(
             info=[page("rfc9110", 1)] + [page(f"/?pad={i}", 1) for i in range(1, 20000)]
         )
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         with (
             override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=1024),
             mock.patch(
@@ -348,7 +347,7 @@ class ImportViewTests(TestCase):
         self.assertEqual(seen["type"], "InMemoryUploadedFile")
 
     def test_a_file_over_the_cap_is_refused(self):
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         with mock.patch("popularity.admin.MATOMO_UPLOAD_MAX_BYTES", 64):
             resp = self.upload(export(info=[page("rfc9110", 1), page("rfc2119", 1)]))
         self.assertEqual(resp.status_code, 200)
@@ -365,7 +364,7 @@ class ImportViewTests(TestCase):
             truncated=["info", "rfc"],
             progress_message="[popularity] rendering",
         )
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         resp = self.client.get(reverse("admin:popularity-run", args=[run.pk]))
         self.assertContains(resp, 'http-equiv="refresh"')
         self.assertContains(resp, "4 RFC(s) ranked")
@@ -376,7 +375,7 @@ class ImportViewTests(TestCase):
         run = MatomoImportRun.objects.create(
             status=MatomoImportRun.Status.FAILED, error="boom"
         )
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         resp = self.client.get(reverse("admin:popularity-run", args=[run.pk]))
         self.assertNotContains(resp, 'http-equiv="refresh"')
         self.assertContains(resp, "boom")
@@ -384,7 +383,7 @@ class ImportViewTests(TestCase):
     def test_the_rankings_are_read_only(self):
         self.staff.is_superuser = True
         self.staff.save()
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         for name in ("matomoranking", "documentpopularity"):
             self.assertEqual(
                 self.client.get(reverse(f"admin:popularity_{name}_add")).status_code,

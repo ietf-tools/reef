@@ -1,8 +1,10 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 import datetime
+import time
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from django.conf import settings
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from rest_framework import exceptions
@@ -12,6 +14,7 @@ from reefauth.authentication import BearerTokenAuthentication
 from reefauth.backends import ReefOIDCAuthBackend
 from reefauth.checks import cors_origins_configured
 from reefauth.models import User
+from reefauth.testing import login
 
 _ISSUER = "https://account.ietf.org/application/o/reef/"
 _AUDIENCE = "reef-client"
@@ -272,6 +275,31 @@ class OIDCLoginBackendPermissionTests(TestCase):
         user = self.backend.update_user(user, {"sub": "abc-123"})
         self.assertTrue(user.is_staff)
         self.assertTrue(user.is_superuser)
+
+
+class SessionRefreshTests(TestCase):
+    """An admin session is confirmed with Authentik again once its id token expires."""
+
+    def setUp(self):
+        self.staff = User.objects.create_superuser(username="staff", oidc_sub="staff")
+
+    def test_an_expired_session_is_sent_back_through_authentik(self):
+        self.client.force_login(self.staff)
+        session = self.client.session
+        session["oidc_id_token_expiration"] = time.time() - 1
+        session.save()
+
+        response = self.client.get("/admin/")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            response["Location"].startswith(settings.OIDC_OP_AUTHORIZATION_ENDPOINT)
+        )
+        self.assertIn("prompt=none", response["Location"])
+
+    def test_a_current_session_reaches_the_admin(self):
+        login(self.client, self.staff)
+        self.assertEqual(self.client.get("/admin/").status_code, 200)
 
 
 class CorsOriginsCheckTests(SimpleTestCase):

@@ -5,6 +5,7 @@ from django.db import IntegrityError, connection, transaction
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase
 
+from reefauth.testing import login
 from subscriptions.models import Subscription
 
 from .models import Subject, SubjectAssignment
@@ -141,7 +142,7 @@ class SubjectAdminTests(APITestCase):
         self.staff = User.objects.create_superuser(
             username="staff", password="pw", oidc_sub="staff"
         )
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         self.security = Subject.objects.create(slug="security", name="Security")
         SubjectAssignment.objects.create(subject=self.security, doc="rfc9110")
 

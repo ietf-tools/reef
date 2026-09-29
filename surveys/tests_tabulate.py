@@ -5,6 +5,8 @@ import io
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 
+from reefauth.testing import login
+
 from . import tabulate
 from .models import Response
 from .tabulate import Entries, Fields
@@ -270,7 +272,7 @@ class ResponsesViewTests(TestCase):
     def test_list_includes_withdrawn_surveys(self):
         withdrawn = make_survey(slug="gone", title="Gone")
         withdrawn.soft_delete()
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         resp = self.client.get("/admin/survey-builder/results/")
         self.assertContains(resp, f"/admin/survey-builder/results/{withdrawn.pk}/")
         self.assertContains(resp, "withdrawn")
@@ -279,7 +281,7 @@ class ResponsesViewTests(TestCase):
         Response.objects.bulk_create(
             Response(survey=self.survey, data={"colour": "g"}) for _ in range(51)
         )
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         url = f"/admin/survey-builder/results/{self.survey.pk}/"
         first = self.client.get(url)
         self.assertEqual(first.status_code, 200)
@@ -297,7 +299,7 @@ class ResponsesViewTests(TestCase):
         Response.objects.create(survey=self.survey, data={"legacy": "kept"})
         # Not an object, which jsonb_object_keys would refuse outright.
         Response.objects.create(survey=self.survey, data=["stray"])
-        self.client.force_login(self.staff)
+        login(self.client, self.staff)
         resp = self.client.get(
             f"/admin/survey-builder/results/{self.survey.pk}/export.csv"
         )
