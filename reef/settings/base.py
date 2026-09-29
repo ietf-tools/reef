@@ -51,6 +51,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # must come after session and authentication middleware
+    "mozilla_django_oidc.middleware.SessionRefresh",
     "simple_history.middleware.HistoryRequestMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -121,6 +123,8 @@ OIDC_RP_SIGN_ALGO = "ES256"
 OIDC_RP_SCOPES = "openid profile email"
 OIDC_STORE_ID_TOKEN = True  # kept in session for RP-initiated logout
 OIDC_OP_LOGOUT_URL_METHOD = "reefauth.utils.op_logout_url"
+# SessionRefresh middleware will force a reauth every EXPIRY_SECONDS (default 15 mins)
+# OIDC_RENEW_ID_TOKEN_EXPIRY_SECONDS = 15 * 60
 
 LOGIN_URL = "oidc_authentication_init"  # send @login_required through Authentik
 LOGIN_REDIRECT_URL = "/"
