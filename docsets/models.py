@@ -9,6 +9,7 @@ from simple_history.models import HistoricalRecords
 from reef.docids import DOC_ID_MAX_LENGTH, normalize_doc_id
 
 TITLE_MAX_LENGTH = 200
+DESCRIPTION_MAX_LENGTH = 1000
 
 
 class DocumentSetQuerySet(models.QuerySet):
@@ -61,7 +62,7 @@ class DocumentSet(models.Model):
         related_name="document_sets",
     )
     title = models.CharField(max_length=TITLE_MAX_LENGTH)
-    description = models.TextField(blank=True)
+    description = models.TextField(blank=True, max_length=DESCRIPTION_MAX_LENGTH)
     # Soft delete is the whole of staff moderation, and the only state a set
     # has besides existing: a deleted set is gone for everybody, the owner
     # included, and every read path answers as if it had never existed. The

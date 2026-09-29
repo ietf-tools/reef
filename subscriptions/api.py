@@ -1,5 +1,4 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
@@ -15,7 +14,6 @@ from .serializers import (
     SubscriptionSerializer,
     WebNotificationSerializer,
 )
-from .tasks import send_subscription_confirmation
 
 
 class OwnSubscriptionsMixin:
@@ -55,21 +53,12 @@ class SubscriptionListCreate(OwnSubscriptionsMixin, generics.ListCreateAPIView):
             field: serializer.validated_data.get(field)
             for field in Subscription.RELATIONS.values()
         }
-        serializer.instance, created = Subscription.objects.get_or_create(
+        serializer.instance, _ = Subscription.objects.get_or_create(
             user=self.request.user,
             kind=serializer.validated_data["kind"],
             params=serializer.validated_data["params"],
             **relations,
         )
-        if created:
-            # Only on a real create, so that the idempotent POST above does not
-            # mail the same person twice for one subscription. on_commit rather
-            # than a bare delay: the task reads the row back by id, so it must
-            # not be able to run before the row is visible.
-            subscription_id = serializer.instance.pk
-            transaction.on_commit(
-                lambda: send_subscription_confirmation.delay(subscription_id)
-            )
 
 
 class SubscriptionDetail(OwnSubscriptionsMixin, generics.DestroyAPIView):

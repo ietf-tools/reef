@@ -79,7 +79,7 @@ Then browse:
 
 - http://localhost:8088/ - the Nuxt survey runner
 - http://localhost:8088/admin/survey-builder/surveys/ - the survey builder and analytics (login)
-- http://localhost:8088/admin/ - Django admin (login, or break-glass superuser)
+- http://localhost:8088/admin/ - Django admin (login)
 - http://localhost:8088/api/reef/schema/swagger-ui/ - API docs
 - http://localhost:8025/ - mailpit (captured email)
 - http://localhost:8088/pgadmin/ - pgAdmin

@@ -83,7 +83,6 @@ AUTH_USER_MODEL = "reefauth.User"
 AUTHENTICATION_BACKENDS = (
     "reefauth.backends.ReefOIDCAuthBackend",
     "rules.permissions.ObjectPermissionBackend",
-    "django.contrib.auth.backends.ModelBackend",  # break-glass local superuser
 )
 
 # OIDC (Authentik at account.ietf.org). Endpoints are derived from the host and
@@ -92,8 +91,8 @@ AUTHENTICATION_BACKENDS = (
 # These OIDC_* settings are Reef as a *relying party*, logging staff into the
 # Django admin, including the builder/analytics site nested under it at
 # /admin/survey-builder/, under the "reef-admin-staging" application
-# (REEF_ADMIN_OIDC_APP_SLUG) — the only interactive login Reef performs; anyone
-# else gets the break-glass local superuser. Public survey-taking is never
+# (REEF_ADMIN_OIDC_APP_SLUG) — the only interactive login Reef performs.
+# Public survey-taking is never
 # logged into here: it authenticates against the separate "reef-staging"
 # application entirely client-side (the Nuxt runner talks to Authentik
 # directly), so Reef only ever sees the resulting access token as an API
@@ -127,12 +126,19 @@ OIDC_OP_LOGOUT_URL_METHOD = "reefauth.utils.op_logout_url"
 # OIDC_RENEW_ID_TOKEN_EXPIRY_SECONDS = 15 * 60
 
 LOGIN_URL = "oidc_authentication_init"  # send @login_required through Authentik
-LOGIN_REDIRECT_URL = "/"
+# Every session Reef starts is a reef-admin login, so the fallback is the admin.
+LOGIN_REDIRECT_URL = "/admin/"
 LOGOUT_REDIRECT_URL = "/"
 
 # SurveyJS commercial license key for Creator and Analytics (empty in dev, which
 # runs unlicensed with a watermark). Passed to the browser bundles.
 REEF_SURVEYJS_LICENSE_KEY = os.environ.get("REEF_SURVEYJS_LICENSE_KEY", "")
+
+# The largest response accepted, as compact JSON bytes: a free-text answer is the
+# biggest thing a person types, and this leaves it room many times over.
+REEF_SURVEY_RESPONSE_MAX_BYTES = int(
+    os.environ.get("REEF_SURVEY_RESPONSE_MAX_BYTES", "65536")
+)
 
 # Reef's own public origin, scheme included and no trailing slash. Needed for one
 # thing: the link Red's toast follows to the survey runner, which is Reef's own
@@ -203,22 +209,6 @@ REEF_API_OIDC_AUDIENCES = [
         "REEF_API_OIDC_AUDIENCES", os.environ.get("REEF_OIDC_AUDIENCE", "")
     ).split(",")
     if a.strip()
-]
-
-REEF_OIDC_GROUPS_CLAIM = os.environ.get("REEF_OIDC_GROUPS_CLAIM", "groups")
-REEF_OIDC_STAFF_GROUPS = [
-    g.strip()
-    for g in os.environ.get("REEF_OIDC_STAFF_GROUPS", "").split(",")
-    if g.strip()
-]
-# Comma-separated Authentik groups granted full superuser access via OIDC —
-# empty by default, so the local break-glass superuser is the only one until
-# an operator opts a group in. A superuser is always staff too, regardless of
-# REEF_OIDC_STAFF_GROUPS; see is_staff_from_claims().
-REEF_OIDC_SUPERUSER_GROUPS = [
-    g.strip()
-    for g in os.environ.get("REEF_OIDC_SUPERUSER_GROUPS", "").split(",")
-    if g.strip()
 ]
 
 # Database

@@ -1282,6 +1282,7 @@ components:
           maxLength: 200
         description:
           type: string
+          maxLength: 1000
         documents:
           type: array
           items:
@@ -1656,6 +1657,7 @@ components:
           maxLength: 200
         description:
           type: string
+          maxLength: 1000
         documents:
           type: array
           items:
@@ -1864,7 +1866,6 @@ components:
       type: object
       properties:
         data: {}
-        meta: {}
     RetiredSubject:
       type: object
       description: |-

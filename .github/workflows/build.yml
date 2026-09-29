@@ -229,5 +229,5 @@ jobs:
           apiToken: ${{ secrets.CF_WORKER_DEPLOY_TOKEN }}
           accountId: ${{ secrets.CF_WORKER_DEPLOY_ACCOUNT_ID }}
           workingDirectory: worker
-          command: deploy --env staging
+          command: deploy --env staging --name reef-frontend-staging
           environment: staging

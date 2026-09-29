@@ -41,16 +41,6 @@ values:
   client-side; Reef is never a party to this login, see the API section below
   for the server-side half. Both default in `client/nuxt.config.ts`, and since
   the runner is a static bundle they take effect at build time, not at runtime.
-- `REEF_OIDC_STAFF_GROUPS` - comma-separated Authentik groups granted staff
-  access when they log into the admin/builder site. A bearer token grants
-  neither staff nor superuser, whatever groups it carries. Empty means no one is
-  staff via OIDC; use the break-glass superuser for admin access instead.
-- `REEF_OIDC_SUPERUSER_GROUPS` - comma-separated Authentik groups granted full
-  superuser access via OIDC (implies staff, regardless of the setting above).
-  Empty by default, so the local break-glass superuser remains the only one
-  until an operator opts a group in — being staff alone shows an empty admin
-  with no models visible, since Django's permission system is separate from
-  is_staff.
 - `REEF_SURVEYJS_LICENSE_KEY` - required in production for Creator and Analytics.
 
 Production adds environment-driven `REEF_DJANGO_SECRET_KEY`, `REEF_ALLOWED_HOSTS`,
@@ -105,8 +95,7 @@ in the local hostname, and the headers that mark a notification as automatically
 generated. Message bodies are plain-text Django templates under `templates/`, one per
 message with the subject composed in Python, both conventions from Purple. There is
 one template per *message*, not per subscription kind: all six kinds produce the same
-digest and differ only in an opening sentence, which is an include shared with the
-confirmation.
+digest and differ only in an opening sentence.
 
 - `REEF_DEFAULT_FROM_EMAIL` - from address. Defaults to `reef@ietf.org`.
 - `REEF_MESSAGE_ID_DOMAIN` - domain for generated Message-IDs. Defaults to
@@ -141,17 +130,6 @@ a response submitted on the runner then doesn't count as answered when Red asks.
 OIDC endpoints are derived from the host and application slug in
 `reef/settings/base.py`; only credentials and the redirect URI need
 configuring.
-
-## Break-glass superuser
-
-For access when Authentik is unavailable, create a local superuser:
-
-```
-./manage.py createsuperuser
-```
-
-It can sign in at `/admin/`, using the username/password form below the
-"Sign in with Authentik" link.
 
 ## Authentication summary
 

@@ -30,18 +30,11 @@ from django.db.models import F
 from django.utils import timezone
 
 from reef.locks import advisory_lock
-from reef.mail import EmailMessage
 from reef.tasks import RetryTask
 
 from .changes import as_event, detect
-from .delivery import (
-    SendEmailError,
-    _send,
-    _subscriber_to_mail,
-    send_subscription_digest,
-)
+from .delivery import SendEmailError, send_subscription_digest
 from .matching import subscriptions_for_change
-from .messages import CONFIRMATION_SUBJECT, render_confirmation
 from .models import PendingNotification, SubjectNotificationEvent, WebNotification
 
 logger = logging.getLogger("reef")
@@ -264,44 +257,6 @@ def sweep_unsent_notifications() -> int:
     if ids:
         logger.warning("Re-enqueued %s undelivered notification(s)", len(ids))
     return len(ids)
-
-
-@shared_task(
-    base=RetryTask,
-    autoretry_for=(SendEmailError,),
-    # Shorter than a digest's: this message says "your subscription exists",
-    # which the subscriber can already see in Red, and which stops being worth
-    # saying long before three days are up.
-    max_retries=4 * 24,  # every 15 minutes for a day, at the tail rate
-    ignore_result=True,
-)
-def send_subscription_confirmation(subscription_id: int) -> None:
-    """Tell a subscriber their new subscription exists.
-
-    Enqueued by the create endpoint, and only when a subscription was actually
-    created: POST is idempotent, so a second click must not send a second
-    message.
-
-    A courtesy, not a verification, and Reef has no verification anywhere because it
-    needs none: the subscriber authenticated through Authentik and the address is the
-    one on that account, which account.ietf.org has already verified. Reef never
-    accepts an address typed into a form. Nothing waits on this message and a failure
-    to send it never stops a digest.
-    """
-    subscription = _subscriber_to_mail(
-        subscription_id, "send_subscription_confirmation"
-    )
-    if subscription is None:
-        return
-    _send(
-        EmailMessage(
-            subject=CONFIRMATION_SUBJECT,
-            body=render_confirmation(subscription),
-            to=[subscription.user.email],
-        ),
-        "send_subscription_confirmation",
-        subscription_id,
-    )
 
 
 @shared_task(ignore_result=True)

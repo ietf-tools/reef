@@ -1,4 +1,6 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+import json
+
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -132,4 +134,15 @@ class ResponseSerializer(serializers.ModelSerializer):
 class ResponseCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Response
-        fields = ["data", "meta"]
+        # Not meta: the runner never sends it, so taking it from the caller only
+        # let anyone store arbitrary JSON.
+        fields = ["data"]
+
+    def validate_data(self, value):
+        size = len(json.dumps(value, separators=(",", ":")).encode())
+        limit = settings.REEF_SURVEY_RESPONSE_MAX_BYTES
+        if size > limit:
+            raise serializers.ValidationError(
+                f"The response is {size} bytes; at most {limit} are accepted."
+            )
+        return value

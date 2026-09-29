@@ -118,6 +118,28 @@ class DefinitionAndResponseTests(APITestCase):
         self.assertEqual(resp.status_code, 403)
         self.assertEqual(Response.objects.count(), 0)
 
+    @override_settings(REEF_SURVEY_RESPONSE_MAX_BYTES=32)
+    def test_submission_over_the_size_limit_is_rejected(self):
+        make_survey(slug="s10")
+        resp = self.client.post(
+            "/api/reef/surveys/s10/responses/",
+            {"data": {"q1": "x" * 40}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("bytes", resp.json()["data"][0])
+        self.assertEqual(Response.objects.count(), 0)
+
+    def test_submission_ignores_meta_from_the_caller(self):
+        make_survey(slug="s11")
+        resp = self.client.post(
+            "/api/reef/surveys/s11/responses/",
+            {"data": {"q1": "yes"}, "meta": {"planted": True}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(Response.objects.get().meta, {})
+
 
 class ManagementPermissionTests(APITestCase):
     def test_anonymous_cannot_list_management(self):

@@ -9,8 +9,8 @@ class UserAdmin(admin.ModelAdmin):
     """Read-mostly: accounts are synced from Authentik claims on login, not typed
     in here. oidc_sub is excluded from edits because it is the binding to that
     identity; changing it by hand detaches the account from the person it
-    belongs to. password is excluded because this codebase has no local login
-    flow beyond the break-glass superuser, set with changepassword instead.
+    belongs to. password is excluded because there is no local login: every
+    session comes from Authentik.
     """
 
     list_display = [

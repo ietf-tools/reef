@@ -27,7 +27,10 @@ EVENTS = [{"doc": "rfc9110", "change": "Published", "url": "https://example.org/
 class QueueNotificationTests(TestCase):
     def setUp(self):
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="reader@example.org"
+            username="u",
+            oidc_sub="s",
+            email="reader@example.org",
+            receive_digest_email=True,
         )
         self.subscription = Subscription.objects.create(
             user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
@@ -100,7 +103,10 @@ class QueueNotificationTests(TestCase):
 class DeliverNotificationTests(TestCase):
     def setUp(self):
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="reader@example.org"
+            username="u",
+            oidc_sub="s",
+            email="reader@example.org",
+            receive_digest_email=True,
         )
         self.subscription = Subscription.objects.create(
             user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
@@ -181,7 +187,10 @@ class DeliverNotificationTests(TestCase):
 class SweepTests(TestCase):
     def setUp(self):
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="reader@example.org"
+            username="u",
+            oidc_sub="s",
+            email="reader@example.org",
+            receive_digest_email=True,
         )
 
     def owed(self, *, age_seconds=7200, attempts=0, sent=False):
@@ -250,7 +259,10 @@ class UnsubscribeUrlRequiredTests(TestCase):
 
     def setUp(self):
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="reader@example.org"
+            username="u",
+            oidc_sub="s",
+            email="reader@example.org",
+            receive_digest_email=True,
         )
         self.subscription = Subscription.objects.create(
             user=self.user, kind=Subscription.Kind.NEW_RFC
@@ -303,7 +315,10 @@ class DedupeKeyTests(TestCase):
 
     def setUp(self):
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="reader@example.org"
+            username="u",
+            oidc_sub="s",
+            email="reader@example.org",
+            receive_digest_email=True,
         )
         self.subscription = Subscription.objects.create(
             user=self.user, kind=Subscription.Kind.NEW_RFC
@@ -326,7 +341,9 @@ class DedupeKeyTests(TestCase):
         self.assertEqual(PendingNotification.objects.count(), 1)
 
     def test_another_reader_getting_the_same_news_is_not_a_duplicate(self):
-        other = User.objects.create(username="o", oidc_sub="o", email="o@example.org")
+        other = User.objects.create(
+            username="o", oidc_sub="o", email="o@example.org", receive_digest_email=True
+        )
         self.queue()
         self.queue(user=other)
         self.assertEqual(PendingNotification.objects.count(), 2)
