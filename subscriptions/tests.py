@@ -184,11 +184,11 @@ class DigestPreferenceApiTests(APITestCase):
             self.client.get("/api/reef/digest-preference/").status_code, (401, 403)
         )
 
-    def test_defaults_to_true(self):
+    def test_defaults_to_false(self):
         user = User.objects.create(username="u", oidc_sub="s")
         self.client.force_authenticate(user=user)
         response = self.client.get("/api/reef/digest-preference/")
-        self.assertEqual(response.json(), {"receive_digest_email": True})
+        self.assertEqual(response.json(), {"receive_digest_email": False})
 
     def test_can_be_turned_off(self):
         user = User.objects.create(username="u", oidc_sub="s")
@@ -203,10 +203,10 @@ class DigestPreferenceApiTests(APITestCase):
         self.assertFalse(user.receive_digest_email)
 
     def test_scoped_to_the_caller(self):
-        user = User.objects.create(username="u", oidc_sub="s")
-        other = User.objects.create(
-            username="o", oidc_sub="s2", receive_digest_email=False
+        user = User.objects.create(
+            username="u", oidc_sub="s", receive_digest_email=True
         )
+        other = User.objects.create(username="o", oidc_sub="s2")
 
         self.client.force_authenticate(user=user)
         response = self.client.get("/api/reef/digest-preference/")
@@ -704,7 +704,10 @@ class SendSubscriptionDigestTests(APITestCase):
     def setUp(self):
         mail.outbox = []
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="reader@example.org"
+            username="u",
+            oidc_sub="s",
+            email="reader@example.org",
+            receive_digest_email=True,
         )
 
     def test_one_mail_for_an_rfc_subscription(self):
@@ -887,7 +890,10 @@ class SendSubscriptionConfirmationTests(APITestCase):
     def setUp(self):
         mail.outbox = []
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="reader@example.org"
+            username="u",
+            oidc_sub="s",
+            email="reader@example.org",
+            receive_digest_email=True,
         )
 
     def test_says_what_was_subscribed_to_and_that_nothing_is_needed(self):
@@ -985,7 +991,10 @@ class SubscribeSendsAConfirmationTests(APITestCase):
     def setUp(self):
         mail.outbox = []
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="reader@example.org"
+            username="u",
+            oidc_sub="s",
+            email="reader@example.org",
+            receive_digest_email=True,
         )
         self.client.force_authenticate(user=self.user)
         # Run the enqueued task in this process. The point of these tests is
@@ -1033,7 +1042,10 @@ class DigestCoalescingTests(APITestCase):
 
     def setUp(self):
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="reader@example.org"
+            username="u",
+            oidc_sub="s",
+            email="reader@example.org",
+            receive_digest_email=True,
         )
         self.set = DocumentSet.objects.create(owner=self.user, title="HTTP core")
         DocumentSetEntry.objects.create(document_set=self.set, doc="rfc9110")
@@ -1075,7 +1087,10 @@ class DigestCoalescingTests(APITestCase):
 
     def test_a_subscription_belonging_to_somebody_else_is_ignored(self):
         other = User.objects.create(
-            username="o", oidc_sub="o", email="other@example.org"
+            username="o",
+            oidc_sub="o",
+            email="other@example.org",
+            receive_digest_email=True,
         )
         theirs = Subscription.objects.create(user=other, kind=Subscription.Kind.NEW_RFC)
         send_subscription_digest(self.user.pk, [self.direct.pk, theirs.pk], self.event)

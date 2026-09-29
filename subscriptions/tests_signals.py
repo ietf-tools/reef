@@ -18,7 +18,10 @@ User = get_user_model()
 class NewAssignmentNotificationTests(TestCase):
     def setUp(self):
         self.user = User.objects.create(
-            username="u", oidc_sub="s", email="reader@example.org"
+            username="u",
+            oidc_sub="s",
+            email="reader@example.org",
+            receive_digest_email=True,
         )
         self.subject = Subject.objects.create(name="Security", slug="security")
 
