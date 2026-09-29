@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from rest_framework.test import APITestCase
 
-from .models import DocumentSet, DocumentSetEntry
+from .models import DESCRIPTION_MAX_LENGTH, DocumentSet, DocumentSetEntry
 
 User = get_user_model()
 
@@ -35,6 +35,13 @@ class DocumentSetApiTests(APITestCase):
         self.assertNotIn("slug", body)  # the id is the whole of a set's identity
         self.assertEqual(body["documents"], [])
         self.assertNotIn("owner_name", body)  # a set read names no person
+
+    def test_description_is_limited_in_length(self):
+        at_limit = self.create_set(description="x" * DESCRIPTION_MAX_LENGTH)
+        self.assertEqual(at_limit.status_code, 201)
+        over = self.create_set(description="x" * (DESCRIPTION_MAX_LENGTH + 1))
+        self.assertEqual(over.status_code, 400)
+        self.assertIn("description", over.json())
 
     def test_id_is_a_random_uuid(self):
         # Sequential ids would let anyone walk /sets/1, /sets/2 and read every set.
