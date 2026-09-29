@@ -206,22 +206,6 @@ REEF_API_OIDC_AUDIENCES = [
     if a.strip()
 ]
 
-REEF_OIDC_GROUPS_CLAIM = os.environ.get("REEF_OIDC_GROUPS_CLAIM", "groups")
-REEF_OIDC_STAFF_GROUPS = [
-    g.strip()
-    for g in os.environ.get("REEF_OIDC_STAFF_GROUPS", "").split(",")
-    if g.strip()
-]
-# Comma-separated Authentik groups granted full superuser access via OIDC —
-# empty by default, so nobody is a superuser until an operator opts a group
-# in. A superuser is always staff too, regardless of
-# REEF_OIDC_STAFF_GROUPS; see is_staff_from_claims().
-REEF_OIDC_SUPERUSER_GROUPS = [
-    g.strip()
-    for g in os.environ.get("REEF_OIDC_SUPERUSER_GROUPS", "").split(",")
-    if g.strip()
-]
-
 # Database
 DATABASES = {
     "default": {

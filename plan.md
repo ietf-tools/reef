@@ -135,8 +135,8 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
   Red uses. Protected surveys require login; open surveys are anonymous.
 - DRF APIs (/api/reef/): Reef acts as an OIDC resource server, validating Authentik
   bearer (JWT) access tokens. Anonymous access is allowed for public reads.
-- Break-glass: one local Django superuser for admin access if Authentik is
-  unavailable.
+- Every valid reef-admin login is trusted as staff and superuser; there is no local
+  login and no group mapping.
 - Async: Celery plus a broker, for subscription mail, the daily change detection,
   and the precomputer.
 - Precomputer: a management command, run by celery beat rather than a process of its
@@ -608,7 +608,7 @@ Each step ends with a commit.
 4. Devcontainer: .devcontainer/ mirroring Purple. Commit: "Add VS Code devcontainer".
 5. Auth (reefauth): custom User; mozilla_django_oidc RP login (Django site) to
    Authentik; DRF authentication.py validating Authentik bearer JWTs (resource server)
-   with optional-auth support; break-glass superuser; /oidc/ urls. Commit: "Add
+   with optional-auth support; /oidc/ urls. Commit: "Add
    Authentik OIDC login and bearer resource-server auth".
 6. Surveys models and API: Survey and Response plus migrations, serializers, DRF
    endpoints (manage, open/, definition/, responses/, results/), rules.py,

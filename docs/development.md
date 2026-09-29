@@ -41,16 +41,6 @@ values:
   client-side; Reef is never a party to this login, see the API section below
   for the server-side half. Both default in `client/nuxt.config.ts`, and since
   the runner is a static bundle they take effect at build time, not at runtime.
-- `REEF_OIDC_STAFF_GROUPS` - comma-separated Authentik groups granted staff
-  access when they log into the admin/builder site. A bearer token grants
-  neither staff nor superuser, whatever groups it carries. Empty means no one is
-  staff via OIDC.
-- `REEF_OIDC_SUPERUSER_GROUPS` - comma-separated Authentik groups granted full
-  superuser access via OIDC (implies staff, regardless of the setting above).
-  Empty by default, so nobody is a superuser until an operator opts a group
-  in — being staff alone shows an empty admin
-  with no models visible, since Django's permission system is separate from
-  is_staff.
 - `REEF_SURVEYJS_LICENSE_KEY` - required in production for Creator and Analytics.
 
 Production adds environment-driven `REEF_DJANGO_SECRET_KEY`, `REEF_ALLOWED_HOSTS`,
