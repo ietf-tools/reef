@@ -90,7 +90,7 @@ class BearerTokenAuthenticationTests(TestCase):
         with self.assertRaises(exceptions.AuthenticationFailed):
             self.auth.authenticate(request)
 
-    @override_settings(REEF_OIDC_HOST="https://account.ietf.org")
+    @override_settings(REEF_API_OIDC_HOST="https://account.ietf.org")
     def test_an_unlisted_application_is_named_by_its_slug(self):
         token = _make_token(self.key, iss=_RED_ISSUER)
         request = self.factory.get(

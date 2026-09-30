@@ -30,8 +30,7 @@ Copy `.env.example` to `.env`. docker compose reads it automatically. The key
 values:
 
 - `REEF_ADMIN_OIDC_RP_CLIENT_ID` / `REEF_ADMIN_OIDC_RP_CLIENT_SECRET` - the
-  confidential Authentik client for the "reef-admin-staging" application
-  (`REEF_ADMIN_OIDC_APP_SLUG`), the only
+  confidential Authentik client for the "reef-admin-staging" application, the only
   interactive login Reef performs (Django admin and the builder/analytics site
   nested under it at `/admin/survey-builder/` — the same administration
   functionality, gated the same way).
@@ -110,7 +109,7 @@ digest and differ only in an opening sentence.
 
 Reef itself registers two applications in Authentik (account.ietf.org):
 
-- `reef-admin-staging` (per `REEF_ADMIN_OIDC_APP_SLUG`) — the Django admin and its nested `/admin/survey-builder/` builder/analytics,
+- `reef-admin-staging` — the Django admin and its nested `/admin/survey-builder/` builder/analytics,
   the same administration functionality gated the same way. One confidential
   client against it, redirect URI `http://localhost:8088/oidc/callback/` for
   development, plus the staging and production equivalents.
@@ -127,9 +126,12 @@ person the same `sub`, so use the same subject mode on each provider. Reef keys
 its users on `sub` alone, so a mismatch splits one person into several users:
 a response submitted on the runner then doesn't count as answered when Red asks.
 
-OIDC endpoints are derived from the host and application slug in
-`reef/settings/base.py`; only credentials and the redirect URI need
-configuring.
+The admin login's OIDC URLs are each their own variable, none derived from
+another, and default in `reef/settings/base.py` to the `reef-admin-staging`
+application: `REEF_ADMIN_OIDC_ISSUER`, `REEF_ADMIN_OIDC_AUTHORIZATION_ENDPOINT`,
+`REEF_ADMIN_OIDC_TOKEN_ENDPOINT`, `REEF_ADMIN_OIDC_USERINFO_ENDPOINT`,
+`REEF_ADMIN_OIDC_JWKS_ENDPOINT` and `REEF_ADMIN_OIDC_END_SESSION_ENDPOINT`.
+Only credentials and the redirect URI need configuring.
 
 ## Authentication summary
 
@@ -144,8 +146,8 @@ configuring.
   when present) and popularity and open surveys are anonymous.
 
 Logging staff into Reef and validating API callers' tokens are two separate
-roles, configured separately. The `OIDC_*` settings (derived from
-`REEF_ADMIN_OIDC_APP_SLUG`) are the one relying-party login, shared by
+roles, configured separately. The `OIDC_*` settings (from
+`REEF_ADMIN_OIDC_*`) are the one relying-party login, shared by
 `/admin/` and its nested `/admin/survey-builder/` alike. Which callers the
 API accepts is `REEF_API_OIDC_APP_SLUGS`, `REEF_API_OIDC_AUDIENCES` and
 `REEF_API_OIDC_ALGORITHMS` — `rfc-editor` and `reef-staging`, each with its own

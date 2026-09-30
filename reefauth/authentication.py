@@ -10,7 +10,7 @@ when a token happens to be supplied (for example the open-survey list).
 Several Authentik applications call this API (the survey runner as
 "reef-staging", and Red as "rfc-editor"), each with its own issuer, JWKS and
 client id. Which are accepted is configured by REEF_API_OIDC_APP_SLUGS and
-REEF_API_OIDC_AUDIENCES — deliberately separate from the OIDC_* settings that
+REEF_API_OIDC_AUDIENCES — deliberately separate from the REEF_ADMIN_OIDC_* settings that
 log Reef's own staff into the builder site, which is an unrelated role that
 happens to involve the same identity provider.
 """
@@ -71,7 +71,7 @@ def _unaccepted_issuer_message(issuer):
     derived from each, so a message that only quotes the issuer URL invites
     pasting that URL into the setting, where it can never match.
     """
-    applications = f"{settings.REEF_OIDC_HOST}/application/o/"
+    applications = f"{settings.REEF_API_OIDC_HOST}/application/o/"
     accepted = ", ".join(
         repr(accepted_issuer.removeprefix(applications).strip("/"))
         for accepted_issuer in settings.REEF_API_OIDC_JWKS_ENDPOINTS
@@ -84,7 +84,7 @@ def _unaccepted_issuer_message(issuer):
             f"REEF_API_OIDC_APP_SLUGS, which currently names {accepted}."
         )
     return (
-        f"{presented} Only applications on {settings.REEF_OIDC_HOST} named in "
+        f"{presented} Only applications on {settings.REEF_API_OIDC_HOST} named in "
         f"REEF_API_OIDC_APP_SLUGS are accepted; it currently names {accepted}."
     )
 

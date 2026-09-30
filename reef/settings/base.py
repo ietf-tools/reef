@@ -85,31 +85,47 @@ AUTHENTICATION_BACKENDS = (
     "rules.permissions.ObjectPermissionBackend",
 )
 
-# OIDC (Authentik at account.ietf.org). Endpoints are derived from the host and
-# the per-application slug; credentials come from the environment.
+# OIDC (Authentik at account.ietf.org). Every URL and credential comes from its
+# own environment variable; none is derived from another.
 #
 # These OIDC_* settings are Reef as a *relying party*, logging staff into the
 # Django admin, including the builder/analytics site nested under it at
-# /admin/survey-builder/, under the "reef-admin-staging" application
-# (REEF_ADMIN_OIDC_APP_SLUG) — the only interactive login Reef performs.
+# /admin/survey-builder/, under the "reef-admin-staging" application — the only
+# interactive login Reef performs.
 # Public survey-taking is never
 # logged into here: it authenticates against the separate "reef-staging"
 # application entirely client-side (the Nuxt runner talks to Authentik
 # directly), so Reef only ever sees the resulting access token as an API
 # caller — see REEF_API_OIDC_* below, a separate role with its own issuer, JWKS
 # and client id.
-REEF_OIDC_HOST = os.environ.get("REEF_OIDC_HOST", "https://account.ietf.org")
-# `or` rather than a get() default, for the same reason as REEF_API_OIDC_APP_SLUGS.
-REEF_ADMIN_OIDC_APP_SLUG = (
-    os.environ.get("REEF_ADMIN_OIDC_APP_SLUG", "") or "reef-admin-staging"
+#
+# Each falls back with `or` rather than an os.environ.get default, because
+# compose passes a variable through as an empty string when absent from the .env
+# file: an unset variable arrives as "" and a get() default is never reached.
+OIDC_OP_ISSUER_ID = (
+    os.environ.get("REEF_ADMIN_OIDC_ISSUER", "")
+    or "https://account.ietf.org/application/o/reef-admin-staging/"
 )
-_oidc_app = f"{REEF_OIDC_HOST}/application/o"
-OIDC_OP_ISSUER_ID = f"{_oidc_app}/{REEF_ADMIN_OIDC_APP_SLUG}/"
-OIDC_OP_AUTHORIZATION_ENDPOINT = f"{_oidc_app}/authorize/"
-OIDC_OP_TOKEN_ENDPOINT = f"{_oidc_app}/token/"
-OIDC_OP_USER_ENDPOINT = f"{_oidc_app}/userinfo/"
-OIDC_OP_JWKS_ENDPOINT = f"{_oidc_app}/{REEF_ADMIN_OIDC_APP_SLUG}/jwks/"
-OIDC_OP_END_SESSION_ENDPOINT = f"{_oidc_app}/{REEF_ADMIN_OIDC_APP_SLUG}/end-session/"
+OIDC_OP_AUTHORIZATION_ENDPOINT = (
+    os.environ.get("REEF_ADMIN_OIDC_AUTHORIZATION_ENDPOINT", "")
+    or "https://account.ietf.org/application/o/authorize/"
+)
+OIDC_OP_TOKEN_ENDPOINT = (
+    os.environ.get("REEF_ADMIN_OIDC_TOKEN_ENDPOINT", "")
+    or "https://account.ietf.org/application/o/token/"
+)
+OIDC_OP_USER_ENDPOINT = (
+    os.environ.get("REEF_ADMIN_OIDC_USERINFO_ENDPOINT", "")
+    or "https://account.ietf.org/application/o/userinfo/"
+)
+OIDC_OP_JWKS_ENDPOINT = (
+    os.environ.get("REEF_ADMIN_OIDC_JWKS_ENDPOINT", "")
+    or "https://account.ietf.org/application/o/reef-admin-staging/jwks/"
+)
+OIDC_OP_END_SESSION_ENDPOINT = (
+    os.environ.get("REEF_ADMIN_OIDC_END_SESSION_ENDPOINT", "")
+    or "https://account.ietf.org/application/o/reef-admin-staging/end-session/"
+)
 
 OIDC_RP_CLIENT_ID = os.environ.get("REEF_ADMIN_OIDC_RP_CLIENT_ID", "")
 OIDC_RP_CLIENT_SECRET = os.environ.get("REEF_ADMIN_OIDC_RP_CLIENT_SECRET", "")
@@ -180,8 +196,11 @@ REEF_API_OIDC_APP_SLUGS = [
 # Issuer -> JWKS endpoint for those applications. The issuer is what the token
 # actually carries, so this doubles as the trusted-issuer allowlist and as the
 # lookup that pairs a token with the right verification keys.
+REEF_API_OIDC_HOST = (
+    os.environ.get("REEF_API_OIDC_HOST", "") or "https://account.ietf.org"
+)
 REEF_API_OIDC_JWKS_ENDPOINTS = {
-    f"{_oidc_app}/{slug}/": f"{_oidc_app}/{slug}/jwks/"
+    f"{REEF_API_OIDC_HOST}/application/o/{slug}/": f"{REEF_API_OIDC_HOST}/application/o/{slug}/jwks/"
     for slug in REEF_API_OIDC_APP_SLUGS
 }
 # Accepted signature algorithms, as a set rather than the single
@@ -205,9 +224,7 @@ REEF_API_OIDC_ALGORITHMS = [
 # practice (see docs/development.md).
 REEF_API_OIDC_AUDIENCES = [
     a.strip()
-    for a in os.environ.get(
-        "REEF_API_OIDC_AUDIENCES", os.environ.get("REEF_OIDC_AUDIENCE", "")
-    ).split(",")
+    for a in os.environ.get("REEF_API_OIDC_AUDIENCES", "").split(",")
     if a.strip()
 ]
 
