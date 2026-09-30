@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from celery.schedules import crontab
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -176,33 +177,46 @@ REEF_SITE_URL = os.environ.get("REEF_SITE_URL")
 # its slug here; each also mints access tokens whose `aud` is its own client
 # id, so that id has to be listed as an accepted audience.
 #
-# REEF_API_OIDC_APP_SLUGS falls back with `or` rather than an os.environ.get
-# default, because compose passes it through as an empty string when absent
-# from the .env file: an unset variable arrives as "" and a get() default is
-# never reached.
+# REEF_API_OIDC_ISSUERS and REEF_API_OIDC_JWKS_ENDPOINTS fall back with `or`
+# rather than an os.environ.get default, because compose passes a variable
+# through as an empty string when absent from the .env file: an unset variable
+# arrives as "" and a get() default is never reached.
 #
-# REEF_API_OIDC_APP_SLUGS: comma-separated Authentik application slugs whose
-# tokens are accepted. Defaults to the two callers Reef expects, so an unlisted
-# caller is rejected rather than silently trusted. Leaving out "reef-staging"
+# REEF_API_OIDC_ISSUERS: comma-separated token issuers that are accepted, and
+# REEF_API_OIDC_JWKS_ENDPOINTS: the comma-separated JWKS URL of each, in the same
+# order. Defaults to the two callers Reef expects, so an unlisted caller is
+# rejected rather than silently trusted. Leaving out the "reef-staging" issuer
 # refuses every signed-in survey-taker, including on open surveys, where their
 # token turns an otherwise anonymous request into a 401.
-REEF_API_OIDC_APP_SLUGS = [
-    s.strip()
-    for s in (
-        os.environ.get("REEF_API_OIDC_APP_SLUGS", "") or "rfc-editor,reef-staging"
+_api_oidc_issuers = [
+    i.strip()
+    for i in (
+        os.environ.get("REEF_API_OIDC_ISSUERS", "")
+        or "https://account.ietf.org/application/o/rfc-editor/,"
+        "https://account.ietf.org/application/o/reef-staging/"
     ).split(",")
-    if s.strip()
+    if i.strip()
 ]
-# Issuer -> JWKS endpoint for those applications. The issuer is what the token
-# actually carries, so this doubles as the trusted-issuer allowlist and as the
-# lookup that pairs a token with the right verification keys.
-REEF_API_OIDC_HOST = (
-    os.environ.get("REEF_API_OIDC_HOST", "") or "https://account.ietf.org"
+_api_oidc_jwks_endpoints = [
+    j.strip()
+    for j in (
+        os.environ.get("REEF_API_OIDC_JWKS_ENDPOINTS", "")
+        or "https://account.ietf.org/application/o/rfc-editor/jwks/,"
+        "https://account.ietf.org/application/o/reef-staging/jwks/"
+    ).split(",")
+    if j.strip()
+]
+if len(_api_oidc_issuers) != len(_api_oidc_jwks_endpoints):
+    raise ImproperlyConfigured(
+        "REEF_API_OIDC_ISSUERS and REEF_API_OIDC_JWKS_ENDPOINTS must list the "
+        "same number of entries, in the same order."
+    )
+# Issuer -> JWKS endpoint. The issuer is what the token actually carries, so
+# this doubles as the trusted-issuer allowlist and as the lookup that pairs a
+# token with the right verification keys.
+REEF_API_OIDC_JWKS_ENDPOINTS = dict(
+    zip(_api_oidc_issuers, _api_oidc_jwks_endpoints, strict=True)
 )
-REEF_API_OIDC_JWKS_ENDPOINTS = {
-    f"{REEF_API_OIDC_HOST}/application/o/{slug}/": f"{REEF_API_OIDC_HOST}/application/o/{slug}/jwks/"
-    for slug in REEF_API_OIDC_APP_SLUGS
-}
 # Accepted signature algorithms, as a set rather than the single
 # OIDC_RP_SIGN_ALGO used for RP login: Authentik chooses the signing key per
 # application, so callers legitimately differ. The rfc-editor application signs

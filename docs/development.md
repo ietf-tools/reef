@@ -43,8 +43,8 @@ values:
 - `REEF_SURVEYJS_LICENSE_KEY` - required in production for Creator and Analytics.
 
 Production adds environment-driven `REEF_DJANGO_SECRET_KEY`, `REEF_ALLOWED_HOSTS`,
-`REEF_DB_*`, `REEF_CORS_ALLOWED_ORIGINS`, `REEF_API_OIDC_APP_SLUGS` and
-`REEF_API_OIDC_AUDIENCES`; see `reef/settings/production.py`. Red reaches the API
+`REEF_DB_*`, `REEF_CORS_ALLOWED_ORIGINS`, `REEF_API_OIDC_ISSUERS`,
+`REEF_API_OIDC_JWKS_ENDPOINTS` and `REEF_API_OIDC_AUDIENCES`; see `reef/settings/production.py`. Red reaches the API
 only once the last three are set, and each one fails in the browser rather than in
 a server log:
 
@@ -55,20 +55,20 @@ a server log:
   at the preflight with a missing `Access-Control-Allow-Origin` header, and a
   system check warns at startup. Development hard-codes Red's dev server in
   `development.py` and ignores this variable.
-- `REEF_API_OIDC_APP_SLUGS` - comma-separated Authentik application slugs whose
-  access tokens the API accepts. Two callers: `rfc-editor` (Red itself) and
-  `reef-staging` (survey-takers the Nuxt runner authenticated, per
-  `NUXT_PUBLIC_OIDC_AUTHORITY` above), and `rfc-editor,reef-staging` is the
-  default. Leaving out `reef-staging` refuses every signed-in survey-taker with a
-  401, even on an open survey that would have accepted them anonymously. The value is
-  the slug alone, not the issuer URL; Reef builds the issuer as
-  `https://account.ietf.org/application/o/<slug>/` and matches a token's `iss`
-  against that, so a URL here can never match; the 401 a caller gets back names
-  the slug to add. Staging and production share the Authentik instance and its
-  applications, so the value is the same in both.
+- `REEF_API_OIDC_ISSUERS` / `REEF_API_OIDC_JWKS_ENDPOINTS` - comma-separated
+  issuer URLs whose access tokens the API accepts, and the JWKS URL of each in
+  the same order. Two callers: `rfc-editor` (Red itself) and `reef-staging`
+  (survey-takers the Nuxt runner authenticated, per
+  `NUXT_PUBLIC_OIDC_AUTHORITY` above), and both are the default. Leaving out the
+  `reef-staging` issuer refuses every signed-in survey-taker with a 401, even on
+  an open survey that would have accepted them anonymously. A token's `iss` is
+  matched against the list exactly, so include the trailing slash; the 401 a
+  caller gets back names the issuer it presented. Staging and production share
+  the Authentik instance and its applications, so the values are the same in
+  both.
 - `REEF_API_OIDC_AUDIENCES` - comma-separated client ids of those same
   applications, which is what Authentik puts in a token's `aud`. No default: a
-  client id is opaque and per-deployment, so unlike the slug above there's
+  client id is opaque and per-deployment, so unlike the issuers above there's
   nothing sensible to name automatically — an empty list disables audience
   verification, so every real deployment must set this. List `NUXT_PUBLIC_OIDC_CLIENT_ID`
   (a token with an unlisted `aud` is refused with a 401) plus Red's client id, which Red commits as the `oidcClientId` default in its
@@ -149,10 +149,11 @@ Logging staff into Reef and validating API callers' tokens are two separate
 roles, configured separately. The `OIDC_*` settings (from
 `REEF_ADMIN_OIDC_*`) are the one relying-party login, shared by
 `/admin/` and its nested `/admin/survey-builder/` alike. Which callers the
-API accepts is `REEF_API_OIDC_APP_SLUGS`, `REEF_API_OIDC_AUDIENCES` and
+API accepts is `REEF_API_OIDC_ISSUERS`, `REEF_API_OIDC_JWKS_ENDPOINTS`,
+`REEF_API_OIDC_AUDIENCES` and
 `REEF_API_OIDC_ALGORITHMS` — `rfc-editor` and `reef-staging`, each with its own
 issuer, JWKS, client id and signing key, independent of the admin login's. A caller
-whose application slug is not listed is rejected with a message naming the
+whose issuer is not listed is rejected with a message naming the
 issuer it presented, and each token is verified against its own issuer's JWKS.
 
 Note the algorithm is per application and is not `OIDC_RP_SIGN_ALGO`: Authentik

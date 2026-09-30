@@ -9,10 +9,11 @@ when a token happens to be supplied (for example the open-survey list).
 
 Several Authentik applications call this API (the survey runner as
 "reef-staging", and Red as "rfc-editor"), each with its own issuer, JWKS and
-client id. Which are accepted is configured by REEF_API_OIDC_APP_SLUGS and
-REEF_API_OIDC_AUDIENCES — deliberately separate from the REEF_ADMIN_OIDC_* settings that
-log Reef's own staff into the builder site, which is an unrelated role that
-happens to involve the same identity provider.
+client id. Which are accepted is configured by REEF_API_OIDC_ISSUERS,
+REEF_API_OIDC_JWKS_ENDPOINTS and REEF_API_OIDC_AUDIENCES — deliberately separate
+from the REEF_ADMIN_OIDC_* settings that log Reef's own staff into the builder
+site, which is an unrelated role that happens to involve the same identity
+provider.
 """
 
 from functools import cache
@@ -65,27 +66,12 @@ def _jwks_client(jwks_endpoint):
 
 
 def _unaccepted_issuer_message(issuer):
-    """Name the slug to configure, not just the issuer that was presented.
-
-    REEF_API_OIDC_APP_SLUGS takes Authentik application slugs and the issuer is
-    derived from each, so a message that only quotes the issuer URL invites
-    pasting that URL into the setting, where it can never match.
-    """
-    applications = f"{settings.REEF_API_OIDC_HOST}/application/o/"
-    accepted = ", ".join(
-        repr(accepted_issuer.removeprefix(applications).strip("/"))
-        for accepted_issuer in settings.REEF_API_OIDC_JWKS_ENDPOINTS
-    )
-    presented = f"Bearer token from an issuer this API does not accept: {issuer!r}."
-    if isinstance(issuer, str) and issuer.startswith(applications):
-        slug = issuer.removeprefix(applications).strip("/")
-        return (
-            f"{presented} Its Authentik application slug is {slug!r}; add that to "
-            f"REEF_API_OIDC_APP_SLUGS, which currently names {accepted}."
-        )
+    accepted = ", ".join(repr(i) for i in settings.REEF_API_OIDC_JWKS_ENDPOINTS)
     return (
-        f"{presented} Only applications on {settings.REEF_API_OIDC_HOST} named in "
-        f"REEF_API_OIDC_APP_SLUGS are accepted; it currently names {accepted}."
+        f"Bearer token from an issuer this API does not accept: {issuer!r}. "
+        f"To accept it, add it and its JWKS URL to REEF_API_OIDC_ISSUERS and "
+        f"REEF_API_OIDC_JWKS_ENDPOINTS; the issuers currently accepted are "
+        f"{accepted}."
     )
 
 

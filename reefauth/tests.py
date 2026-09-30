@@ -90,16 +90,16 @@ class BearerTokenAuthenticationTests(TestCase):
         with self.assertRaises(exceptions.AuthenticationFailed):
             self.auth.authenticate(request)
 
-    @override_settings(REEF_API_OIDC_HOST="https://account.ietf.org")
-    def test_an_unlisted_application_is_named_by_its_slug(self):
+    def test_an_unlisted_issuer_is_named_with_the_accepted_ones(self):
         token = _make_token(self.key, iss=_RED_ISSUER)
         request = self.factory.get(
             "/api/reef/surveys/open/", HTTP_AUTHORIZATION=f"Bearer {token}"
         )
         with self.assertRaisesMessage(
             exceptions.AuthenticationFailed,
-            "slug is 'rfc-editor'; add that to REEF_API_OIDC_APP_SLUGS, which "
-            "currently names 'reef'.",
+            f"issuer this API does not accept: {_RED_ISSUER!r}. To accept it, add it "
+            "and its JWKS URL to REEF_API_OIDC_ISSUERS and "
+            f"REEF_API_OIDC_JWKS_ENDPOINTS; the issuers currently accepted are {_ISSUER!r}.",
         ):
             self.auth.authenticate(request)
 
