@@ -460,12 +460,19 @@ CELERY_BEAT_SCHEDULE = {
         "task": "precomputer.tasks.push_document_changes",
         "schedule": crontab(minute="*/5"),
     },
-    # Daily, after the precomputer's full run has refreshed the shared index. Red
-    # rebuilds when RFCs are published and publication is bursty, so a daily diff
-    # gathers a burst into one reading where an hourly one would split it up.
+    # Hourly, so a publication reaches the web feed within about an hour of Red's
+    # index reflecting it (the index itself is cached for up to
+    # REEF_RFC_INDEX_CACHE_SECONDS). The mail is the daily digest below.
     "detect-rfc-changes": {
         "task": "subscriptions.tasks.detect_rfc_changes",
-        "schedule": crontab(hour="4", minute="0"),
+        "schedule": crontab(minute="25"),
+    },
+    # Daily, just after that hour's detection, so the digest holds everything
+    # staged since yesterday's. Publication is bursty, and one mail a day gathers a
+    # burst into one.
+    "send-digest": {
+        "task": "subscriptions.tasks.send_digest",
+        "schedule": crontab(hour="4", minute="30"),
     },
     # Hourly. Recovers notifications that were written down but never delivered,
     # which is what the database row exists for.

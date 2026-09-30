@@ -280,7 +280,8 @@ class PendingNotification(models.Model):
 
 
 class SubjectNotificationEvent(models.Model):
-    """A subject event waiting for the next consolidated digest."""
+    """An event waiting for the next consolidated digest: a subject event, or an
+    RFC change the detection run found."""
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

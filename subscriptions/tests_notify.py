@@ -20,7 +20,7 @@ from subscriptions.models import (
     Subscription,
     WebNotification,
 )
-from subscriptions.tasks import detect_rfc_changes
+from subscriptions.tasks import detect_rfc_changes, send_digest
 
 User = get_user_model()
 
@@ -101,7 +101,8 @@ class PredicateMatchingTests(TestCase):
 
 
 class NotifyRfcChangesTests(TestCase):
-    """detect_rfc_changes end to end, from a moved index to queued notifications."""
+    """detect_rfc_changes and send_digest end to end, from a moved index to a
+    web notification at once and a queued digest later."""
 
     def setUp(self):
         stub_rfc_index(self, {"rfc9110": meta()})
@@ -119,34 +120,109 @@ class NotifyRfcChangesTests(TestCase):
         """A first run, so the second has something to compare against."""
         detect_rfc_changes()
 
+    def digest(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            return send_digest()
+
     def test_a_seeding_run_notifies_nobody(self):
         Subscription.objects.create(user=self.user, kind=Subscription.Kind.NEW_RFC)
-        with self.captureOnCommitCallbacks(execute=True):
-            self.assertEqual(detect_rfc_changes(), 0)
+        self.assertEqual(detect_rfc_changes(), 0)
+        self.assertEqual(self.digest(), 0)
+        self.assertEqual(WebNotification.objects.count(), 0)
         self.assertEqual(PendingNotification.objects.count(), 0)
 
-    def test_a_new_document_notifies_a_new_rfc_subscriber(self):
+    def test_a_new_document_is_on_the_web_at_once_and_mailed_with_the_digest(self):
         self.seed()
         Subscription.objects.create(user=self.user, kind=Subscription.Kind.NEW_RFC)
         self.rewarm(
             {"rfc9110": meta(), "rfc9999": meta(title="New")},
             datetime.date(2026, 9, 1),
         )
-        with self.captureOnCommitCallbacks(execute=True):
-            self.assertEqual(detect_rfc_changes(), 1)
-        notification = PendingNotification.objects.get()
-        self.assertEqual(notification.user, self.user)
-        self.assertEqual(notification.events[0]["doc"], "rfc9999")
+        self.assertEqual(detect_rfc_changes(), 1)
 
         web_notification = WebNotification.objects.get()
         self.assertEqual(web_notification.user_id, self.user.pk)
         self.assertEqual(web_notification.kind, "rfc_change")
         self.assertEqual(web_notification.event["doc"], "rfc9999")
+        self.assertEqual(PendingNotification.objects.count(), 0)
+
+        self.assertEqual(self.digest(), 1)
+        notification = PendingNotification.objects.get()
+        self.assertEqual(notification.user, self.user)
+        self.assertEqual(notification.events[0]["doc"], "rfc9999")
+        # The digest surfaces nothing a second time.
+        self.assertEqual(WebNotification.objects.count(), 1)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
+
+    def test_several_runs_before_the_digest_are_one_mail(self):
+        self.seed()
+        Subscription.objects.create(user=self.user, kind=Subscription.Kind.NEW_RFC)
+        self.rewarm({"rfc9110": meta(), "rfc9998": meta()}, datetime.date(2026, 9, 1))
+        detect_rfc_changes()
+        self.rewarm(
+            {"rfc9110": meta(), "rfc9998": meta(), "rfc9999": meta()},
+            datetime.date(2026, 9, 2),
+        )
+        detect_rfc_changes()
+        self.assertEqual(WebNotification.objects.count(), 2)
+
+        self.digest()
+        notification = PendingNotification.objects.get()
+        self.assertEqual(
+            sorted(event["doc"] for event in notification.events),
+            ["rfc9998", "rfc9999"],
+        )
+
+    def test_two_changes_to_one_document_before_the_digest_stay_two_lines(self):
+        self.seed()
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+        )
+        self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 9, 1))
+        detect_rfc_changes()
+        self.rewarm(
+            {"rfc9110": meta(status="hist", obsoleted_by=[9999])},
+            datetime.date(2026, 9, 2),
+        )
+        detect_rfc_changes()
+
+        self.digest()
+        self.assertEqual(len(PendingNotification.objects.get().events), 2)
+
+    def test_the_same_change_staged_twice_does_not_stop_the_run(self):
+        """A status flipping back and forth before the digest repeats a change that
+        is already staged; the run carries on and the snapshot still advances."""
+        self.seed()
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+        )
+        historic = meta(status="hist", status_name="historic")
+        self.rewarm({"rfc9110": historic}, datetime.date(2026, 9, 1))
+        detect_rfc_changes()
+        self.rewarm({"rfc9110": meta()}, datetime.date(2026, 9, 2))
+        detect_rfc_changes()
+        self.rewarm({"rfc9110": historic}, datetime.date(2026, 9, 3))
+        with self.assertLogs("reef", level="INFO") as logs:
+            detect_rfc_changes()
+        self.assertIn("already staged", "\n".join(logs.output))
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 2)
+        self.assertEqual(load_snapshot()["rfc9110"]["status"], "hist")
+
+    def test_a_reader_with_digest_email_off_gets_the_web_notification_only(self):
+        self.user.receive_digest_email = False
+        self.user.save()
+        self.seed()
+        Subscription.objects.create(user=self.user, kind=Subscription.Kind.NEW_RFC)
+        self.rewarm({"rfc9110": meta(), "rfc9999": meta()}, datetime.date(2026, 9, 1))
+        detect_rfc_changes()
+        self.digest()
+        self.assertEqual(WebNotification.objects.count(), 1)
+        self.assertEqual(PendingNotification.objects.count(), 0)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
     def test_a_consolidated_subject_event_does_not_get_a_second_web_notification(self):
         """It already got one when it was staged (see stage_subject_event); the
         daily digest folding it into the mail here must not create a second."""
-        self.seed()
         subject = Subject.objects.create(name="Security", slug="security")
         SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
         subscription = Subscription.objects.create(
@@ -161,12 +237,10 @@ class NotifyRfcChangesTests(TestCase):
                 "url": "https://www.rfc-editor.org/info/rfc9110/",
             },
         )
-        with self.captureOnCommitCallbacks(execute=True):
-            detect_rfc_changes()
+        self.digest()
         self.assertEqual(WebNotification.objects.count(), 0)
 
     def test_a_subject_event_is_consolidated_into_the_daily_digest(self):
-        self.seed()
         subject = Subject.objects.create(name="Security", slug="security")
         SubjectAssignment.objects.create(subject=subject, doc="rfc9110")
         subscription = Subscription.objects.create(
@@ -181,19 +255,15 @@ class NotifyRfcChangesTests(TestCase):
                 "url": "https://www.rfc-editor.org/info/rfc9110/",
             },
         )
-        with self.captureOnCommitCallbacks(execute=True):
-            self.assertEqual(detect_rfc_changes(), 1)
+        self.assertEqual(self.digest(), 1)
 
         notification = PendingNotification.objects.get()
         self.assertEqual(
             notification.events[0]["change"], "Added to the subject Security."
         )
-        self.assertEqual(
-            SubjectNotificationEvent.objects.count(),
-            0,
-        )
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
 
-    def test_a_pending_subject_event_is_delivered_when_red_is_unavailable(self):
+    def test_the_digest_does_not_need_red(self):
         subject = Subject.objects.create(name="Security", slug="security")
         subscription = Subscription.objects.create(
             user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
@@ -204,8 +274,7 @@ class NotifyRfcChangesTests(TestCase):
             event={"doc": "", "change": "Subject merged.", "url": ""},
         )
         with mock.patch("reef.rfcmeta.get_index", return_value=None):
-            with self.captureOnCommitCallbacks(execute=True):
-                self.assertEqual(detect_rfc_changes(), 1)
+            self.assertEqual(self.digest(), 1)
 
         self.assertEqual(PendingNotification.objects.count(), 1)
 
@@ -221,13 +290,8 @@ class NotifyRfcChangesTests(TestCase):
         }
         with mock.patch(
             "subscriptions.tasks.timezone.localdate",
-            side_effect=[
-                datetime.date(2026, 9, 1),
-                datetime.date(2026, 9, 1),
-                datetime.date(2026, 9, 2),
-            ],
+            side_effect=[datetime.date(2026, 9, 1), datetime.date(2026, 9, 2)],
         ):
-            self.seed()
             SubjectNotificationEvent.objects.create(
                 user=self.user,
                 subscription_ids=[subscription.pk],
@@ -235,7 +299,7 @@ class NotifyRfcChangesTests(TestCase):
                 event_key="subject-assignment:1",
                 event=event,
             )
-            self.assertEqual(detect_rfc_changes(), 1)
+            self.assertEqual(self.digest(), 1)
             SubjectNotificationEvent.objects.create(
                 user=self.user,
                 subscription_ids=[subscription.pk],
@@ -243,7 +307,7 @@ class NotifyRfcChangesTests(TestCase):
                 event_key="subject-assignment:2",
                 event=event,
             )
-            self.assertEqual(detect_rfc_changes(), 1)
+            self.assertEqual(self.digest(), 1)
 
         self.assertEqual(PendingNotification.objects.count(), 2)
 
@@ -260,8 +324,9 @@ class NotifyRfcChangesTests(TestCase):
         )
         self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 9, 1))
 
-        with self.captureOnCommitCallbacks(execute=True):
-            self.assertEqual(detect_rfc_changes(), 1)
+        self.assertEqual(detect_rfc_changes(), 1)
+        self.assertEqual(WebNotification.objects.count(), 1)
+        self.digest()
 
         notification = PendingNotification.objects.get()
         self.assertEqual(len(notification.events), 1)
@@ -281,8 +346,8 @@ class NotifyRfcChangesTests(TestCase):
             Subscription.objects.create(user=user, kind=Subscription.Kind.OBSOLETED)
         self.rewarm({"rfc9110": meta(obsoleted_by=[9999])}, datetime.date(2026, 9, 1))
 
-        with self.captureOnCommitCallbacks(execute=True):
-            self.assertEqual(detect_rfc_changes(), 2)
+        self.assertEqual(detect_rfc_changes(), 2)
+        self.assertEqual(self.digest(), 2)
         self.assertEqual(PendingNotification.objects.count(), 2)
 
     def test_two_changes_to_one_reader_are_one_notification(self):
@@ -293,8 +358,8 @@ class NotifyRfcChangesTests(TestCase):
             {"rfc9110": meta(), "rfc9998": meta(), "rfc9999": meta()},
             datetime.date(2026, 9, 1),
         )
-        with self.captureOnCommitCallbacks(execute=True):
-            detect_rfc_changes()
+        detect_rfc_changes()
+        self.digest()
         notification = PendingNotification.objects.get()
         self.assertEqual(len(notification.events), 2)
 
@@ -310,8 +375,8 @@ class NotifyRfcChangesTests(TestCase):
             {"rfc9110": meta(), "rfc2119": meta(subseries=["bcp14"])},
             datetime.date(2026, 9, 1),
         )
-        with self.captureOnCommitCallbacks(execute=True):
-            detect_rfc_changes()
+        detect_rfc_changes()
+        self.digest()
         self.assertEqual(
             PendingNotification.objects.get().subscription_ids, [subscription.pk]
         )
@@ -319,23 +384,23 @@ class NotifyRfcChangesTests(TestCase):
     def test_nobody_subscribed_means_no_notifications(self):
         self.seed()
         self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 9, 1))
-        with self.captureOnCommitCallbacks(execute=True):
-            self.assertEqual(detect_rfc_changes(), 0)
+        self.assertEqual(detect_rfc_changes(), 0)
+        self.assertEqual(self.digest(), 0)
         self.assertEqual(PendingNotification.objects.count(), 0)
 
-    def test_the_snapshot_advances_only_after_the_rows_are_written(self):
-        """A crash before that point repeats the run, which the sent stamps absorb;
-        a skip is what nothing could recover."""
+    def test_the_snapshot_advances_with_the_staging(self):
+        """A crash before that point repeats the run; a skip is what nothing could
+        recover."""
         self.seed()
         Subscription.objects.create(user=self.user, kind=Subscription.Kind.NEW_RFC)
         self.rewarm({"rfc9110": meta(), "rfc9999": meta()}, datetime.date(2026, 9, 1))
-        with self.captureOnCommitCallbacks(execute=True):
-            detect_rfc_changes()
+        detect_rfc_changes()
         # Same reading again: the snapshot moved, so there is nothing left to report.
         self.rewarm({"rfc9110": meta(), "rfc9999": meta()}, datetime.date(2026, 9, 2))
-        with self.captureOnCommitCallbacks(execute=True):
-            self.assertEqual(detect_rfc_changes(), 0)
-        self.assertEqual(PendingNotification.objects.count(), 1)
+        self.assertEqual(detect_rfc_changes(), 0)
+        self.assertEqual(WebNotification.objects.count(), 1)
+        self.digest()
+        self.assertEqual(len(PendingNotification.objects.get().events), 1)
 
 
 class SubseriesMembershipTests(TestCase):
@@ -433,3 +498,16 @@ class ConcurrentRunTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             detect_rfc_changes()
         self.assertIsNotNone(load_snapshot())
+
+    def test_a_digest_that_cannot_take_its_lock_does_nothing(self):
+        SubjectNotificationEvent.objects.create(
+            user=self.user,
+            subscription_ids=[],
+            event={"doc": "", "change": "Subject merged.", "url": ""},
+        )
+        with mock.patch("subscriptions.tasks.advisory_lock") as lock:
+            lock.return_value.__enter__.return_value = False
+            with self.assertLogs("reef", level="INFO") as logs:
+                self.assertEqual(send_digest(), 0)
+        self.assertIn("another run holds the lock", "\n".join(logs.output))
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 1)

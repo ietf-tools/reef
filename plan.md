@@ -58,7 +58,8 @@ the section at the end). Subscriptions are built through to delivery, as steps 2
 31 describe. Subscription email is built: reef.mail carries the project's mail
 defaults, templates/subscriptions/mail holds the digest body and the sentence it uses
 to name a subscription, and it sends on a retrying celery task. The digest is sent by
-the daily change run; see the detection steps below. Creating a subscription sends no
+send_digest from the events the change detection stages; see the detection steps below
+and "Hourly change detection, daily digest" at the end. Creating a subscription sends no
 email: the reader has just asked for it and can see it in Red.
 
 No verification exists anywhere in Reef, because none is needed: every subscriber authenticates through
@@ -87,7 +88,7 @@ subscribing to a set. They were new scope rather than a gap in the scaffold, so 
 still need a ticket of their own and a cross-repo agreement with Red on the UI, in
 the way the open-survey list did. Matching a set to a change event, coalescing a
 subscriber's matches into one digest, and sending it are all built; the events come
-from the daily diff of Red's published index (steps 27 to 31), since the datatracker
+from diffing Red's published index (steps 27 to 31), since the datatracker
 has no feed to ingest, and the subseries question is settled under open items.
 
 ### Ticket alignment
@@ -123,7 +124,7 @@ Browser -> NGINX :8088 -+- /admin,/oidc,/api,/static -> Django + DRF :8001 -> Po
 Red  --------------------  GET /api/reef/... (bearer / anon) ---> Django + DRF
 Red  <-- precomputed JSON <---- blob store <---- manage.py precompute (scheduled)
 All logins ----------------------------------------------------> Authentik (account.ietf.org)
-Celery worker: subscription emails <- daily diff of Red's published index
+Celery worker: web notifications and digest emails <- hourly diff of Red's index
 Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 ```
 
@@ -137,8 +138,8 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
   bearer (JWT) access tokens. Anonymous access is allowed for public reads.
 - Every valid reef-admin login is trusted as staff and superuser; there is no local
   login and no group mapping.
-- Async: Celery plus a broker, for subscription mail, the daily change detection,
-  and the precomputer.
+- Async: Celery plus a broker, for subscription mail, the hourly change detection
+  and daily digest, and the precomputer.
 - Precomputer: a management command, run by celery beat rather than a process of its
   own. It renders the public reads by
   calling the DRF views in process, so a precomputed file cannot describe a different
@@ -471,7 +472,7 @@ Engagement APIs:
 
 - GET /ratings/{rfc}/ (anonymous aggregate), PUT /ratings/{rfc}/ (bearer). Ticket #108.
 - GET /popularity/ (anonymous ranking, {computed_at, entries}). Tickets #101 and #102.
-- GET/POST/DELETE /subscriptions/ (bearer), fed by the daily change detection. Kinds:
+- GET/POST/DELETE /subscriptions/ (bearer), fed by the change detection. Kinds:
   new_rfc, by_status, obsoleted, rfc (one named RFC), set, and subject. POST is
   idempotent: a repeat returns 201 with the existing subscription rather than a
   duplicate, so Red's subscribe button needs no error branch for a double click, a
@@ -756,13 +757,14 @@ Then, for precomputed reads:
     regardless, since that is the line somebody will want when debugging. Commit: "Warn
     on a stale or incomplete Red index".
 24. Scheduling: django-celery-beat, with the default entries in CELERY_BEAT_SCHEDULE so
-    that DatabaseScheduler materialises them on first start and staff can retime one in
-    the admin afterwards without a deploy. Two entries, because the halves go stale for
+    that DatabaseScheduler materialises them. It re-applies them on every beat start
+    (update_or_create in django-celery-beat 2.9.0), so retiming one of these in the
+    admin lasts only until the next restart; the schedule is changed in the settings. Two entries, because the halves go stale for
     different reasons: precompute_engagement hourly for stats and ratings, which move
     whenever a reader rates or subscribes, and precompute_all daily, which is the only
     thing that notices an RFC Red has published, since nothing in Reef's own tables
-    moves when that happens. detect_rfc_changes runs daily at 04:00, after the full
-    precompute has refreshed the shared index it reads. A further task,
+    moves when that happens. detect_rfc_changes runs hourly and send_digest daily; see
+    "Hourly change detection, daily digest" at the end. A further task,
     precompute_curated, is enqueued by signals rather than scheduled: popularity,
     subjects and surveys are edited deliberately by staff who then expect to see the
     change published. Reader-driven models are deliberately not wired to signals,
@@ -1206,11 +1208,11 @@ Then, for precomputed reads:
   post_save and stages one SubjectNotificationEvent row per reader, for the subject
   subscriptions covering the document including ancestors, keyed on the subject and
   the document so that a tag removed and re-added before the digest runs is still
-  one line. The daily run then folds the staged rows into the same per-reader
-  digest as Red's changes and deletes them. That closes the coalescing question
-  this item once left open: a document tagged in the morning and also changed in
-  that night's diff of Red's index is one mail naming both, at the price of the
-  tagging being reported the next morning rather than on commit. What stays
+  one line. send_digest then folds the staged rows, RFC changes included, into one
+  per-reader digest and deletes them. That closes the coalescing question this item
+  once left open: a document tagged in the morning and also changed later that day
+  is one mail naming both. The web notification for the tagging is written on
+  commit; only the mail waits for the digest. What stays
   resolved: bulk_create fires no post_save signal, so import_assignments and
   import_subjects -- the tools a back-catalogue backfill would use -- notify nobody,
   which is what answers the "five-year-old RFC just categorized" worry without a
@@ -1245,13 +1247,14 @@ Then, for precomputed reads:
   subscriptions, events), one call is one mail, a batch of changes to a set arrives as
   one digest, and a reader holding both a set and an overlapping rfc subscription now
   gets one mail naming both reasons. What made that possible was moving the grouping out
-  of delivery: the task sees one reader, and detect_rfc_changes groups by reader and
-  deduplicates by document before writing anything.
+  of delivery: the task sees one reader, detect_rfc_changes groups by reader and
+  document before staging anything, and send_digest groups the staged events by
+  reader.
 - Unsubscribing: notifications carry List-Unsubscribe pointing at
   REEF_SUBSCRIPTIONS_URL, a page on Red, because Reef has no unsubscribe route of its
   own. That setting is empty in every environment and no deployment supplied it, which
-  mattered little while nothing sent mail and matters a great deal now that the daily
-  run does. Production therefore refuses: REEF_REQUIRE_UNSUBSCRIBE_URL holds digests in
+  mattered little while nothing sent mail and matters a great deal now that the
+  digest does. Production therefore refuses: REEF_REQUIRE_UNSUBSCRIBE_URL holds digests in
   the database, unsent and with their attempts untouched, until the URL is configured,
   so a first deployment cannot quietly send mail that nobody can stop. Two things are
   still open. The URL itself needs Red to have the page, which is the same cross-repo
@@ -2054,7 +2057,9 @@ Two existing per-user queuing points, both in `subscriptions/tasks.py`:
   second web notification either; one fact, told once, matches what the mail side
   already guarantees.
 
-- **`queue_notification`**, called once a day per reader from `_detect_and_notify`,
+- **`queue_notification`** (superseded by "Hourly change detection, daily digest"
+  below: RFC changes are now staged like subject events), called once a day per reader
+  from `_detect_and_notify`,
   with the reader's whole day combined: RFC changes and any staged subject events
   folded into one `events` list for the mail. Folding those two sources into one list is
   right for a single digest mail, but wrong for the web feed, which must not repeat a
@@ -2171,3 +2176,34 @@ first.
 - The preference endpoint: defaults to `true` for an existing account with no
   migration data change; GET and PATCH both scoped to the caller, never another user's
   row.
+
+## Hourly change detection, daily digest
+
+A new RFC used to reach a reader's web feed only in the daily change run, up to a day
+after Red's index showed it. Detection and the digest are now two tasks, so the web
+feed follows the index without splitting the mail.
+
+- `detect_rfc_changes` (hourly, `crontab(minute="25")`): diffs Red's index as before,
+  groups matches per reader and document, and stages each through the existing
+  `stage_subject_event` with `event_kind="rfc_change"` and
+  `event_key=rfc-change:<doc>:<hash of the change text>`. That writes the
+  `WebNotification` at once and a `SubjectNotificationEvent` row for the mail. The
+  snapshot advances in the same transaction. The same change staged twice before the
+  digest (a status flipping back and forth) hits the unique constraint and is skipped
+  in a savepoint, so it cannot roll back the run and wedge the snapshot.
+- `send_digest` (daily, `crontab(hour="4", minute="30")`): what the second half of
+  `_detect_and_notify` did. It folds every staged row, RFC changes and subject events
+  alike, into one `queue_notification` per reader with `web_events=[]`, since every
+  event was surfaced when staged, and deletes the rows. It does not read Red, and has
+  its own advisory lock.
+- Two different changes to one document before the digest stay two lines, because the
+  key includes the change text. A reader with digest mail off still gets the web
+  notification; their staged rows are dropped at the digest, as before.
+- Reused rather than added: `SubjectNotificationEvent` and `stage_subject_event` now
+  carry RFC changes too. The names are narrower than what they hold; renaming them is
+  a separate change with a migration.
+- How fast a publication reaches the feed depends on the detection schedule and on
+  `REEF_RFC_INDEX_CACHE_SECONDS` (3600), the age of the index a run can see. The
+  digest at 04:30 comes after that hour's detection at 04:25, so it holds everything
+  found up to then. Detection is off :20, where `precompute-engagement` also loads
+  the index, so an expired cache is not fetched twice at once.
