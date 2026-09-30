@@ -99,7 +99,8 @@ class BearerTokenAuthenticationTests(TestCase):
             exceptions.AuthenticationFailed,
             f"issuer this API does not accept: {_RED_ISSUER!r}. To accept it, add it "
             "and its JWKS URL to REEF_API_OIDC_ISSUERS and "
-            f"REEF_API_OIDC_JWKS_ENDPOINTS; the issuers currently accepted are {_ISSUER!r}.",
+            "REEF_API_OIDC_JWKS_ENDPOINTS; the issuers currently accepted are "
+            f"{_ISSUER!r}.",
         ):
             self.auth.authenticate(request)
 
