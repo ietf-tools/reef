@@ -54,30 +54,6 @@ jobs:
       with:
         version: 2.22.35
 
-    - name: Build Frontend
-      env:
-        DEBIAN_FRONTEND: noninteractive
-        BROWSERSLIST_IGNORE_OLD_DATA: 1
-      run: |
-        echo "Installing node packages..."
-        (cd client && npm ci)
-        echo "Generating SPA build..."
-        (cd client && npm run generate)
-        echo "Packaging build..."
-        # worker/wrangler.jsonc's assets.directory is ../client/dist, so the two
-        # are packaged as siblings here, same as they are in the repo.
-        mkdir -p package/client/dist package/worker
-        cp -r client/.output/public/. package/client/dist/
-        cp -r worker/. package/worker/
-        rm -rf package/worker/node_modules package/worker/.wrangler
-
-    - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v7
-      with:
-        name: frontend
-        path: package/
-        if-no-files-found: error
-
     - name: Augment dockerignore for docker image build
       env:
         DEBIAN_FRONTEND: noninteractive

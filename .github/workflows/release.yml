@@ -135,6 +135,30 @@ jobs:
       BUILD_VERSION: ${{needs.prepare.outputs.buildVersion}}
 
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          fetch-tags: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+
+      - name: Build Staging Frontend
+        env:
+          NUXT_PUBLIC_OIDC_AUTHORITY: https://account.ietf.org/application/o/reef-staging/
+          NUXT_PUBLIC_OIDC_CLIENT_ID: dAytIOu6rzN2Za3kyeFlo3FhHh3K0al0w0k1N649
+          NUXT_PUBLIC_RFCEDITOR_BASE: https://www.staging.rfc-editor.org
+          DEBIAN_FRONTEND: noninteractive
+          BROWSERSLIST_IGNORE_OLD_DATA: 1
+        run: |
+          echo "Installing node packages for client..."
+          (cd client && npm ci)
+          echo "Generating SPA build..."
+          (cd client && npm run generate)
+          echo "Installing node packages for worker..."
+          (cd worker && npm ci)
+
       - name: Refresh Staging DB
         uses: ietf-tools/workflow-dispatch-action@v1
         with:
@@ -154,21 +178,6 @@ jobs:
           token: ${{ secrets.GH_INFRA_K8S_TOKEN }}
           inputs: '{ "environment":"${{ secrets.GHA_K8S_CLUSTER }}", "app":"reef", "appVersion":"${{ env.BUILD_VERSION }}", "remoteRef":"${{ github.sha }}", "deployStrategy":"${{ inputs.deployStrategy }}" }'
           waitForCompletionTimeout: 30m
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: frontend
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "26"
-
-      - name: Install worker dependencies
-        # wrangler bundles src/index.ts itself, but still needs itty-router resolvable
-        # from node_modules to do it -- excluded from the artifact in reusable-build.yml
-        # since shipping it cross-artifact is fragile, so it's installed fresh here.
-        working-directory: worker
-        run: npm ci
 
       - name: Deploy worker to Cloudflare Workers
         uses: cloudflare/wrangler-action@v4
@@ -194,7 +203,31 @@ jobs:
       BUILD_VERSION: ${{needs.prepare.outputs.buildVersion}}
 
     steps:
-      - name: Deploy to production
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          fetch-tags: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+
+      - name: Build Production Frontend
+        env:
+          NUXT_PUBLIC_OIDC_AUTHORITY: https://account.ietf.org/application/o/reef/
+          NUXT_PUBLIC_OIDC_CLIENT_ID: pi8Impk53wJcnmN2AnN4xmwnUpITDRvReNh6CD4I
+          NUXT_PUBLIC_RFCEDITOR_BASE: https://www.rfc-editor.org
+          DEBIAN_FRONTEND: noninteractive
+          BROWSERSLIST_IGNORE_OLD_DATA: 1
+        run: |
+          echo "Installing node packages for client..."
+          (cd client && npm ci)
+          echo "Generating SPA build..."
+          (cd client && npm run generate)
+          echo "Installing node packages for worker..."
+          (cd worker && npm ci)
+
+      - name: Deploy backend to production
         uses: ietf-tools/workflow-dispatch-action@v1
         with:
           workflow: deploy.yml
@@ -203,21 +236,6 @@ jobs:
           token: ${{ secrets.GH_INFRA_K8S_TOKEN }}
           inputs: '{ "environment":"${{ secrets.GHA_K8S_CLUSTER }}", "app":"reef", "appVersion":"${{ env.BUILD_VERSION }}", "remoteRef":"${{ github.sha }}", "deployStrategy":"${{ inputs.deployStrategy }}" }'
           waitForCompletionTimeout: 30m
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: frontend
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "26"
-
-      - name: Install worker dependencies
-        # wrangler bundles src/index.ts itself, but still needs itty-router resolvable
-        # from node_modules to do it -- excluded from the artifact in reusable-build.yml
-        # since shipping it cross-artifact is fragile, so it's installed fresh here.
-        working-directory: worker
-        run: npm ci
 
       - name: Deploy worker to Cloudflare Workers
         uses: cloudflare/wrangler-action@v4
