@@ -1,4 +1,4 @@
-FROM ghcr.io/ietf-tools/reef-app-base:20260928T2042
+FROM ghcr.io/ietf-tools/reef-app-base:20260930T2120
 LABEL maintainer="IETF Tools Team <tools-discuss@ietf.org>"
 
 ENV DEBIAN_FRONTEND=noninteractive
