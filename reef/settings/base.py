@@ -126,9 +126,9 @@ OIDC_OP_LOGOUT_URL_METHOD = "reefauth.utils.op_logout_url"
 # OIDC_RENEW_ID_TOKEN_EXPIRY_SECONDS = 15 * 60
 
 LOGIN_URL = "oidc_authentication_init"  # send @login_required through Authentik
-# Every session Reef starts is a reef-admin login, so the fallback is the admin.
+# Every Django session Reef starts is a reef-admin login, so the fallback is the admin.
 LOGIN_REDIRECT_URL = "/admin/"
-LOGOUT_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/admin/"
 
 # SurveyJS commercial license key for Creator and Analytics (empty in dev, which
 # runs unlicensed with a watermark). Passed to the browser bundles.
