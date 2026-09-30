@@ -200,8 +200,7 @@ class DocumentSnapshot(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=SINGLETON_PK)
     # {doc_id: {status, obsoleted_by, updates, updated_by, subseries}}, compressed.
     payload = models.BinaryField()
-    # The index's own createdOn, for the log: one that never moves means Red's
-    # precomputer has stopped.
+    # The index's own createdOn, which each run logs beside the one it compares to.
     created_on = models.DateField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 

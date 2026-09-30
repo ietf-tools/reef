@@ -156,10 +156,8 @@ class DetectTests(TestCase):
         self.rewarm({"rfc9110": meta()}, datetime.date(2026, 8, 31))
         detect().save()
         self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 8, 31))
-        with self.assertLogs("reef", level="INFO") as logs:
-            result = detect()
+        result = detect()
         self.assertEqual(result.changes[0].fields, {"status": ("ps", "hist")})
-        self.assertIn("still dated 2026-08-31", "\n".join(logs.output))
 
     def test_an_unchanged_index_reports_nothing(self):
         self.rewarm({"rfc9110": meta()}, datetime.date(2026, 8, 31))

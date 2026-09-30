@@ -172,13 +172,8 @@ def detect():
         )
         return result
 
-    if previous_row is not None and previous_row.created_on == index.created_on:
-        # Compared anyway: createdOn is a date, so Red rebuilding twice in one day
-        # leaves it unmoved, and skipping would save that rebuild's changes into the
-        # snapshot unreported. Worth a line, because a createdOn that never moves
-        # means Red's precomputer has stopped.
-        logger.info("Red's index is still dated %s", index.created_on)
-
+    # Diffed even when createdOn matches the snapshot's: it is a date, and Red can
+    # rebuild more than once a day.
     result.changes = diff(previous, current)
     logger.info(
         "Red index of %s: %s document(s) changed since the snapshot of %s",
