@@ -427,10 +427,10 @@ CELERY_BROKER_URL = os.environ.get("REEF_BROKER_URL", "amqp://mq/")
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_IGNORE_RESULT = True
 
-# Schedules live in the database (django-celery-beat) so that staff can retime a job
-# without a deploy. CELERY_BEAT_SCHEDULE below is the default set: DatabaseScheduler
-# reads it on startup and creates any entry that is missing, then leaves it alone, so
-# an edit made in the admin survives a restart.
+# Schedules live in the database (django-celery-beat). DatabaseScheduler writes each
+# entry in CELERY_BEAT_SCHEDULE below over the database row of the same name every
+# time beat starts, so these are retimed here: an admin edit to one of them lasts
+# until the next restart. Entries added only in the admin are not touched.
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 # The precomputer gets its own queue. A full run holds a worker for as long as it
@@ -460,9 +460,9 @@ CELERY_BEAT_SCHEDULE = {
         "task": "precomputer.tasks.push_document_changes",
         "schedule": crontab(minute="*/5"),
     },
-    # Hourly, so a publication reaches the web feed within about an hour of Red's
-    # index reflecting it (the index itself is cached for up to
-    # REEF_RFC_INDEX_CACHE_SECONDS). The mail is the daily digest below.
+    # Hourly, so a publication reaches the web feed within about two hours of Red's
+    # index reflecting it: up to an hour until the next run, plus the index's cache
+    # of up to REEF_RFC_INDEX_CACHE_SECONDS. The mail is the daily digest below.
     "detect-rfc-changes": {
         "task": "subscriptions.tasks.detect_rfc_changes",
         "schedule": crontab(minute="25"),

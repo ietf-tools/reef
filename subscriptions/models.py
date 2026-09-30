@@ -330,9 +330,9 @@ class WebNotification(models.Model):
         on_delete=models.CASCADE,
         related_name="web_notifications",
     )
-    # "rfc_change", or a SubjectNotificationEvent.event_kind value
-    # ("subject_assignment" today) -- the vocabulary is shared with the mail side
-    # rather than redeclared.
+    # A SubjectNotificationEvent.event_kind value ("rfc_change", "subject_assignment",
+    # "subject_merge") -- the vocabulary is shared with the mail side rather than
+    # redeclared.
     kind = models.CharField(max_length=64)
     # Same shape as_event() and the subject-assignment signal already build: doc,
     # change, url (RFC events add doc_display). Stored as given, not re-rendered

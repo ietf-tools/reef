@@ -90,11 +90,10 @@ def queue_notification(user_id, subscription_ids, events, scope="", web_events=N
     transaction rolls back, which is the right outcome for a run duplicating another.
 
     web_events is the subset of events (default: all of them) to surface as
-    WebNotification rows, one each. Separate from events because a subject-tagging
-    event already got one when it was staged (see stage_subject_event) and must not
-    get a second one when the daily digest folds it back in here. Written
-    unconditionally, regardless of the digest email preference below: the web feed
-    has no opt-out.
+    WebNotification rows, one each. Separate from events because an event staged
+    through stage_subject_event already got one then, and must not get a second
+    when the digest folds it back in here. Written unconditionally, regardless of
+    the digest email preference below: the web feed has no opt-out.
 
     Returns None without creating a PendingNotification, and so without ever
     mailing anything, when the reader has turned digest email off. The
