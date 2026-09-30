@@ -25,7 +25,7 @@ from collections import defaultdict
 from celery import shared_task
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -52,10 +52,9 @@ def notification_key(user_id, events, scope=""):
     duplicates is that they say the same thing to the same person; which of their
     subscriptions matched is why it reached them, not what it tells them.
 
-    `scope` separates two occasions that would otherwise look identical. The change
-    run passes the index reading it worked from, so that a document making the same
-    transition again months later is a new notification rather than one the database
-    refuses.
+    `scope` separates two occasions that would otherwise look identical. send_digest
+    passes the day it runs, so the same events owed on two different days are two
+    notifications rather than one the database refuses.
     """
     canonical = json.dumps(
         {
@@ -286,14 +285,15 @@ def detect_rfc_changes() -> int:
         return _detect_and_stage()
 
 
-def rfc_change_event_key(doc, change):
-    """Keyed on the document and what happened to it, so two different changes to
-    one document before the digest stay two lines."""
-    digest = hashlib.sha256(change.encode()).hexdigest()[:16]
-    return f"rfc-change:{doc}:{digest}"
+def rfc_change_event_key(doc, run_started):
+    """Keyed on the document and the run that found the change, so every change
+    before the digest is its own line: a status that flips back and forth reads in
+    order and ends on where it settled."""
+    return f"rfc-change:{doc}:{run_started.isoformat()}"
 
 
 def _detect_and_stage():
+    run_started = timezone.now()
     result = detect()
     if result is None:
         # Red is unreachable. The snapshot deliberately remains unchanged, so the
@@ -314,20 +314,13 @@ def _detect_and_stage():
 
     with transaction.atomic():
         for (user_id, doc), entry in staged.items():
-            # The same change staged again before the digest (a status flipping
-            # back and forth) is already there; the savepoint keeps the refusal
-            # from rolling back the run, and with it the snapshot.
-            try:
-                with transaction.atomic():
-                    stage_subject_event(
-                        user_id,
-                        sorted(entry["subscriptions"]),
-                        "rfc_change",
-                        rfc_change_event_key(doc, entry["event"]["change"]),
-                        entry["event"],
-                    )
-            except IntegrityError:
-                logger.info("Change to %s already staged for user %s", doc, user_id)
+            stage_subject_event(
+                user_id,
+                sorted(entry["subscriptions"]),
+                "rfc_change",
+                rfc_change_event_key(doc, run_started),
+                entry["event"],
+            )
         result.save()
 
     readers = {user_id for user_id, _doc in staged}

@@ -2057,19 +2057,13 @@ Two existing per-user queuing points, both in `subscriptions/tasks.py`:
   second web notification either; one fact, told once, matches what the mail side
   already guarantees.
 
-- **`queue_notification`** (superseded by "Hourly change detection, daily digest"
-  below: RFC changes are now staged like subject events), called once a day per reader
-  from `_detect_and_notify`,
-  with the reader's whole day combined: RFC changes and any staged subject events
-  folded into one `events` list for the mail. Folding those two sources into one list is
-  right for a single digest mail, but wrong for the web feed, which must not repeat a
-  subject-tagging event `stage_subject_event` already surfaced. So `_detect_and_notify`
-  keeps a second, RFC-only dict per reader alongside the combined one it already builds,
-  and `queue_notification` takes a new `web_events` argument -- the subset to explode
-  into individual `WebNotification` rows, one per event, `kind="rfc_change"` -- kept
-  separate from `events`, the full list `PendingNotification` still stores for the mail
-  body. Nothing needs inspecting or inferring at the point the rows are written; the
-  caller already knows which events are new.
+- **`queue_notification`**, called by `send_digest` once per reader with everything
+  staged since the last digest -- RFC changes and subject events alike -- as one
+  `events` list for the mail. Each of those events already got its `WebNotification`
+  when `stage_subject_event` staged it, so `send_digest` passes `web_events=[]`: the
+  `web_events` argument is the subset to write as `WebNotification` rows, kept separate
+  from `events`, the full list `PendingNotification` stores for the mail body. It
+  defaults to every event, for a caller that stages nothing first.
 
 ### The opt-out
 
@@ -2083,15 +2077,15 @@ is ever mailed -- gets created.
   re-added has nothing to trip the `(user, event_kind, event_key)` constraint against,
   and the retagging surfaces a second web notification for the same fact. Leaving the
   staging row unconditional keeps that guarantee for every reader alike, and it costs
-  nothing extra: the row is consolidated (or dropped) by the next
-  `_detect_and_notify` run regardless, same as it is today.
+  nothing extra: the row is consolidated (or dropped) by the next `send_digest`
+  regardless.
 - `queue_notification` checks the flag (one query per call; digest volume makes this
   cheap) and skips creating the `PendingNotification` when it is unset -- the
   `WebNotification` writes above it are unconditional, reached whether or not the mail
   row was, since the feed was never gated by this flag.
-- A `SubjectNotificationEvent` consumed by `_detect_and_notify` is still deleted in
-  that run's existing unconditional cleanup, whether or not `queue_notification` went
-  on to write a `PendingNotification` for it. Nothing extra needed there.
+- A `SubjectNotificationEvent` consumed by `send_digest` is deleted in that run's
+  unconditional cleanup, whether or not `queue_notification` went on to write a
+  `PendingNotification` for it.
 - A `PendingNotification` already queued before the opt-out is left in place --
   deleting it out from under a possibly in-flight `deliver_notification` adds a race for
   no benefit. Instead `deliver_notification` re-checks the flag immediately before
@@ -2158,11 +2152,10 @@ first.
 - `stage_subject_event`: a `WebNotification` is created alongside the
   `SubjectNotificationEvent`; a retagging that hits the existing unique constraint
   creates neither a second `SubjectNotificationEvent` nor a second `WebNotification`.
-- `_detect_and_notify` / `queue_notification`: an RFC change produces one
-  `WebNotification` per matched reader; a subject event already surfaced by
-  `stage_subject_event` does not produce a second one when the day's digest folds it
-  in; a reader with only subject events and no RFC changes still gets their digest
-  mailed with both kinds of event in it.
+- `detect_rfc_changes` / `send_digest`: an RFC change produces one `WebNotification`
+  per matched reader when it is found; no event gets a second one when the digest
+  folds it in; a reader with only subject events and no RFC changes still gets their
+  digest.
 - Opt-out: `receive_digest_email=False` before an event arrives means no
   `SubjectNotificationEvent`/`PendingNotification` row is created for that reader, but
   a `WebNotification` still is; flipping it off after a `PendingNotification` already
@@ -2179,29 +2172,30 @@ first.
 
 ## Hourly change detection, daily digest
 
-A new RFC used to reach a reader's web feed only in the daily change run, up to a day
-after Red's index showed it. Detection and the digest are now two tasks, so the web
-feed follows the index without splitting the mail.
+Detecting changes and mailing them are two tasks, so the web feed follows Red's index
+while the mail stays one digest a day.
 
-- `detect_rfc_changes` (hourly, `crontab(minute="25")`): diffs Red's index as before,
-  groups matches per reader and document, and stages each through the existing
+- `detect_rfc_changes` (hourly, `crontab(minute="25")`): diffs Red's index against the
+  snapshot, groups matches per reader and document, and stages each through
   `stage_subject_event` with `event_kind="rfc_change"` and
-  `event_key=rfc-change:<doc>:<hash of the change text>`. That writes the
+  `event_key=rfc-change:<doc>:<time the run started>`. That writes the
   `WebNotification` at once and a `SubjectNotificationEvent` row for the mail. The
-  snapshot advances in the same transaction. The same change staged twice before the
-  digest (a status flipping back and forth) hits the unique constraint and is skipped
-  in a savepoint, so it cannot roll back the run and wedge the snapshot.
-- `send_digest` (daily, `crontab(hour="4", minute="30")`): what the second half of
-  `_detect_and_notify` did. It folds every staged row, RFC changes and subject events
-  alike, into one `queue_notification` per reader with `web_events=[]`, since every
-  event was surfaced when staged, and deletes the rows. It does not read Red, and has
-  its own advisory lock.
-- Two different changes to one document before the digest stay two lines, because the
-  key includes the change text. A reader with digest mail off still gets the web
-  notification; their staged rows are dropped at the digest, as before.
-- Reused rather than added: `SubjectNotificationEvent` and `stage_subject_event` now
-  carry RFC changes too. The names are narrower than what they hold; renaming them is
-  a separate change with a migration.
+  snapshot advances in the same transaction, so a crash repeats the run rather than
+  skipping its changes.
+- The key names the run, so every change found before the digest is its own line: a
+  status that flips back and forth reads in order and ends where it settled, in the
+  mail and on the web alike. Two rows cannot share a key, since runs hold an advisory
+  lock and each groups by reader and document.
+- `detect()` diffs on every run. Red's `createdOn` is a date, so it does not move when
+  Red rebuilds twice in one day; it is logged, not used to decide whether to compare.
+- `send_digest` (daily, `crontab(hour="4", minute="30")`): folds every staged row, RFC
+  changes and subject events alike, into one `queue_notification` per reader with
+  `web_events=[]`, since every event was surfaced when staged, and deletes the rows.
+  It does not read Red, and has its own advisory lock. A reader with digest mail off
+  gets the web notifications only; their staged rows are dropped here.
+- `SubjectNotificationEvent` and `stage_subject_event` carry RFC changes as well as
+  subject events. The names are narrower than what they hold; renaming them needs a
+  migration.
 - How fast a publication reaches the feed depends on the detection schedule and on
   `REEF_RFC_INDEX_CACHE_SECONDS` (3600), the age of the index a run can see. The
   digest at 04:30 comes after that hour's detection at 04:25, so it holds everything

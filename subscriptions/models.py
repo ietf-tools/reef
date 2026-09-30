@@ -200,8 +200,8 @@ class DocumentSnapshot(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=SINGLETON_PK)
     # {doc_id: {status, obsoleted_by, updates, updated_by, subseries}}, compressed.
     payload = models.BinaryField()
-    # The index's own createdOn, so a run can tell that Red has not republished since
-    # last time, which produces no diff and therefore no mail.
+    # The index's own createdOn, for the log: one that never moves means Red's
+    # precomputer has stopped.
     created_on = models.DateField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -317,12 +317,12 @@ class WebNotification(models.Model):
     once worked off. read is a plain flag rather than a timestamp because nothing
     here needs to know when, only whether.
 
-    No uniqueness constraint of its own. A subject-tagging event already can't
-    double up here -- it is written alongside SubjectNotificationEvent, inside the
-    same transaction, so the constraint that stops a second SubjectNotificationEvent
-    stops a second row here too -- and an RFC change repeating months later is
-    deliberately a new notification, the same choice PendingNotification.dedupe_key
-    already makes for mail.
+    No uniqueness constraint of its own. Every row is written by
+    stage_subject_event alongside a SubjectNotificationEvent, inside the same
+    transaction, so what that row's constraint refuses -- a subject tag removed and
+    re-added before the digest -- is refused here too. An RFC change is keyed on
+    the run that found it, so each change found is its own notification, the same
+    choice PendingNotification.dedupe_key makes for mail across days.
     """
 
     user = models.ForeignKey(

@@ -189,24 +189,25 @@ class NotifyRfcChangesTests(TestCase):
         self.digest()
         self.assertEqual(len(PendingNotification.objects.get().events), 2)
 
-    def test_the_same_change_staged_twice_does_not_stop_the_run(self):
-        """A status flipping back and forth before the digest repeats a change that
-        is already staged; the run carries on and the snapshot still advances."""
+    def test_a_status_flipping_back_and_forth_is_told_in_order(self):
+        """Each change found is its own line, so the digest ends where the status
+        settled rather than on an earlier reading of it."""
         self.seed()
         Subscription.objects.create(
             user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
         )
         historic = meta(status="hist", status_name="historic")
-        self.rewarm({"rfc9110": historic}, datetime.date(2026, 9, 1))
-        detect_rfc_changes()
-        self.rewarm({"rfc9110": meta()}, datetime.date(2026, 9, 2))
-        detect_rfc_changes()
-        self.rewarm({"rfc9110": historic}, datetime.date(2026, 9, 3))
-        with self.assertLogs("reef", level="INFO") as logs:
+        for day, entry in ((1, historic), (2, meta()), (3, historic)):
+            self.rewarm({"rfc9110": entry}, datetime.date(2026, 9, day))
             detect_rfc_changes()
-        self.assertIn("already staged", "\n".join(logs.output))
-        self.assertEqual(SubjectNotificationEvent.objects.count(), 2)
-        self.assertEqual(load_snapshot()["rfc9110"]["status"], "hist")
+        self.assertEqual(WebNotification.objects.count(), 3)
+
+        self.digest()
+        events = PendingNotification.objects.get().events
+        changes = [event["change"] for event in events]
+        self.assertEqual(len(changes), 3)
+        self.assertEqual(changes[0], changes[2])
+        self.assertIn("historic", changes[2])
 
     def test_a_reader_with_digest_email_off_gets_the_web_notification_only(self):
         self.user.receive_digest_email = False
