@@ -1215,6 +1215,16 @@ Then, for precomputed reads:
   import_subjects -- the tools a back-catalogue backfill would use -- notify nobody,
   which is what answers the "five-year-old RFC just categorized" worry without a
   flag to decide it, and a fixture load (a raw save) is skipped for the same reason.
+  The sync from rfc-editor/rfc-subject-tags is the one bulk writer that does
+  notify: after the first run, what it creates is upstream tagging a document it
+  had not tagged before, which is exactly what a subject subscriber signed up for,
+  so subjects.sync stages the same event from its own diff through
+  subscriptions.tagging, the helper the post_save receiver also calls. A run into
+  an empty assignment table is the back catalogue arriving and stages nothing; the
+  test is the table being empty rather than a recorded first run, because the
+  management command records no run. The event key is the subject and the document
+  on both paths, so a document staff tag in the morning and the sync tags that
+  afternoon is one line.
   Unassigning does not notify: a correction to the vocabulary rather than news about
   the document. A merge moves the source's documents onto the target with
   bulk_create too, so the target's existing followers are not told about the

@@ -15,7 +15,11 @@ from django.urls import reverse
 from django.utils.text import slugify
 
 from reefauth.testing import login
-from subscriptions.models import Subscription
+from subscriptions.models import (
+    SubjectNotificationEvent,
+    Subscription,
+    WebNotification,
+)
 
 from .models import Subject, SubjectAlias, SubjectAssignment, SubjectSyncRun
 from .sync import (
@@ -521,6 +525,118 @@ class WriteTests(RunSyncTestCase):
         self.assertEqual(second.retired, [])
         self.assertEqual(second.assignments_created, 0)
         self.assertEqual(second.assignments_deleted, 0)
+
+
+class AssignmentNotificationTests(RunSyncTestCase):
+    """Subscribers hear about assignments the sync creates, the same as ones
+    staff make in the admin -- except on the first load."""
+
+    def setUp(self):
+        self.security = Subject.objects.create(slug="security", name="Security")
+        self.user = User.objects.create(
+            username="reader", oidc_sub="reader", email="reader@example.org"
+        )
+        self.subscription = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=self.security
+        )
+        self.taxonomy = taxonomy(("Security", None, "Security"))
+
+    def test_the_first_load_into_an_empty_table_notifies_nobody(self):
+        result = self.run_sync(self.taxonomy, {"RFC9110": {"tags": ["Security"]}})
+        self.assertTrue(result.written)
+        self.assertEqual(result.assignments_created, 1)
+        self.assertEqual(result.assignment_notifications, 0)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
+        self.assertEqual(WebNotification.objects.count(), 0)
+
+    def test_a_later_sync_notifies_about_newly_created_assignments_only(self):
+        SubjectAssignment.objects.create(subject=self.security, doc="rfc9110")
+        SubjectAssignment.objects.create(subject=self.security, doc="rfc2119")
+        result = self.run_sync(
+            self.taxonomy,
+            {"RFC9110": {"tags": ["Security"]}, "RFC9111": {"tags": ["Security"]}},
+        )
+        self.assertTrue(result.written)
+        self.assertEqual(result.assignments_created, 1)
+        self.assertEqual(result.assignments_deleted, 1)
+        self.assertEqual(result.assignment_notifications, 1)
+
+        event = SubjectNotificationEvent.objects.get()
+        self.assertEqual(event.user_id, self.user.pk)
+        self.assertEqual(event.subscription_ids, [self.subscription.pk])
+        self.assertEqual(event.event_kind, "subject_assignment")
+        self.assertEqual(
+            event.event_key, f"subject-assignment:{self.security.pk}:rfc9111"
+        )
+        self.assertEqual(event.event["doc"], "rfc9111")
+        self.assertEqual(event.event["change"], "Added to the subject Security.")
+
+        web_notification = WebNotification.objects.get()
+        self.assertEqual(web_notification.kind, "subject_assignment")
+        self.assertEqual(web_notification.event, event.event)
+
+    def test_a_subscriber_to_a_covering_ancestor_is_notified_once(self):
+        tls = Subject.objects.create(slug="tls", name="TLS", parent=self.security)
+        SubjectAssignment.objects.create(subject=tls, doc="rfc2119")
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=tls
+        )
+        result = self.run_sync(
+            taxonomy(("Security", None, "Security"), ("TLS", "Security", "TLS")),
+            {"RFC2119": {"tags": ["TLS"]}, "RFC8446": {"tags": ["TLS"]}},
+        )
+        self.assertEqual(result.assignment_notifications, 1)
+        event = SubjectNotificationEvent.objects.get()
+        self.assertEqual(len(event.subscription_ids), 2)
+        self.assertEqual(event.event["change"], "Added to the subject TLS.")
+
+    def test_a_subscriber_to_an_unrelated_subject_is_not_notified(self):
+        routing = Subject.objects.create(slug="routing", name="Routing")
+        SubjectAssignment.objects.create(subject=routing, doc="rfc2119")
+        Subscription.objects.create(
+            user=User.objects.create(username="other", oidc_sub="other"),
+            kind=Subscription.Kind.SUBJECT,
+            subject=routing,
+        )
+        result = self.run_sync(
+            taxonomy(("Security", None, "Security"), ("Routing", None, "Routing")),
+            {"RFC2119": {"tags": ["Routing"]}, "RFC9110": {"tags": ["Security"]}},
+        )
+        self.assertEqual(result.assignment_notifications, 1)
+        self.assertEqual(SubjectNotificationEvent.objects.get().user_id, self.user.pk)
+
+    def test_a_dry_run_stages_nothing(self):
+        SubjectAssignment.objects.create(subject=self.security, doc="rfc9110")
+        result = self.run_sync(
+            self.taxonomy,
+            {"RFC9110": {"tags": ["Security"]}, "RFC9111": {"tags": ["Security"]}},
+            write=False,
+        )
+        self.assertFalse(result.written)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
+        self.assertEqual(WebNotification.objects.count(), 0)
+
+    def test_an_assignment_staff_already_staged_is_one_line(self):
+        """The key names the fact on both paths: a tag staff applied this morning
+        that the sync applies again is not reported twice, and not warned about."""
+        SubjectAssignment.objects.create(subject=self.security, doc="rfc2119")
+        with self.captureOnCommitCallbacks(execute=True):
+            staged = SubjectAssignment.objects.create(
+                subject=self.security, doc="rfc9110"
+            )
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 1)
+        staged.delete()
+
+        with self.assertNoLogs("reef", level="WARNING"):
+            result = self.run_sync(
+                self.taxonomy,
+                {"RFC2119": {"tags": ["Security"]}, "RFC9110": {"tags": ["Security"]}},
+            )
+        self.assertTrue(result.written)
+        self.assertEqual(result.assignments_created, 1)
+        self.assertEqual(result.assignment_notifications, 0)
+        self.assertEqual(SubjectNotificationEvent.objects.count(), 1)
+        self.assertEqual(WebNotification.objects.count(), 1)
 
 
 class SafetyThresholdTests(RunSyncTestCase):
