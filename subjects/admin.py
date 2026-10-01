@@ -13,6 +13,7 @@ from django.utils.safestring import mark_safe
 from django.views.decorators.http import require_POST
 
 from reef.admin_documents import DocumentTitleMixin
+from reef.admin_readonly import ReadOnlyAdminMixin
 
 from .merge import MergeError, merge_and_notify
 from .models import (
@@ -478,9 +479,10 @@ class SubjectAssignmentAdmin(DocumentTitleMixin, admin.ModelAdmin):
 
 
 @admin.register(SubjectSyncRun)
-class SubjectSyncRunAdmin(admin.ModelAdmin):
+class SubjectSyncRunAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     """History of "Sync subject tags" runs. Read-only -- a run is a record of
-    what subjects.tasks.run_subject_sync did, not something curated here.
+    what subjects.tasks.run_subject_sync did, not something curated here, not deletable
+    either.
 
     The changelist is a second way to reach a run beside the list on the sync
     page itself (subjects/subject/sync/), useful once that page's own
@@ -506,14 +508,3 @@ class SubjectSyncRunAdmin(admin.ModelAdmin):
         "result",
         "error",
     ]
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        # Runs are a small, slow-growing audit trail (one per button click),
-        # not something that needs pruning by hand.
-        return False
