@@ -172,7 +172,7 @@ def simulate(payload):
             user = users[user_id]
             report.readers.append(
                 ReaderRow(
-                    user=str(user),
+                    user=user.username,
                     email=user.email,
                     delivery=_delivery(user),
                     events=len(reader["events"]),

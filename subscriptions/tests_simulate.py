@@ -141,7 +141,7 @@ class SimulateViewTests(SimulatorTestCase):
         self.assertContains(self.client.get(self.url), "rfc-index.json")
 
     def test_a_new_document_is_listed_with_who_it_reaches(self):
-        self.snapshot_of({"rfc9110": meta(status="ps", subseries=["std97"])})
+        self.snapshot_of({"rfc9110": meta(status="std", subseries=["std97"])})
         response = self.simulate(self.two_documents())
         report = response.context["report"]
         self.assertEqual(report.outcome, "compared")
@@ -159,7 +159,8 @@ class SimulateViewTests(SimulatorTestCase):
 
     def test_a_same_day_index_is_compared_as_normal(self):
         self.snapshot_of(
-            {"rfc9110": meta()}, day=datetime.date.fromisoformat(INDEX_DAY)
+            {"rfc9110": meta(status="std", subseries=["std97"])},
+            day=datetime.date.fromisoformat(INDEX_DAY),
         )
         report = self.simulate(self.two_documents()).context["report"]
         self.assertEqual(report.outcome, "compared")
@@ -188,13 +189,13 @@ class SimulateViewTests(SimulatorTestCase):
         self.assertEqual(report.outcome, "seeded")
 
     def test_document_set_subscribers_are_matched_against_the_uploaded_subseries(self):
-        docset = DocumentSet.objects.create(owner=self.reader, name="Mine")
+        docset = DocumentSet.objects.create(owner=self.reader, title="Mine")
         DocumentSetEntry.objects.create(document_set=docset, doc="std97")
         Subscription.objects.create(
             user=self.reader, kind=Subscription.Kind.SET, document_set=docset
         )
         self.snapshot_of({"rfc9110": meta(status="ps", subseries=["std97"])})
-        payload = index_payload([entry(status={"slug": "std", "name": "std"})])
+        payload = index_payload([entry()])
         report = self.simulate(payload).context["report"]
         self.assertEqual(report.rows[0].matched, {"set": 1})
 
@@ -206,7 +207,7 @@ class SimulateViewTests(SimulatorTestCase):
 
     def test_json_that_is_not_an_index_is_reported_with_where(self):
         response = self.simulate({"createdOn": INDEX_DAY, "index": [{"number": 1}]})
-        self.assertContains(response, "does not match the rfc-index schema")
+        self.assertContains(response, "Does not match the rfc-index schema at index/0")
         self.assertIsNone(response.context["report"])
 
     def test_a_large_diff_is_capped(self):
@@ -216,7 +217,7 @@ class SimulateViewTests(SimulatorTestCase):
             report = self.simulate(index_payload(entries)).context["report"]
         self.assertTrue(report.truncated)
         self.assertEqual(len(report.rows), 3)
-        self.assertEqual(report.changes_found, 6)
+        self.assertEqual(report.changes_found, len(entries))
 
 
 class SimulateChangesNothingTests(SimulatorTestCase):
@@ -256,7 +257,16 @@ class SimulateChangesNothingTests(SimulatorTestCase):
             if not q["sql"]
             .lstrip()
             .upper()
-            .startswith(("SELECT", "SAVEPOINT", "RELEASE", "ROLLBACK"))
+            # The simulator's own request that PostgreSQL refuse writes.
+            .startswith(
+                (
+                    "SELECT",
+                    "SAVEPOINT",
+                    "RELEASE",
+                    "ROLLBACK",
+                    "SET LOCAL TRANSACTION_READ_ONLY = ON",
+                )
+            )
         ]
         self.assertEqual(writes, [])
         self.assertIsNone(rfcmeta._memo["value"])
