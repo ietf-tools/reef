@@ -14,6 +14,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils.text import slugify
 
+from reef.testing_admin import ReadOnlyAdminChecks
 from reefauth.testing import login
 from subscriptions.models import Subscription
 
@@ -822,3 +823,18 @@ class SyncMergeViewTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.source.refresh_from_db()
         self.assertIsNone(self.source.merged_into_id)
+
+
+class SyncRunAdminTests(ReadOnlyAdminChecks, TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_superuser(
+            username="staff", oidc_sub="staff", password="x"
+        )
+        login(self.client, self.staff)
+        self.run = SubjectSyncRun.objects.create(triggered_by=self.staff)
+
+    def test_changelist_and_detail_page_render(self):
+        self.assertAdminRenders(self.run)
+
+    def test_runs_cannot_be_added_changed_or_deleted(self):
+        self.assertAdminReadOnly(self.run)

@@ -7,9 +7,8 @@ spinner and was heading for the gunicorn timeout. So the button only creates a
 PrecomputeRun and hands it to Celery (precomputer.tasks.precompute_from_admin), and
 the run's page polls that row, as the subject sync's button already does.
 
-There is still nothing here to list or edit, so it is wired in as plain admin views
-rather than through a ModelAdmin, the same way reefauth customises admin.site
-directly.
+Starting and watching a run are plain admin views rather than ModelAdmin actions,
+the ModelAdmins below only list rows.
 """
 
 from django.contrib import admin
@@ -17,8 +16,34 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import path, reverse
 
-from .models import PrecomputeRun
+from reef.admin_readonly import ReadOnlyAdminMixin
+
+from .models import PendingDocumentChange, PrecomputeRun
 from .tasks import precompute_from_admin
+
+
+# Both read-only: rows only the precomputer's tasks and the admin button write.
+@admin.register(PendingDocumentChange)
+class PendingDocumentChangeAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ["doc", "first_seen", "last_seen"]
+    search_fields = ["doc"]
+    readonly_fields = ["doc", "first_seen", "last_seen"]
+
+
+@admin.register(PrecomputeRun)
+class PrecomputeRunAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    list_display = ["created_at", "status", "triggered_by", "started_at", "finished_at"]
+    list_filter = ["status"]
+    readonly_fields = [
+        "status",
+        "triggered_by",
+        "created_at",
+        "started_at",
+        "finished_at",
+        "progress_message",
+        "output",
+        "error",
+    ]
 
 
 def precompute_view(request):
