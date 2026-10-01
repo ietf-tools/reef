@@ -2,7 +2,7 @@
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -102,6 +102,18 @@ class MarkNotificationRead(OwnWebNotificationsMixin, APIView):
             notification.read = True
             notification.save(update_fields=["read"])
         return Response(WebNotificationSerializer(notification).data)
+
+
+class MarkAllNotificationsRead(OwnWebNotificationsMixin, APIView):
+    """Mark every one of the caller's own notifications read.
+
+    Idempotent: with nothing unread it changes nothing and still succeeds.
+    """
+
+    @extend_schema(request=None, responses={204: None})
+    def put(self, request):
+        self.get_queryset().filter(read=False).update(read=True)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class DigestPreferenceDetail(generics.RetrieveUpdateAPIView):

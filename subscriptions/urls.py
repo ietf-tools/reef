@@ -20,6 +20,11 @@ urlpatterns = [
         name="notification-list",
     ),
     path(
+        "notifications/read/",
+        api.MarkAllNotificationsRead.as_view(),
+        name="notification-read-all",
+    ),
+    path(
         "notifications/<int:pk>/read/",
         api.MarkNotificationRead.as_view(),
         name="notification-read",
