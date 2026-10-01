@@ -10,6 +10,7 @@ from django.urls import reverse
 from rest_framework import exceptions
 from rest_framework.test import APIRequestFactory
 
+from reef.settings.base import AUTHENTICATION_BACKENDS as BASE_BACKENDS
 from reefauth.authentication import BearerTokenAuthentication
 from reefauth.backends import ReefOIDCAuthBackend
 from reefauth.checks import cors_origins_configured
@@ -342,6 +343,9 @@ class UserDisplayNameTests(SimpleTestCase):
         self.assertEqual(user.get_username(), "authentik-abc")
 
 
+@override_settings(
+    REEF_ADMIN_PASSWORD_LOGIN=False, AUTHENTICATION_BACKENDS=BASE_BACKENDS
+)
 class AdminLoginPageTests(TestCase):
     """There is no local login: /admin/login/ offers only the Authentik link."""
 
@@ -354,3 +358,27 @@ class AdminLoginPageTests(TestCase):
     def test_a_password_does_not_authenticate(self):
         User.objects.create_user(username="local", password="secret", is_staff=True)
         self.assertFalse(self.client.login(username="local", password="secret"))
+
+
+@override_settings(
+    REEF_ADMIN_PASSWORD_LOGIN=True,
+    AUTHENTICATION_BACKENDS=[
+        *BASE_BACKENDS,
+        "django.contrib.auth.backends.ModelBackend",
+    ],
+)
+class AdminPasswordLoginTests(TestCase):
+    """Development's switch: Django's form beside Authentik, and it logs in."""
+
+    def test_login_page_offers_the_form_beside_authentik(self):
+        response = self.client.get("/admin/login/")
+        self.assertContains(response, f'href="{reverse("oidc_authentication_init")}')
+        self.assertContains(response, 'name="password"')
+
+    def test_a_password_logs_into_the_admin(self):
+        User.objects.create_superuser(username="local", password="secret")
+        response = self.client.post(
+            "/admin/login/",
+            {"username": "local", "password": "secret", "next": "/admin/"},
+        )
+        self.assertRedirects(response, "/admin/", fetch_redirect_response=False)

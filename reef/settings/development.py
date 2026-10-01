@@ -58,7 +58,17 @@ STORAGES = {
 
 LOGGING = _logging
 
+# Django's own username/password form on /admin/login/, beside the Authentik button,
+# for a local superuser. Turn on in development_local.py.
+REEF_ADMIN_PASSWORD_LOGIN = False
+
 try:
     from .development_local import *
 except ImportError:
     pass
+
+if REEF_ADMIN_PASSWORD_LOGIN:
+    AUTHENTICATION_BACKENDS = (
+        *AUTHENTICATION_BACKENDS,
+        "django.contrib.auth.backends.ModelBackend",
+    )

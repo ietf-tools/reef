@@ -139,6 +139,9 @@ Only credentials and the redirect URI need configuring.
   the same interactive, server-side OIDC login (session), via the
   `reef-admin-staging` application — follow the "Sign in with Authentik" link on
   `/admin/login/`, or go directly to `/oidc/authenticate/?next=/admin/`.
+  In development, `REEF_ADMIN_PASSWORD_LOGIN = True` in
+  `reef/settings/development_local.py` also shows Django's username/password
+  form there, for a local superuser made with `./manage.py createsuperuser`.
 - Nuxt runner: browser OIDC via oidc-client-ts, against the `reef-staging`
   application; required only for surveys whose visibility is `authenticated`.
 - API: Reef validates Authentik bearer tokens as a resource server; the
