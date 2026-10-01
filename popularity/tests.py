@@ -13,6 +13,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from reef.testing import stub_rfc_index
+from reef.testing_admin import ReadOnlyAdminChecks
 from reefauth.testing import login
 
 from .compute import recompute_popularity, replace_ranking
@@ -380,15 +381,24 @@ class ImportViewTests(TestCase):
         self.assertNotContains(resp, 'http-equiv="refresh"')
         self.assertContains(resp, "boom")
 
-    def test_the_rankings_are_read_only(self):
-        self.staff.is_superuser = True
-        self.staff.save()
-        login(self.client, self.staff)
-        for name in ("matomoranking", "documentpopularity"):
-            self.assertEqual(
-                self.client.get(reverse(f"admin:popularity_{name}_add")).status_code,
-                403,
-            )
+
+class RankingAdminTests(ReadOnlyAdminChecks, TestCase):
+    def setUp(self):
+        staff = User.objects.create_superuser(
+            username="staff", oidc_sub="staff", password="x"
+        )
+        login(self.client, staff)
+        stub_rfc_index(self)
+        for model in (MatomoRanking, DocumentPopularity):
+            replace_ranking(model, {"rfc9110": 1.0})
+
+    def test_changelists_and_detail_pages_render(self):
+        for model in (MatomoRanking, DocumentPopularity):
+            self.assertAdminRenders(model.objects.get())
+
+    def test_rows_cannot_be_added_changed_or_deleted(self):
+        for model in (MatomoRanking, DocumentPopularity):
+            self.assertAdminReadOnly(model.objects.get())
 
 
 class PublishTaskTests(TestCase):

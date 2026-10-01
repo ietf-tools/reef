@@ -33,6 +33,7 @@ from precomputer.tasks import (
 from ratings.models import Rating
 from reef import rfcmeta
 from reef.locks import _key, advisory_lock
+from reef.testing_admin import ReadOnlyAdminChecks
 from reefauth.testing import login
 from subjects.models import Subject, SubjectAlias, SubjectAssignment
 from subjects.precompute import build_index
@@ -1389,3 +1390,21 @@ class PushDocumentChangesTests(TestCase):
         self.run.side_effect = write_again
         self.assertTrue(push_document_changes())
         self.assertEqual(PendingDocumentChange.objects.count(), 1)
+
+
+class PrecomputerAdminTests(ReadOnlyAdminChecks, TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_superuser(
+            username="staff", oidc_sub="staff", password="x"
+        )
+        login(self.client, self.staff)
+        PendingDocumentChange.objects.create(doc="rfc9110")
+        PrecomputeRun.objects.create(triggered_by=self.staff)
+
+    def test_changelists_and_detail_pages_render(self):
+        for model in (PendingDocumentChange, PrecomputeRun):
+            self.assertAdminRenders(model.objects.get())
+
+    def test_rows_cannot_be_added_changed_or_deleted(self):
+        for model in (PendingDocumentChange, PrecomputeRun):
+            self.assertAdminReadOnly(model.objects.get())

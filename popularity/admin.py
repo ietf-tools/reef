@@ -23,6 +23,7 @@ from django.urls import path, reverse
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 
 from reef.admin_documents import DocumentTitleMixin
+from reef.admin_readonly import ReadOnlyAdminMixin
 
 from .compute import replace_ranking
 from .matomo import parse_rankings
@@ -86,21 +87,12 @@ class MatomoUploadForm(forms.Form):
         return parsed
 
 
-class ReadOnlyRankingAdmin(DocumentTitleMixin, admin.ModelAdmin):
+class ReadOnlyRankingAdmin(ReadOnlyAdminMixin, DocumentTitleMixin, admin.ModelAdmin):
     document_field = "rfc"
 
     list_display = ["rfc", "document_title", "score", "created_at", "updated_at"]
     search_fields = ["rfc"]
     ordering = ["-score", "rfc"]
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
 
 
 @admin.register(DocumentPopularity)
