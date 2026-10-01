@@ -148,10 +148,8 @@ class Detection:
 def detect():
     """Compare Red's index with the last reading, or None if Red is unavailable.
 
-    Reports no changes in the two cases that are not news: there is no previous
-    snapshot, so this is a seeding run, and Red has not republished since the last
-    run, so nothing can have changed. Both still want the snapshot advanced, which
-    is the caller's to do.
+    Reports no changes when there is no previous snapshot, so this is a seeding
+    run; that still wants the snapshot advanced, which is the caller's to do.
     """
     index = rfcmeta.get_index()
     if index is None:
@@ -174,16 +172,8 @@ def detect():
         )
         return result
 
-    if previous_row is not None and previous_row.created_on == index.created_on:
-        # Red rebuilds when RFCs are published, so an unmoved createdOn is the normal
-        # quiet case rather than a fault. Worth a line, because a createdOn that never
-        # moves means Red's precomputer has stopped and no mail will ever be sent.
-        logger.info(
-            "Red has not republished since %s, so there is nothing to compare",
-            index.created_on,
-        )
-        return result
-
+    # Diffed even when createdOn matches the snapshot's: it is a date, and Red can
+    # rebuild more than once a day.
     result.changes = diff(previous, current)
     logger.info(
         "Red index of %s: %s document(s) changed since the snapshot of %s",

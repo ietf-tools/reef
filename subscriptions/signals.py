@@ -1,7 +1,7 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Notify subject subscribers when a document is newly tagged.
 
-The daily change run only sees Red's published index, so tagging an existing
+The change run only sees Red's published index, so tagging an existing
 document in Reef's admin produces no event there. SubjectAssignment's post_save is
 the one place that fact exists.
 

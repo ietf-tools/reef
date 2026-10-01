@@ -150,15 +150,19 @@ class DetectTests(TestCase):
         self.assertEqual(len(result.changes), 1)
         self.assertEqual(result.changes[0].fields, {"status": ("ps", "hist")})
 
-    def test_a_run_against_an_unrepublished_index_compares_nothing(self):
-        """Red rebuilds when RFCs are published, so this is the ordinary quiet case."""
+    def test_a_second_rebuild_on_the_same_date_is_still_compared(self):
+        """createdOn is a date, so it does not move when Red rebuilds twice in a day;
+        that rebuild's changes must be reported, not saved into the snapshot."""
         self.rewarm({"rfc9110": meta()}, datetime.date(2026, 8, 31))
         detect().save()
         self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 8, 31))
-        with self.assertLogs("reef", level="INFO") as logs:
-            result = detect()
-        self.assertEqual(result.changes, [])
-        self.assertIn("has not republished", "\n".join(logs.output))
+        result = detect()
+        self.assertEqual(result.changes[0].fields, {"status": ("ps", "hist")})
+
+    def test_an_unchanged_index_reports_nothing(self):
+        self.rewarm({"rfc9110": meta()}, datetime.date(2026, 8, 31))
+        detect().save()
+        self.assertEqual(detect().changes, [])
 
     def test_no_index_means_no_detection_rather_than_an_empty_diff(self):
         """An empty diff would be indistinguishable from Red being fine and quiet;
