@@ -87,7 +87,7 @@ class MatomoUploadForm(forms.Form):
         return parsed
 
 
-class ReadOnlyRankingAdmin(ReadOnlyAdminMixin, DocumentTitleMixin, admin.ModelAdmin):
+class RankingAdmin(ReadOnlyAdminMixin, DocumentTitleMixin, admin.ModelAdmin):
     document_field = "rfc"
 
     list_display = ["rfc", "document_title", "score", "created_at", "updated_at"]
@@ -96,12 +96,12 @@ class ReadOnlyRankingAdmin(ReadOnlyAdminMixin, DocumentTitleMixin, admin.ModelAd
 
 
 @admin.register(DocumentPopularity)
-class DocumentPopularityAdmin(ReadOnlyRankingAdmin):
+class DocumentPopularityAdmin(RankingAdmin):
     pass
 
 
 @admin.register(MatomoRanking)
-class MatomoRankingAdmin(ReadOnlyRankingAdmin):
+class MatomoRankingAdmin(RankingAdmin):
     pass
 
 
