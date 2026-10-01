@@ -192,6 +192,8 @@ def compare(index, previous, previous_created_on):
         result.outcome = OLDER
         return result
 
+    # Diffed even when createdOn matches the snapshot's: it is a date, and Red can
+    # rebuild more than once a day.
     result.changes = diff(previous, current)
     result.outcome = COMPARED
     logger.info(

@@ -34,13 +34,15 @@ from reef.tasks import RetryTask
 
 from .changes import detect
 from .delivery import SendEmailError, send_subscription_digest
-from .matching import new_reader, plan_rfc_notifications
+from .matching import plan_rfc_notifications
 from .models import PendingNotification, SubjectNotificationEvent, WebNotification
 
 logger = logging.getLogger("reef")
 
 # Held for the length of a change-notification run.
 LOCK_NAME = "subscriptions.detect_rfc_changes"
+# Held for the length of a digest run.
+DIGEST_LOCK_NAME = "subscriptions.send_digest"
 
 
 def notification_key(user_id, events, scope=""):
@@ -50,10 +52,9 @@ def notification_key(user_id, events, scope=""):
     duplicates is that they say the same thing to the same person; which of their
     subscriptions matched is why it reached them, not what it tells them.
 
-    `scope` separates two occasions that would otherwise look identical. The change
-    run passes the index reading it worked from, so that a document making the same
-    transition again months later is a new notification rather than one the database
-    refuses.
+    `scope` separates two occasions that would otherwise look identical. send_digest
+    passes the day it runs, so the same events owed on two different days are two
+    notifications rather than one the database refuses.
     """
     canonical = json.dumps(
         {
@@ -85,15 +86,14 @@ def queue_notification(user_id, subscription_ids, events, scope="", web_events=N
 
     Raises IntegrityError if this reader already has this notification owed to them.
     Deliberately not swallowed: a caller queueing a duplicate is a caller that has
-    lost track of what it has done, and for the change run that means the whole
+    lost track of what it has done, and for the digest run that means the whole
     transaction rolls back, which is the right outcome for a run duplicating another.
 
     web_events is the subset of events (default: all of them) to surface as
-    WebNotification rows, one each. Separate from events because a subject-tagging
-    event already got one when it was staged (see stage_subject_event) and must not
-    get a second one when the daily digest folds it back in here. Written
-    unconditionally, regardless of the digest email preference below: the web feed
-    has no opt-out.
+    WebNotification rows, one each. Separate from events because an event staged
+    through stage_subject_event already got one then, and must not get a second
+    when the digest folds it back in here. Written unconditionally, regardless of
+    the digest email preference below: the web feed has no opt-out.
 
     Returns None without creating a PendingNotification, and so without ever
     mailing anything, when the reader has turned digest email off. The
@@ -121,8 +121,8 @@ def queue_notification(user_id, subscription_ids, events, scope="", web_events=N
 
 
 def stage_subject_event(user_id, subscription_ids, event_kind, event_key, event):
-    """Hold a subject event for the next consolidated digest, and surface it on Red
-    immediately.
+    """Hold a subject event, or an RFC change, for the next consolidated digest, and
+    surface it on Red immediately.
 
     The WebNotification is created right after, inside the same atomic block the
     caller already wraps this call in: a retagging that hits the uniqueness
@@ -261,63 +261,102 @@ def sweep_unsent_notifications() -> int:
 
 @shared_task(ignore_result=True)
 def detect_rfc_changes() -> int:
-    """Find what changed about the RFC series and tell the readers who asked.
+    """Find what changed about the RFC series and surface it to the readers who asked.
 
-    The whole notification path, once a day: diff Red's index, resolve each change to
-    subscriptions, gather them per reader, write a notification for each, and only
-    then record that the changes have been seen.
+    Diff Red's index, resolve each change to subscriptions, and stage one event per
+    reader per change -- a web notification at once, and a row for the next digest
+    (send_digest) -- and only then record that the changes have been seen.
 
-    That order is the point. The snapshot advances last, so a crash anywhere before
-    it means the next run finds the same changes again: a repeat, which the
-    notification rows and their sent stamps absorb, rather than a skip, which nothing
-    would ever recover. Duplicates are recoverable and a missed change is not.
+    That order is the point. The snapshot advances in the same transaction as the
+    staging, so a crash anywhere before it means the next run finds the same changes
+    again rather than skipping them, which nothing would ever recover.
 
-    Daily rather than hourly because Red rebuilds its index when RFCs are published
-    and publication is bursty: over the last five years the median gap between
-    publication dates was three days. A daily run gathers a burst into one reading;
-    an hourly one would split it across several mails.
-
-    Returns the number of readers written to, which is the number that matters
+    Returns the number of readers staged for, which is the number that matters
     operationally; the changes themselves are logged.
     """
     with advisory_lock(LOCK_NAME) as acquired:
         if not acquired:
-            # Two of these at once is the one overlap that costs a reader something.
-            # Both would read the snapshot before either advanced it, both would find
-            # the same changes, and everybody would be written to twice. Skipping is
-            # right: the run holding the lock is doing this work, and the next tick
-            # finds the lock free.
+            # Two of these at once would both read the snapshot before either
+            # advanced it, and stage every change twice. Skipping is right: the run
+            # holding the lock is doing this work.
             logger.info("Skipping change detection: another run holds the lock")
             return 0
-        return _detect_and_notify()
+        return _detect_and_stage()
 
 
-def _detect_and_notify():
+def rfc_change_event_key(doc, run_started):
+    """Keyed on the document and the run that found the change, so every change
+    before the digest is its own line: a status that flips back and forth reads in
+    order and ends on where it settled."""
+    return f"rfc-change:{doc}:{run_started.isoformat()}"
+
+
+def _detect_and_stage():
+    run_started = timezone.now()
     result = detect()
-
-    per_reader = defaultdict(new_reader)
-
-    if result is not None:
-        readers, matches = plan_rfc_notifications(result)
-        per_reader.update(readers)
-        for change, event, _subscriptions in matches:
-            logger.info("Change: %s %s", change.doc_display, event["change"])
-    else:
+    if result is None:
         # Red is unreachable or went backwards. The snapshot deliberately remains
         # unchanged, so the next run compares against the same reading and misses
         # nothing.
         logger.info("RFC change detection skipped: no usable index from Red")
+        return 0
 
-    subject_events = list(SubjectNotificationEvent.objects.all())
-    for subject_event in subject_events:
-        reader = per_reader[subject_event.user_id]
-        reader["subscriptions"].update(subject_event.subscription_ids)
-        event = subject_event.event
-        reader["events"][(event.get("doc", ""), subject_event.event_key)] = event
+    # Per reader and change, not per subscription: somebody who follows a document
+    # directly and also holds it in a set hears once, with both reasons.
+    staged = defaultdict(lambda: {"subscriptions": set(), "event": None})
+    _readers, matches = plan_rfc_notifications(result)
+    for change, event, subscriptions in matches:
+        logger.info("Change: %s %s", change.doc_display, event["change"])
+        for subscription in subscriptions:
+            entry = staged[(subscription.user_id, change.doc)]
+            entry["subscriptions"].add(subscription.pk)
+            entry["event"] = event
 
     with transaction.atomic():
-        # Red's created_on can remain unchanged for several days without a publish;
-        # it is not the day this digest run is processing.
+        for (user_id, doc), entry in staged.items():
+            stage_subject_event(
+                user_id,
+                sorted(entry["subscriptions"]),
+                "rfc_change",
+                rfc_change_event_key(doc, run_started),
+                entry["event"],
+            )
+        result.save()
+
+    readers = {user_id for user_id, _doc in staged}
+    logger.info(
+        "%s change(s) notified to %s reader(s)", len(result.changes), len(readers)
+    )
+    return len(readers)
+
+
+@shared_task(ignore_result=True)
+def send_digest() -> int:
+    """Queue one digest per reader holding everything staged since the last one:
+    RFC changes from the detection runs, and subject events.
+
+    Their web notifications went out when they were staged, so nothing here
+    surfaces a second one. Returns the number of readers written to.
+    """
+    with advisory_lock(DIGEST_LOCK_NAME) as acquired:
+        if not acquired:
+            logger.info("Skipping the digest: another run holds the lock")
+            return 0
+        return _send_digest()
+
+
+def _send_digest():
+    # Keyed by document and event identity, so distinct facts about one document
+    # remain distinct lines.
+    per_reader = defaultdict(lambda: {"subscriptions": set(), "events": {}})
+    staged = list(SubjectNotificationEvent.objects.all())
+    for staged_event in staged:
+        reader = per_reader[staged_event.user_id]
+        reader["subscriptions"].update(staged_event.subscription_ids)
+        event = staged_event.event
+        reader["events"][(event.get("doc", ""), staged_event.event_key)] = event
+
+    with transaction.atomic():
         scope = f"daily:{timezone.localdate()}"
         for user_id, reader in per_reader.items():
             queue_notification(
@@ -325,18 +364,15 @@ def _detect_and_notify():
                 sorted(reader["subscriptions"]),
                 list(reader["events"].values()),
                 scope=scope,
-                web_events=list(reader["rfc_events"].values()),
+                web_events=[],
             )
-        if result is not None:
-            result.save()
         SubjectNotificationEvent.objects.filter(
-            pk__in=[subject_event.pk for subject_event in subject_events]
+            pk__in=[staged_event.pk for staged_event in staged]
         ).delete()
 
     logger.info(
-        "%s change(s) notified to %s reader(s) (%s subject event(s))",
-        len(result.changes) if result is not None else 0,
+        "Digest queued for %s reader(s) (%s staged event(s))",
         len(per_reader),
-        len(subject_events),
+        len(staged),
     )
     return len(per_reader)

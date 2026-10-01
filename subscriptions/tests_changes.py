@@ -150,14 +150,19 @@ class DetectTests(TestCase):
         self.assertEqual(len(result.changes), 1)
         self.assertEqual(result.changes[0].fields, {"status": ("ps", "hist")})
 
-    def test_a_same_day_republication_is_still_compared(self):
-        """createdOn is a date, so Red can publish several times under one."""
+    def test_a_second_rebuild_on_the_same_date_is_still_compared(self):
+        """createdOn is a date, so it does not move when Red rebuilds twice in a day;
+        that rebuild's changes must be reported, not saved into the snapshot."""
         self.rewarm({"rfc9110": meta()}, datetime.date(2026, 8, 31))
         detect().save()
         self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 8, 31))
         result = detect()
-        self.assertEqual(len(result.changes), 1)
         self.assertEqual(result.changes[0].fields, {"status": ("ps", "hist")})
+
+    def test_an_unchanged_index_reports_nothing(self):
+        self.rewarm({"rfc9110": meta()}, datetime.date(2026, 8, 31))
+        detect().save()
+        self.assertEqual(detect().changes, [])
 
     def test_an_index_older_than_the_snapshot_is_not_compared(self):
         self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 9, 1))

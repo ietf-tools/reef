@@ -281,7 +281,8 @@ class PendingNotification(models.Model):
 
 
 class SubjectNotificationEvent(models.Model):
-    """A subject event waiting for the next consolidated digest."""
+    """An event waiting for the next consolidated digest: a subject event, or an
+    RFC change the detection run found."""
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -317,12 +318,12 @@ class WebNotification(models.Model):
     once worked off. read is a plain flag rather than a timestamp because nothing
     here needs to know when, only whether.
 
-    No uniqueness constraint of its own. A subject-tagging event already can't
-    double up here -- it is written alongside SubjectNotificationEvent, inside the
-    same transaction, so the constraint that stops a second SubjectNotificationEvent
-    stops a second row here too -- and an RFC change repeating months later is
-    deliberately a new notification, the same choice PendingNotification.dedupe_key
-    already makes for mail.
+    No uniqueness constraint of its own. Every row is written by
+    stage_subject_event alongside a SubjectNotificationEvent, inside the same
+    transaction, so what that row's constraint refuses -- a subject tag removed and
+    re-added before the digest -- is refused here too. An RFC change is keyed on
+    the run that found it, so each change found is its own notification, the same
+    choice PendingNotification.dedupe_key makes for mail across days.
     """
 
     user = models.ForeignKey(
@@ -330,9 +331,9 @@ class WebNotification(models.Model):
         on_delete=models.CASCADE,
         related_name="web_notifications",
     )
-    # "rfc_change", or a SubjectNotificationEvent.event_kind value
-    # ("subject_assignment" today) -- the vocabulary is shared with the mail side
-    # rather than redeclared.
+    # A SubjectNotificationEvent.event_kind value ("rfc_change", "subject_assignment",
+    # "subject_merge") -- the vocabulary is shared with the mail side rather than
+    # redeclared.
     kind = models.CharField(max_length=64)
     # Same shape as_event() and the subject-assignment signal already build: doc,
     # change, url (RFC events add doc_display). Stored as given, not re-rendered

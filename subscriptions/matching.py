@@ -166,26 +166,16 @@ def _was_obsoleted(change):
     return False
 
 
-def new_reader():
-    return {"subscriptions": set(), "events": {}, "rfc_events": {}}
-
-
 def plan_rfc_notifications(result):
     """Who a detection would notify, and which subscriptions matched each change.
 
     Per reader, not per subscription: somebody who follows a document directly and
-    also holds it in a set hears once. RFC events are keyed by document and subject
-    events by their event identity, so distinct facts about one document remain.
-
-    rfc_events shadows events with the RFC-change subset alone: a subject-tagging
-    event already got its own WebNotification when it was staged (see
-    stage_subject_event), and queue_notification uses this narrower dict to avoid
-    surfacing it a second time.
+    also holds it in a set hears once about it.
 
     Only reads, so the same code answers both the scheduled run and the admin
     simulation. Returns (readers by user id, [(change, event, subscriptions)]).
     """
-    readers = defaultdict(new_reader)
+    readers = defaultdict(lambda: {"subscriptions": set(), "events": {}})
     matches = []
     for change in result.changes:
         event = as_event(change, result.index)
@@ -194,6 +184,5 @@ def plan_rfc_notifications(result):
         for subscription in subscriptions:
             reader = readers[subscription.user_id]
             reader["subscriptions"].add(subscription.pk)
-            reader["events"][(change.doc, "rfc")] = event
-            reader["rfc_events"][(change.doc, "rfc")] = event
+            reader["events"][change.doc] = event
     return readers, matches
