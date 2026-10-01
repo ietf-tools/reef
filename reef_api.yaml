@@ -163,8 +163,8 @@ paths:
                 $ref: '#/components/schemas/WebNotification'
           description: ''
   /api/reef/notifications/read/:
-    post:
-      operationId: notifications_read_all_create
+    put:
+      operationId: notifications_read_update
       description: |-
         Mark every one of the caller's own notifications read.
 

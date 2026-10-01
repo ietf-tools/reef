@@ -110,14 +110,8 @@ class MarkAllNotificationsRead(OwnWebNotificationsMixin, APIView):
     Idempotent: with nothing unread it changes nothing and still succeeds.
     """
 
-    # Named explicitly: the generated name collides with the single-notification
-    # read, and the generator resolves that by renaming the existing operation.
-    @extend_schema(
-        operation_id="notifications_read_all_create",
-        request=None,
-        responses={204: None},
-    )
-    def post(self, request):
+    @extend_schema(request=None, responses={204: None})
+    def put(self, request):
         self.get_queryset().filter(read=False).update(read=True)
         return Response(status=status.HTTP_204_NO_CONTENT)
 

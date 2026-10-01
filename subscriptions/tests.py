@@ -177,7 +177,7 @@ class WebNotificationApiTests(APITestCase):
 
     def test_mark_all_read_requires_auth(self):
         self.assertIn(
-            self.client.post("/api/reef/notifications/read/").status_code, (401, 403)
+            self.client.put("/api/reef/notifications/read/").status_code, (401, 403)
         )
 
     def test_mark_all_read(self):
@@ -188,7 +188,7 @@ class WebNotificationApiTests(APITestCase):
             )
 
         self.client.force_authenticate(user=user)
-        response = self.client.post("/api/reef/notifications/read/")
+        response = self.client.put("/api/reef/notifications/read/")
         self.assertEqual(response.status_code, 204)
         self.assertFalse(WebNotification.objects.filter(user=user, read=False).exists())
 
@@ -200,13 +200,13 @@ class WebNotificationApiTests(APITestCase):
         )
 
         self.client.force_authenticate(user=user)
-        self.client.post("/api/reef/notifications/read/")
+        self.client.put("/api/reef/notifications/read/")
         self.assertFalse(WebNotification.objects.get(pk=theirs.pk).read)
 
     def test_mark_all_read_with_nothing_unread_is_a_no_op(self):
         user = User.objects.create(username="u", oidc_sub="s")
         self.client.force_authenticate(user=user)
-        response = self.client.post("/api/reef/notifications/read/")
+        response = self.client.put("/api/reef/notifications/read/")
         self.assertEqual(response.status_code, 204)
 
 
