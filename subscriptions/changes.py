@@ -126,6 +126,13 @@ def _sort_key(doc):
     return (doc[: len(doc) - len(digits)], int(digits) if digits else 0)
 
 
+# How compare() arrived at its changes: nothing to compare against, a gate that
+# judged Red not to have republished, or an actual diff.
+SEEDED = "seeded"
+UNCHANGED = "unchanged"
+COMPARED = "compared"
+
+
 @dataclass
 class Detection:
     """What a run found, and what it should record once it has acted.
@@ -140,31 +147,25 @@ class Detection:
     index: object
     reduced: dict
     created_on: object
+    outcome: str = COMPARED
 
     def save(self):
         save_snapshot(self.reduced, self.created_on)
 
 
-def detect():
-    """Compare Red's index with the last reading, or None if Red is unavailable.
+def compare(index, previous, previous_created_on):
+    """What a run would find comparing `index` with a previous reading.
+
+    Pure: it reads nothing and writes nothing, which is what lets an admin page
+    answer "what would the next run do with this index" without running it.
 
     Reports no changes in the two cases that are not news: there is no previous
-    snapshot, so this is a seeding run, and Red has not republished since the last
+    reading, so this is a seeding run, and Red has not republished since the last
     run, so nothing can have changed. Both still want the snapshot advanced, which
     is the caller's to do.
     """
-    index = rfcmeta.get_index()
-    if index is None:
-        logger.error("No index from Red, so no changes can be detected this run")
-        return None
-
     current = reduce_index(index.mapping)
-    result = Detection([], index, current, index.created_on)
-
-    previous_row = DocumentSnapshot.objects.filter(
-        pk=DocumentSnapshot.SINGLETON_PK
-    ).first()
-    previous = load_snapshot()
+    result = Detection([], index, current, index.created_on, outcome=SEEDED)
 
     if previous is None:
         logger.warning(
@@ -174,7 +175,7 @@ def detect():
         )
         return result
 
-    if previous_row is not None and previous_row.created_on == index.created_on:
+    if previous_created_on == index.created_on:
         # Red rebuilds when RFCs are published, so an unmoved createdOn is the normal
         # quiet case rather than a fault. Worth a line, because a createdOn that never
         # moves means Red's precomputer has stopped and no mail will ever be sent.
@@ -182,16 +183,35 @@ def detect():
             "Red has not republished since %s, so there is nothing to compare",
             index.created_on,
         )
+        result.outcome = UNCHANGED
         return result
 
     result.changes = diff(previous, current)
+    result.outcome = COMPARED
     logger.info(
         "Red index of %s: %s document(s) changed since the snapshot of %s",
         index.created_on,
         len(result.changes),
-        previous_row.created_on if previous_row else None,
+        previous_created_on,
     )
     return result
+
+
+def detect():
+    """Compare Red's index with the last reading, or None if Red is unavailable."""
+    index = rfcmeta.get_index()
+    if index is None:
+        logger.error("No index from Red, so no changes can be detected this run")
+        return None
+
+    previous_row = DocumentSnapshot.objects.filter(
+        pk=DocumentSnapshot.SINGLETON_PK
+    ).first()
+    return compare(
+        index,
+        load_snapshot(),
+        previous_row.created_on if previous_row else None,
+    )
 
 
 # How a watched field is named to a reader, for the case where nothing else

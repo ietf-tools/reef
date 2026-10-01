@@ -255,6 +255,32 @@ class DocumentIndex:
             )
 
 
+def validation_problem(payload):
+    """Why a payload is not an index Reef can use, or None if it is one.
+
+    Names the field and where, because the fix is in Red or in the synced schema,
+    neither of which is here. Pure: it touches no cache, memo or abstract store, so a
+    page can vet an index somebody uploaded without it becoming the one Reef serves.
+    """
+    try:
+        jsonschema.Draft202012Validator(_schema()).validate(payload)
+    except jsonschema.ValidationError as exc:
+        return (
+            f"{'/'.join(str(p) for p in exc.absolute_path) or '(root)'}: {exc.message}"
+        )
+    return None
+
+
+def reduce_payload(payload):
+    """A validated payload as (mapping, created_on), without storing anything."""
+    created_on = None
+    try:
+        created_on = datetime.date.fromisoformat(payload["createdOn"])
+    except (KeyError, TypeError, ValueError):
+        logger.warning("Red's index has no usable createdOn; age is unknown")
+    return _reduce(payload["index"]), created_on
+
+
 def _fetch_and_reduce():
     """Fetch, validate and reduce Red's index. None if it cannot be used.
 
@@ -266,31 +292,21 @@ def _fetch_and_reduce():
     if payload is None:
         return None
 
-    try:
-        jsonschema.Draft202012Validator(_schema()).validate(payload)
-    except jsonschema.ValidationError as exc:
-        # The shape Reef depends on has changed. Say which field and where, because
-        # the fix is in Red or in the synced schema, neither of which is here.
+    problem = validation_problem(payload)
+    if problem is not None:
+        # The shape Reef depends on has changed.
         logger.error(
-            "Red's index no longer matches reef/schemas/rfc-index.schema.json "
-            "at %s: %s",
-            "/".join(str(p) for p in exc.absolute_path) or "(root)",
-            exc.message,
+            "Red's index no longer matches reef/schemas/rfc-index.schema.json at %s",
+            problem,
         )
         return None
-
-    created_on = None
-    try:
-        created_on = datetime.date.fromisoformat(payload["createdOn"])
-    except (KeyError, TypeError, ValueError):
-        logger.warning("Red's index has no usable createdOn; age is unknown")
 
     # Process-local, and refreshed on every real fetch regardless of whether this
     # one is served from the shared cache below -- see _abstracts.
     _abstracts.clear()
     _abstracts.update(_reduce_abstracts(payload["index"]))
 
-    return _reduce(payload["index"]), created_on
+    return reduce_payload(payload)
 
 
 def load_index():
@@ -418,7 +434,7 @@ def cached_abstract(doc_id):
     return _abstracts.get(doc_id)
 
 
-def containing_subseries(doc_id):
+def containing_subseries(doc_id, mapping=None):
     """The subseries a document belongs to: rfc2119 -> ["bcp14"].
 
     Read off the index rather than asked of Red per document, because the index
@@ -431,18 +447,25 @@ def containing_subseries(doc_id):
     task. It still returns an empty list rather than raising when Red cannot be
     reached. TODO: what a change event should do about that is a retry decision,
     which belongs with ingest.
+
+    `mapping` answers from a reduced index the caller already holds, never touching
+    the shared one: a run matching a reading it was handed must expand subseries as
+    that reading says, and a simulation of an uploaded index must not fetch or cache.
     """
     try:
         doc_id = normalize_doc_id(doc_id)
     except DjangoValidationError:
         return []
-    shared = _shared(fetch=True)
-    if shared is None:
-        logger.warning(
-            "No document index, so %s was matched without expanding subseries", doc_id
-        )
-        return []
-    meta = shared[0].get(doc_id)
+    if mapping is None:
+        shared = _shared(fetch=True)
+        if shared is None:
+            logger.warning(
+                "No document index, so %s was matched without expanding subseries",
+                doc_id,
+            )
+            return []
+        mapping = shared[0]
+    meta = mapping.get(doc_id)
     return list(meta["subseries"]) if meta else []
 
 

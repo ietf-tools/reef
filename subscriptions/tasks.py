@@ -32,9 +32,9 @@ from django.utils import timezone
 from reef.locks import advisory_lock
 from reef.tasks import RetryTask
 
-from .changes import as_event, detect
+from .changes import detect
 from .delivery import SendEmailError, send_subscription_digest
-from .matching import subscriptions_for_change
+from .matching import new_reader, plan_rfc_notifications
 from .models import PendingNotification, SubjectNotificationEvent, WebNotification
 
 logger = logging.getLogger("reef")
@@ -295,27 +295,13 @@ def detect_rfc_changes() -> int:
 def _detect_and_notify():
     result = detect()
 
-    # Per reader, not per subscription: somebody who follows a document directly and
-    # also holds it in a set hears once. RFC events are keyed by document and subject
-    # events by their event identity, so distinct facts about one document remain.
-    #
-    # rfc_events shadows events with the RFC-change subset alone: a subject-tagging
-    # event already got its own WebNotification when it was staged (see
-    # stage_subject_event), and queue_notification uses this narrower dict to avoid
-    # surfacing it a second time here.
-    per_reader = defaultdict(
-        lambda: {"subscriptions": set(), "events": {}, "rfc_events": {}}
-    )
+    per_reader = defaultdict(new_reader)
 
     if result is not None:
-        for change in result.changes:
-            event = as_event(change, result.index)
+        readers, matches = plan_rfc_notifications(result)
+        per_reader.update(readers)
+        for change, event, _subscriptions in matches:
             logger.info("Change: %s %s", change.doc_display, event["change"])
-            for subscription in subscriptions_for_change(change, result.index):
-                reader = per_reader[subscription.user_id]
-                reader["subscriptions"].add(subscription.pk)
-                reader["events"][(change.doc, "rfc")] = event
-                reader["rfc_events"][(change.doc, "rfc")] = event
     else:
         # Red is unreachable. The snapshot deliberately remains unchanged, so the
         # next run compares against the same reading and misses nothing.
