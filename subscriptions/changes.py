@@ -146,10 +146,12 @@ class Detection:
 
 
 def detect():
-    """Compare Red's index with the last reading, or None if Red is unavailable.
+    """Compare Red's index with the last reading, or None if there is none to trust.
 
-    Reports no changes when there is no previous snapshot, so this is a seeding
-    run; that still wants the snapshot advanced, which is the caller's to do.
+    None when Red is unavailable or serves an index older than the snapshot; either
+    way the snapshot must stay where it is. Reports no changes when there is no
+    previous snapshot, so this is a seeding run; that still wants the snapshot
+    advanced, which is the caller's to do.
     """
     index = rfcmeta.get_index()
     if index is None:
@@ -172,6 +174,22 @@ def detect():
         )
         return result
 
+    previous_created_on = previous_row.created_on if previous_row else None
+    if (
+        previous_created_on is not None
+        and index.created_on is not None
+        and index.created_on < previous_created_on
+    ):
+        # Comparing would report every change since that older reading in reverse,
+        # and saving it would make the next good reading re-announce changes already
+        # sent. None leaves the snapshot where it is, as for Red being unavailable.
+        logger.error(
+            "Red's index of %s is older than the snapshot of %s; not comparing",
+            index.created_on,
+            previous_created_on,
+        )
+        return None
+
     # Diffed even when createdOn matches the snapshot's: it is a date, and Red can
     # rebuild more than once a day.
     result.changes = diff(previous, current)
@@ -179,7 +197,7 @@ def detect():
         "Red index of %s: %s document(s) changed since the snapshot of %s",
         index.created_on,
         len(result.changes),
-        previous_row.created_on if previous_row else None,
+        previous_created_on,
     )
     return result
 

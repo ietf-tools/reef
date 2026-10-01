@@ -200,7 +200,9 @@ class DocumentSnapshot(models.Model):
     id = models.PositiveSmallIntegerField(primary_key=True, default=SINGLETON_PK)
     # {doc_id: {status, obsoleted_by, updates, updated_by, subseries}}, compressed.
     payload = models.BinaryField()
-    # The index's own createdOn, which each run logs beside the one it compares to.
+    # The index's own createdOn, so a run can tell that Red is serving an index older
+    # than the one last notified about. Only to the day, so an equal one is no sign
+    # that nothing has been published since.
     created_on = models.DateField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 

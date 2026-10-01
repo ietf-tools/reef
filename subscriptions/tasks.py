@@ -295,9 +295,10 @@ def _detect_and_stage():
     run_started = timezone.now()
     result = detect()
     if result is None:
-        # Red is unreachable. The snapshot deliberately remains unchanged, so the
-        # next run compares against the same reading and misses nothing.
-        logger.info("RFC change detection skipped because Red is unavailable")
+        # Red is unreachable or went backwards. The snapshot deliberately remains
+        # unchanged, so the next run compares against the same reading and misses
+        # nothing.
+        logger.info("RFC change detection skipped: no usable index from Red")
         return 0
 
     # Per reader and change, not per subscription: somebody who follows a document

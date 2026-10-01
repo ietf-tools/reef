@@ -164,6 +164,14 @@ class DetectTests(TestCase):
         detect().save()
         self.assertEqual(detect().changes, [])
 
+    def test_an_index_older_than_the_snapshot_is_not_compared(self):
+        self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 9, 1))
+        detect().save()
+        self.rewarm({"rfc9110": meta()}, datetime.date(2026, 8, 31))
+        with self.assertLogs("reef", level="ERROR") as logs:
+            self.assertIsNone(detect())
+        self.assertIn("older than the snapshot", "\n".join(logs.output))
+
     def test_no_index_means_no_detection_rather_than_an_empty_diff(self):
         """An empty diff would be indistinguishable from Red being fine and quiet;
         worse, treating an absent index as an empty series would report every
@@ -219,6 +227,20 @@ class DetectTaskTests(TestCase):
         with self.assertLogs("reef", level="INFO") as second:
             detect_rfc_changes()
         self.assertIn("0 change(s)", "\n".join(second.output))
+
+    def test_an_index_going_backwards_leaves_the_snapshot_alone(self):
+        """Otherwise the next good reading would re-announce what was already sent."""
+        self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 9, 1))
+        detect_rfc_changes()
+        before = DocumentSnapshot.objects.get()
+        self.rewarm({"rfc9110": meta()}, datetime.date(2026, 8, 31))
+        with self.assertLogs("reef", level="ERROR"):
+            detect_rfc_changes()
+        after = DocumentSnapshot.objects.get()
+        self.assertEqual(after.created_on, before.created_on)
+        self.assertEqual(
+            load_snapshot(), reduce_index({"rfc9110": meta(status="hist")})
+        )
 
     def test_red_being_unreachable_leaves_the_snapshot_alone(self):
         """So the next run compares against the same reading and misses nothing."""

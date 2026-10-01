@@ -1,8 +1,6 @@
 <template>
   <div class="mx-auto max-w-3xl p-6">
-    <div
-      v-if="submitted"
-      class="rounded font-bold bg-green-50 dark:bg-green-950 p-6 text-green-800 dark:text-white">
+    <div v-if="submitted" class="rounded font-bold bg-green-50 dark:bg-green-950 p-6 text-green-800 dark:text-white">
       <p>Thank you. Your response has been recorded.</p>
 
       <p v-if="returnToHref" class="mt-6">
