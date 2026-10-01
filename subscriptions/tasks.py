@@ -303,9 +303,10 @@ def _detect_and_notify():
         for change, event, _subscriptions in matches:
             logger.info("Change: %s %s", change.doc_display, event["change"])
     else:
-        # Red is unreachable. The snapshot deliberately remains unchanged, so the
-        # next run compares against the same reading and misses nothing.
-        logger.info("RFC change detection skipped because Red is unavailable")
+        # Red is unreachable or went backwards. The snapshot deliberately remains
+        # unchanged, so the next run compares against the same reading and misses
+        # nothing.
+        logger.info("RFC change detection skipped: no usable index from Red")
 
     subject_events = list(SubjectNotificationEvent.objects.all())
     for subject_event in subject_events:

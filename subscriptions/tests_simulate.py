@@ -157,15 +157,22 @@ class SimulateViewTests(SimulatorTestCase):
         )
         self.assertContains(response, "RFC 9111")
 
-    def test_a_matching_createdon_still_shows_the_diff_it_would_hide(self):
+    def test_a_same_day_index_is_compared_as_normal(self):
         self.snapshot_of(
             {"rfc9110": meta()}, day=datetime.date.fromisoformat(INDEX_DAY)
         )
         report = self.simulate(self.two_documents()).context["report"]
-        self.assertEqual(report.outcome, "unchanged")
-        self.assertFalse(report.real_run_notifies)
-        self.assertEqual(report.changes_found, 1)
+        self.assertEqual(report.outcome, "compared")
         self.assertEqual([row.doc_display for row in report.rows], ["RFC 9111"])
+
+    def test_an_index_older_than_the_snapshot_would_not_be_compared(self):
+        self.snapshot_of({"rfc9110": meta()}, day=datetime.date(2026, 9, 1))
+        with self.assertLogs("reef", level="ERROR"):
+            response = self.simulate(self.two_documents())
+        report = response.context["report"]
+        self.assertEqual(report.outcome, "older")
+        self.assertEqual(report.rows, [])
+        self.assertContains(response, "Refuse to compare")
 
     def test_without_a_snapshot_nothing_would_be_notified(self):
         report = self.simulate(self.two_documents()).context["report"]
@@ -260,11 +267,10 @@ class SimulateChangesNothingTests(SimulatorTestCase):
         self.snapshot_of({"rfc9110": meta()})
         self.assert_nothing_changed(self.two_documents())
 
-    def test_a_blocked_comparison_changes_nothing(self):
-        self.snapshot_of(
-            {"rfc9110": meta()}, day=datetime.date.fromisoformat(INDEX_DAY)
-        )
-        self.assert_nothing_changed(self.two_documents())
+    def test_a_refused_comparison_changes_nothing(self):
+        self.snapshot_of({"rfc9110": meta()}, day=datetime.date(2026, 9, 1))
+        with self.assertLogs("reef", level="ERROR"):
+            self.assert_nothing_changed(self.two_documents())
 
     def test_a_seeding_run_changes_nothing(self):
         self.assert_nothing_changed(self.two_documents())

@@ -45,13 +45,12 @@
   <h2>What the real run would do</h2>
   {% if report.outcome == SEEDED %}
     <p><strong>Seed the snapshot and notify nobody.</strong> There is no usable previous snapshot, so there is nothing to compare against. Every document in the upload would be recorded as already seen.</p>
-  {% elif report.outcome == UNCHANGED %}
+  {% elif report.outcome == OLDER %}
     <p>
-      <strong>Skip the comparison, notify nobody, and advance the snapshot.</strong>
-      The snapshot's createdOn equals the upload's, so the run treats Red as not having
-      republished. {% if report.changes_found %}Comparing anyway finds
-      {{ report.changes_found }} change(s), listed below: those would be recorded as seen
-      and never announced.{% else %}Comparing anyway finds no differences.{% endif %}
+      <strong>Refuse to compare, notify nobody, and leave the snapshot where it is.</strong>
+      The upload's createdOn is earlier than the snapshot's, which means Red served an
+      older index than the one last notified about. An equal createdOn is compared as
+      normal, because Red can publish several times in a day.
     </p>
   {% else %}
     <p><strong>Compare and notify.</strong> {{ report.changes_found }} change(s) found.</p>
@@ -62,7 +61,7 @@
   {% endif %}
 
   {% if report.rows %}
-    <h2>Events{% if report.outcome != COMPARED %} (hypothetical){% endif %}</h2>
+    <h2>Events</h2>
     <table>
       <thead>
         <tr><th>Document</th><th>Event</th><th>Moved fields</th><th>Matching subscriptions</th></tr>
@@ -87,7 +86,7 @@
   {% endif %}
 
   {% if report.readers %}
-    <h2>Readers{% if report.outcome != COMPARED %} (hypothetical){% endif %}</h2>
+    <h2>Readers</h2>
     <table>
       <thead>
         <tr><th>User</th><th>Email</th><th>Delivery</th><th>Events</th><th>Subscriptions</th></tr>

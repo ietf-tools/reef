@@ -5,7 +5,7 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import render
 from django.urls import path
 
-from .changes import COMPARED, SEEDED, UNCHANGED
+from .changes import COMPARED, OLDER, SEEDED
 from .models import Subscription, WebNotification
 from .simulate import read_payload, simulate
 
@@ -67,7 +67,7 @@ def simulate_view(request):
             "form": form,
             "report": report,
             "SEEDED": SEEDED,
-            "UNCHANGED": UNCHANGED,
+            "OLDER": OLDER,
             "COMPARED": COMPARED,
         },
     )

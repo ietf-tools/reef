@@ -25,7 +25,7 @@ from django.db import connection, transaction
 
 from reef import rfcmeta
 
-from .changes import COMPARED, UNCHANGED, compare, diff, load_snapshot
+from .changes import compare, load_snapshot
 from .matching import plan_rfc_notifications
 from .models import DocumentSnapshot
 
@@ -99,10 +99,6 @@ class Report:
     rows: list = field(default_factory=list)
     readers: list = field(default_factory=list)
 
-    @property
-    def real_run_notifies(self):
-        return self.outcome == COMPARED
-
 
 def read_payload(upload):
     """The JSON an uploaded file holds, or (None, why it is not usable)."""
@@ -145,11 +141,7 @@ def simulate(payload):
         result = compare(index, previous, row.created_on if row else None)
         report.outcome = result.outcome
 
-        # The gate hides a diff that would otherwise exist, and that hidden diff is
-        # the thing worth seeing when a notification went missing.
         changes = result.changes
-        if result.outcome == UNCHANGED:
-            changes = diff(previous, result.reduced)
         report.changes_found = len(changes)
         if len(changes) > MAX_CHANGES:
             report.truncated = True
