@@ -2204,48 +2204,10 @@ while the mail stays one digest a day.
 
 ## Change detection simulator: off the request, with progress
 
-The simulator (`subscriptions/simulate.py`, admin `subscriptions/simulate/`) runs
-inside the upload request. On staging, an upload of Red's live index plus one fake
-RFC ran for over ten minutes with no response and no sign of progress.
-
-### Where the time goes
-
-Measured locally against the live index (9,843 documents, 16.8 MB, createdOn
-2026-09-30):
-
-| Step | Time |
-| --- | --- |
-| `json.load` of the upload | 0.2 s |
-| `validation_problem` (jsonschema, whole document) | 3.5 s |
-| `reduce_payload` | 0.1 s |
-| `compare` / `diff` | 0.02 s |
-
-The pure half costs about 4 s on a developer machine, and more on a pod that
-requests 250m CPU. One fake RFC is one change, and planning one change is about
-five queries. None of this explains ten minutes, so the cause is one of the
-following:
-
-1. **The request was killed and nobody was told.** Gunicorn runs sync workers with
-   `--timeout 180` (`dev/build/backend-start.sh`). A request still running at 180 s
-   gets its worker killed. What the browser sees then depends on the proxies in
-   front, and can be a page that never finishes loading. Whatever the cause of the
-   slowness, an inline request is the wrong shape for this page. The subject sync
-   left inline requests for the same reason.
-2. **The staging snapshot does not match the upload.** If the snapshot was written
-   by an older reduction, or from an older index, nearly every document differs.
-   The run then truncates to `MAX_CHANGES` (500) and plans those changes one at a
-   time.
-3. **Per-change queries.** `plan_rfc_notifications` calls
-   `subscriptions_for_change` once per change. Each call runs
-   `covering_subject_ids` (2 queries), the subscription OR-join with `.distinct()`
-   (1), the predicate query (1), and 3 more for each departed subseries. At 500
-   changes that is 2,000–3,500 round trips inside one read-only transaction. This
-   is fine for the hourly run, which sees a few changes, and it is the reason
-   `MAX_CHANGES` exists.
-
-Parallelising would not help. The CPU-bound step is jsonschema validation, which
-is single-threaded under the GIL. The database step is round trips, and batching
-removes them, which threads would not.
+The simulator (`subscriptions/simulate.py`, admin `subscriptions/simulate/`) ran
+inside the upload request, showed no progress, and matched changes one at a time.
+These steps move it to a background task with a progress page, batch the
+matching, and keep uploads small.
 
 ### Steps
 
@@ -2326,6 +2288,18 @@ removes them, which threads would not.
    - `compare` logs at INFO and WARNING as if it were a real run. Under the
      simulator, prefix those lines or log them at DEBUG, so a simulation does not
      look like a detection in the logs.
+5. **Upload entries, not a whole index.** The nginx in front of staging limits
+   request bodies to 1 MB, and a whole index is about 17 MB. A `holds` choice on
+   the form, defaulting to entries, makes the task fetch Red's live index with
+   `rfcmeta.fetch_payload()` (uncached) and apply the upload: an entry replaces the
+   live one with the same `number`, and is otherwise added. The upload is a list of
+   entries, or `{"index": [...], "createdOn": ...}`. The entries are validated on
+   their own first, so a schema error names their place in the upload. Whole-index
+   uploads remain for files under the limit.
+6. **Keep personal data out of what a run stores and logs.** Readers are named, with
+   their email, only when the email ends in `@staff.ietf.org`; anyone else is
+   `user #<id>`. The same applies to the uploader in the arrival log line
+   (`simulate: run N queued by …`).
 
 ### Verification
 
