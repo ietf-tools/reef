@@ -106,7 +106,7 @@ class SimulatorTestCase(TestCase):
         self.reader = User.objects.create(
             username="reader",
             oidc_sub="s-reader",
-            email="reader@example.org",
+            email="reader@staff.ietf.org",
             receive_digest_email=True,
         )
         self.quiet = User.objects.create(
@@ -119,12 +119,15 @@ class SimulatorTestCase(TestCase):
     def snapshot_of(self, mapping, day=SNAPSHOT_DAY):
         save_snapshot(reduce_index(mapping), day)
 
-    def simulate(self, payload):
+    def post(self, payload, holds=SimulationRun.Holds.INDEX):
+        return self.client.post(self.url, {"holds": holds, "index": upload(payload)})
+
+    def simulate(self, payload, holds=SimulationRun.Holds.INDEX):
         """Upload, run the queued task in place, and open the run's page."""
         with mock.patch(
             "subscriptions.admin.run_simulation.delay", side_effect=run_simulation
         ):
-            posted = self.client.post(self.url, {"index": upload(payload)})
+            posted = self.post(payload, holds)
         self.assertEqual(posted.status_code, 302)
         return self.client.get(posted["Location"])
 
@@ -147,7 +150,7 @@ class SimulateViewTests(SimulatorTestCase):
         plain = User.objects.create(username="p", oidc_sub="s-p", is_staff=True)
         login(self.client, plain)
         self.assertEqual(self.client.get(self.url).status_code, 403)
-        posted = self.client.post(self.url, {"index": upload(self.two_documents())})
+        posted = self.post(self.two_documents())
         self.assertEqual(posted.status_code, 403)
         run_url = reverse("admin:subscriptions-simulate-run", args=[run.pk])
         self.assertEqual(self.client.get(run_url).status_code, 403)
@@ -157,7 +160,7 @@ class SimulateViewTests(SimulatorTestCase):
 
     def test_an_upload_is_queued_and_redirects_to_its_run(self):
         with mock.patch("subscriptions.admin.run_simulation.delay") as delay:
-            posted = self.client.post(self.url, {"index": upload(self.two_documents())})
+            posted = self.post(self.two_documents())
         run = self.latest_run()
         delay.assert_called_once_with(run.pk)
         self.assertRedirects(
@@ -167,10 +170,11 @@ class SimulateViewTests(SimulatorTestCase):
         )
         self.assertEqual(run.triggered_by, self.staff)
         self.assertEqual(run.status, SimulationRun.Status.PENDING)
+        self.assertEqual(run.holds, SimulationRun.Holds.INDEX)
 
     def test_a_queued_run_refreshes_itself(self):
         with mock.patch("subscriptions.admin.run_simulation.delay"):
-            posted = self.client.post(self.url, {"index": upload(self.two_documents())})
+            posted = self.post(self.two_documents())
         response = self.client.get(posted["Location"])
         self.assertContains(response, 'http-equiv="refresh"')
         self.assertContains(response, "Queued")
@@ -195,7 +199,7 @@ class SimulateViewTests(SimulatorTestCase):
             by_user,
             {
                 "reader": "web feed and email",
-                "quiet": "web feed only: digest email is off",
+                f"user #{self.quiet.pk}": "web feed only: digest email is off",
             },
         )
         self.assertContains(response, "RFC 9111")
@@ -252,7 +256,9 @@ class SimulateViewTests(SimulatorTestCase):
 
     def test_json_that_is_not_an_index_is_reported_with_where(self):
         response = self.simulate({"createdOn": INDEX_DAY, "index": [{"number": 1}]})
-        self.assertContains(response, "Does not match the rfc-index schema at index/0")
+        self.assertContains(
+            response, "The upload does not match the rfc-index schema at index/0"
+        )
         self.assertEqual(self.latest_run().status, SimulationRun.Status.FAILED)
 
     def test_a_large_diff_is_matched_in_full(self):
@@ -265,7 +271,7 @@ class SimulateViewTests(SimulatorTestCase):
         self.assertEqual(len(report["rows"]), len(entries))
         self.assertEqual(
             {row["user"]: row["events"] for row in report["readers"]},
-            {"reader": len(entries), "quiet": len(entries)},
+            {"reader": len(entries), f"user #{self.quiet.pk}": len(entries)},
         )
 
     def test_each_phase_is_timed_and_shown(self):
@@ -304,6 +310,116 @@ class SimulateViewTests(SimulatorTestCase):
         self.assertContains(response, "boom")
 
 
+class SimulateEntriesTests(SimulatorTestCase):
+    """An upload of a few entries, applied to Red's live index fetched for the run."""
+
+    def setUp(self):
+        super().setUp()
+        self.snapshot_of({"rfc9110": meta(status="std", subseries=["std97"])})
+        fetch = mock.patch(
+            "reef.rfcmeta.fetch_payload",
+            return_value=index_payload([entry()], created_on=INDEX_DAY),
+        )
+        self.fetch = fetch.start()
+        self.addCleanup(fetch.stop)
+
+    def simulate_entries(self, payload):
+        return self.simulate(payload, SimulationRun.Holds.ENTRIES)
+
+    def test_an_uploaded_entry_is_added_to_the_live_index(self):
+        response = self.simulate_entries([entry(number=99999, title="Fake")])
+        report = response.context["report"]
+        self.assertEqual(report["added"], [99999])
+        self.assertEqual(report["replaced"], [])
+        self.assertEqual(report["index_count"], 2)
+        self.assertEqual([row["doc_display"] for row in report["rows"]], ["RFC 99999"])
+        self.assertContains(response, "added RFC 99999")
+        self.fetch.assert_called_once_with()
+
+    def test_an_uploaded_entry_replaces_the_live_one_with_its_number(self):
+        report = self.simulate_entries([entry(subseries=[])]).context["report"]
+        self.assertEqual(report["replaced"], [9110])
+        self.assertEqual(report["added"], [])
+        [row] = report["rows"]
+        self.assertEqual(row["doc_display"], "RFC 9110")
+        self.assertEqual(
+            [name for name, _before, _after in row["fields"]], ["subseries"]
+        )
+
+    def test_an_uploaded_created_on_is_used_in_place_of_the_live_one(self):
+        report = self.simulate_entries(
+            {"createdOn": "2026-08-01", "index": [entry(number=99999)]}
+        ).context["report"]
+        self.assertEqual(report["outcome"], "older")
+
+    def test_an_upload_of_the_wrong_shape_is_reported(self):
+        response = self.simulate_entries({"entries": []})
+        self.assertContains(response, "Expected a list of index entries")
+        self.fetch.assert_not_called()
+
+    def test_an_entry_the_schema_refuses_is_reported_at_its_place_in_the_upload(self):
+        response = self.simulate_entries([entry(number=99999), {"number": 99998}])
+        self.assertContains(
+            response, "The upload does not match the rfc-index schema at index/1"
+        )
+
+    def test_red_being_unreachable_is_reported(self):
+        self.fetch.return_value = None
+        response = self.simulate_entries([entry(number=99999)])
+        self.assertContains(response, "Could not fetch Red&#x27;s live index")
+        self.assertEqual(self.latest_run().status, SimulationRun.Status.FAILED)
+
+    def test_the_live_index_is_not_cached(self):
+        self.simulate_entries([entry(number=99999)])
+        self.assertIsNone(rfcmeta._memo["value"])
+        self.assertIsNone(cache.get(rfcmeta.CACHE_KEY))
+        self.assertEqual(rfcmeta._abstracts, {})
+
+
+class PersonalDataTests(SimulatorTestCase):
+    """Only staff are named in what a run keeps or logs."""
+
+    def setUp(self):
+        super().setUp()
+        self.snapshot_of({"rfc9110": meta(status="std", subseries=["std97"])})
+
+    def test_a_reader_outside_staff_is_kept_by_id_only(self):
+        self.simulate(self.two_documents())
+        stored = json.dumps(self.latest_run().result)
+        self.assertNotIn("quiet@example.org", stored)
+        self.assertNotIn('"quiet"', stored)
+        self.assertIn(f"user #{self.quiet.pk}", stored)
+
+    def test_a_staff_reader_is_named(self):
+        self.simulate(self.two_documents())
+        [staff] = [
+            row
+            for row in self.latest_run().result["readers"]
+            if row["user"] == "reader"
+        ]
+        self.assertEqual(staff["email"], "reader@staff.ietf.org")
+
+    def test_the_arrival_log_names_only_staff(self):
+        with (
+            mock.patch("subscriptions.admin.run_simulation.delay"),
+            self.assertLogs("reef", level="INFO") as logs,
+        ):
+            self.post(self.two_documents())
+        [line] = [line for line in logs.output if "queued by" in line]
+        self.assertIn(f"queued by user #{self.staff.pk}", line)
+        self.assertNotIn("admin:", line)
+
+        self.staff.email = "admin@staff.ietf.org"
+        self.staff.save()
+        with (
+            mock.patch("subscriptions.admin.run_simulation.delay"),
+            self.assertLogs("reef", level="INFO") as logs,
+        ):
+            self.post(self.two_documents())
+        [line] = [line for line in logs.output if "queued by" in line]
+        self.assertIn("queued by admin:", line)
+
+
 class ProgressTests(SimulatorTestCase):
     def test_each_phase_is_announced_before_it_starts(self):
         self.snapshot_of({"rfc9110": meta(status="std", subseries=["std97"])})
@@ -313,8 +429,8 @@ class ProgressTests(SimulatorTestCase):
             messages,
             [
                 "Reading the uploaded JSON",
-                "Checking the upload against the rfc-index schema",
-                "Reducing the upload to the watched fields",
+                "Checking the index against the rfc-index schema",
+                "Reducing the index to the watched fields",
                 "Reading the live snapshot",
                 "Comparing 2 documents with the snapshot",
                 "Matching 1 change(s) against subscriptions",

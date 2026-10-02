@@ -33,7 +33,19 @@
 {% elif report %}
   <h2>Inputs</h2>
   <table>
-    <tr><th>Uploaded index</th><td>createdOn {{ report.index_created_on|default:"(missing)" }}, {{ report.index_count }} documents</td></tr>
+    <tr>
+      <th>{% if run.holds == "entries" %}Red's live index with the upload applied{% else %}Uploaded index{% endif %}</th>
+      <td>createdOn {{ report.index_created_on|default:"(missing)" }}, {{ report.index_count }} documents</td>
+    </tr>
+    {% if run.holds == "entries" %}
+      <tr>
+        <th>Upload</th>
+        <td>
+          added {% for number in report.added %}RFC {{ number }}{% if not forloop.last %}, {% endif %}{% empty %}nothing{% endfor %};
+          replaced {% for number in report.replaced %}RFC {{ number }}{% if not forloop.last %}, {% endif %}{% empty %}nothing{% endfor %}
+        </td>
+      </tr>
+    {% endif %}
     <tr>
       <th>Live snapshot</th>
       <td>
@@ -89,6 +101,7 @@
 
   {% if report.readers %}
     <h2>Readers</h2>
+    <p>Names and addresses are recorded only for <code>@staff.ietf.org</code> accounts; anyone else is listed by user id.</p>
     <table>
       <thead>
         <tr><th>User</th><th>Email</th><th>Delivery</th><th>Events</th><th>Subscriptions</th></tr>
@@ -97,7 +110,7 @@
         {% for reader in report.readers %}
           <tr>
             <td>{{ reader.user }}</td>
-            <td>{{ reader.email|default:"(none)" }}</td>
+            <td>{{ reader.email|default:"(not recorded)" }}</td>
             <td>{{ reader.delivery }}</td>
             <td>{{ reader.events }}</td>
             <td>{{ reader.subscriptions }}</td>

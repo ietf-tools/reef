@@ -1,4 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+import logging
 import zlib
 
 from django import forms
@@ -19,7 +20,10 @@ from .models import (
     Subscription,
     WebNotification,
 )
+from .simulate import identify
 from .tasks import run_simulation
+
+logger = logging.getLogger("reef")
 
 # Red's index is about 17 MB; anything far beyond that is not one.
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
@@ -45,12 +49,18 @@ class WebNotificationAdmin(admin.ModelAdmin):
 
 
 class SimulateForm(forms.Form):
+    holds = forms.ChoiceField(
+        label="The file holds",
+        choices=SimulationRun.Holds.choices,
+        initial=SimulationRun.Holds.ENTRIES,
+        widget=forms.RadioSelect,
+    )
     index = forms.FileField(
-        label="rfc-index.json",
+        label="File",
         help_text=(
-            "Red's /api/v1/rfc-index.json, or an edited copy. Compared with the "
-            "live snapshot and subscriptions in the background; nothing else is "
-            "saved, and the upload is discarded once the run finishes."
+            "JSON. Compared with the live snapshot and subscriptions in the "
+            "background; nothing else is saved, and the upload is discarded once "
+            "the run finishes."
         ),
     )
 
@@ -75,7 +85,18 @@ def simulate_view(request):
             form.add_error("index", "That file is larger than the index should be.")
         else:
             run = SimulationRun.objects.create(
-                triggered_by=request.user, upload=zlib.compress(upload.read())
+                triggered_by=request.user,
+                holds=form.cleaned_data["holds"],
+                upload=zlib.compress(upload.read()),
+            )
+            # Logged on arrival, so that an upload which reached Django can be told
+            # apart from one held up in front of it.
+            logger.info(
+                "simulate: run %s queued by %s: %s bytes of %s",
+                run.pk,
+                identify(request.user)[0],
+                upload.size,
+                run.holds,
             )
             run_simulation.delay(run.pk)
             return HttpResponseRedirect(

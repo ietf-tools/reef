@@ -9,6 +9,15 @@
   snapshot, notification, or cache entry is written, and nothing is sent. The run
   itself is recorded below.
 </p>
+<p>
+  To try one fake or edited RFC, upload just its entry rather than a whole index:
+  Reef fetches Red's live index itself and applies the upload to it. The file is a
+  list of entries, each a whole entry as it appears in <code>rfc-index.json</code>,
+  or an object with an <code>index</code> list and optionally a
+  <code>createdOn</code>. An entry replaces the live one with the same
+  <code>number</code>, and is otherwise added:
+</p>
+<pre>[{"number": 99999, "title": "A fake RFC", "status": {"slug": "ps", "name": "proposed standard"}, &hellip;}]</pre>
 
 <form method="post" enctype="multipart/form-data">
   {% csrf_token %}

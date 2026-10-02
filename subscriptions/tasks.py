@@ -410,7 +410,11 @@ def run_simulation(run_id):
 
     phases = Phases(progress)
     try:
-        report = simulate(zlib.decompress(bytes(run.upload)), phases)
+        report = simulate(
+            zlib.decompress(bytes(run.upload)),
+            phases,
+            patch=run.holds == SimulationRun.Holds.ENTRIES,
+        )
     except Exception:
         logger.error("simulate: run %s failed", run_id, exc_info=True)
         run.status = SimulationRun.Status.FAILED

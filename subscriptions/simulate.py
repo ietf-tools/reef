@@ -141,6 +141,10 @@ class ReaderRow:
 @dataclass
 class Report:
     problem: str = ""
+    # For an upload applied to Red's live index: the documents it added, and those
+    # whose live entry it replaced.
+    added: list = field(default_factory=list)
+    replaced: list = field(default_factory=list)
     index_created_on: object = None
     index_count: int = 0
     snapshot_state: str = ""
@@ -152,6 +156,19 @@ class Report:
     readers: list = field(default_factory=list)
 
 
+# Readers are named in a run's stored report only when they are IETF staff.
+# Anyone else is recorded by user id: the report is kept for debugging, and a name
+# or address in it would be one more copy of somebody's personal data.
+STAFF_EMAIL_DOMAIN = "@staff.ietf.org"
+
+
+def identify(user):
+    """(name, email) to record for a user: theirs for staff, an id for anyone else."""
+    if user.email.lower().endswith(STAFF_EMAIL_DOMAIN):
+        return user.username, user.email
+    return f"user #{user.pk}", ""
+
+
 def _delivery(user):
     if not user.receive_digest_email:
         return "web feed only: digest email is off"
@@ -160,8 +177,55 @@ def _delivery(user):
     return "web feed and email"
 
 
-def simulate(raw, phases=None):
-    """The Report for an uploaded rfc-index.json, as bytes. Changes nothing.
+def uploaded_entries(upload):
+    """The entries an upload to apply to the live index holds, and its createdOn.
+
+    A list of entries, or an object with an "index" list and optionally a
+    "createdOn" to use in place of the live one. Raises ValueError for any other
+    shape; whether the entries themselves are right is the schema's to say.
+    """
+    if isinstance(upload, list):
+        entries, created_on = upload, None
+    elif isinstance(upload, dict) and isinstance(upload.get("index"), list):
+        entries, created_on = upload["index"], upload.get("createdOn")
+    else:
+        raise ValueError(
+            'Expected a list of index entries, or an object with an "index" list'
+        )
+    for position, entry in enumerate(entries):
+        if not isinstance(entry, dict) or "number" not in entry:
+            raise ValueError(f"Entry {position} is not an object with a number")
+    return entries, created_on
+
+
+def apply_upload(live, entries, created_on=None):
+    """Red's live index with the uploaded entries in it, and what they did to it.
+
+    Returns (payload, added, replaced), where added and replaced are RFC numbers. An
+    entry replaces the live one with the same number and is otherwise added.
+    """
+    replacing = {entry["number"]: entry for entry in entries}
+    replaced, merged = [], []
+    for entry in live.get("index") or []:
+        number = entry.get("number") if isinstance(entry, dict) else None
+        if number in replacing:
+            merged.append(replacing.pop(number))
+            replaced.append(number)
+        else:
+            merged.append(entry)
+    merged.extend(replacing.values())
+    payload = {**live, "index": merged}
+    if created_on is not None:
+        payload["createdOn"] = created_on
+    return payload, list(replacing), replaced
+
+
+def simulate(raw, phases=None, patch=False):
+    """The Report for an uploaded file, as bytes. Changes nothing.
+
+    The upload is a whole rfc-index.json, or with `patch` entries to apply to Red's
+    live index (see apply_upload). The live index is fetched here, which is what
+    keeps the upload small enough to get through the proxies in front of Reef.
 
     An upload that is not JSON, or not an index, is a Report with `problem` set
     rather than an exception.
@@ -176,15 +240,42 @@ def simulate(raw, phases=None):
             report.problem = f"Not valid JSON: {exc}"
             return report
 
-    with phases.phase("validate", "Checking the upload against the rfc-index schema"):
+    if patch:
+        try:
+            entries, created_on = uploaded_entries(payload)
+        except ValueError as exc:
+            report.problem = str(exc)
+            return report
+        with phases.phase("fetch", "Fetching Red's live index"):
+            live = rfcmeta.fetch_payload()
+        if not isinstance(live, dict):
+            report.problem = "Could not fetch Red's live index to apply the upload to."
+            return report
+        # The entries on their own first, so that a mistake in one is reported at
+        # its place in the upload rather than at the end of a ten-thousand-entry
+        # index.
+        problem = rfcmeta.validation_problem(
+            {"createdOn": created_on or live.get("createdOn"), "index": entries}
+        )
+        if problem is not None:
+            report.problem = (
+                f"The upload does not match the rfc-index schema at {problem}"
+            )
+            return report
+        payload, report.added, report.replaced = apply_upload(live, entries, created_on)
+
+    with phases.phase("validate", "Checking the index against the rfc-index schema"):
         problem = rfcmeta.validation_problem(payload)
         if problem is not None:
-            report.problem = f"Does not match the rfc-index schema at {problem}"
+            source = "Red's live index" if patch else "The upload"
+            report.problem = (
+                f"{source} does not match the rfc-index schema at {problem}"
+            )
             return report
 
-    with phases.phase("reduce", "Reducing the upload to the watched fields"):
+    with phases.phase("reduce", "Reducing the index to the watched fields"):
         mapping, created_on = rfcmeta.reduce_payload(payload)
-        # The parsed upload is many times the size of the reduced mapping, and
+        # The parsed index is many times the size of the reduced mapping, and
         # nothing after this needs it.
         del payload
         index = rfcmeta.DocumentIndex(mapping, created_on)
@@ -243,10 +334,11 @@ def simulate(raw, phases=None):
         users = get_user_model().objects.in_bulk(list(readers))
     for user_id, reader in readers.items():
         user = users[user_id]
+        name, email = identify(user)
         report.readers.append(
             ReaderRow(
-                user=user.username,
-                email=user.email,
+                user=name,
+                email=email,
                 delivery=_delivery(user),
                 events=len(reader["events"]),
                 subscriptions=len(reader["subscriptions"]),

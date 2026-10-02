@@ -368,6 +368,10 @@ class SimulationRun(models.Model):
         SUCCEEDED = "succeeded", "Succeeded"
         FAILED = "failed", "Failed"
 
+    class Holds(models.TextChoices):
+        ENTRIES = "entries", "Entries to add to, or replace in, Red's live index"
+        INDEX = "index", "A whole rfc-index.json"
+
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.PENDING
     )
@@ -378,10 +382,14 @@ class SimulationRun(models.Model):
         blank=True,
         related_name="simulation_runs",
     )
+    # What `upload` is. Entries keep the upload a few KB: a whole index is about
+    # 17 MB, which the proxies in front of staging have been seen to swallow
+    # without ever passing it on or answering.
+    holds = models.CharField(max_length=10, choices=Holds.choices, default=Holds.INDEX)
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
-    # The uploaded file, zlib-compressed: about 2 MB for Red's 17 MB index. Emptied
+    # The uploaded file, zlib-compressed: about 2 MB for a whole index. Emptied
     # once the run finishes, whichever way, because only the task reads it.
     upload = models.BinaryField(blank=True, default=b"")
     # The phase the task is in, for the polling page.

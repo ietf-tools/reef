@@ -271,6 +271,16 @@ def validation_problem(payload):
     return None
 
 
+def fetch_payload():
+    """Red's index exactly as published, unvalidated, or None if it cannot be read.
+
+    Pure in the same way as validation_problem(): nothing is cached, memoised or
+    kept, so a simulation can start from the live index without its result becoming
+    the one Reef serves.
+    """
+    return _fetch(INDEX_PATH, settings.REEF_RFC_DATA_TIMEOUT)
+
+
 def reduce_payload(payload):
     """A validated payload as (mapping, created_on), without storing anything."""
     created_on = None
