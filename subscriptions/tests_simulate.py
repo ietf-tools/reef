@@ -1,5 +1,6 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
-"""The admin change-detection simulator, which must never change anything."""
+"""The admin change-detection simulator, which must never change anything but its
+own run row."""
 
 import datetime
 import json
@@ -23,11 +24,13 @@ from subscriptions.changes import reduce_index, save_snapshot
 from subscriptions.models import (
     DocumentSnapshot,
     PendingNotification,
+    SimulationRun,
     SubjectNotificationEvent,
     Subscription,
     WebNotification,
 )
-from subscriptions.simulate import read_only_database
+from subscriptions.simulate import Phases, read_only_database, simulate
+from subscriptions.tasks import run_simulation
 
 User = get_user_model()
 
@@ -36,9 +39,8 @@ INDEX_DAY = "2026-08-31"
 
 
 def upload(payload):
-    return SimpleUploadedFile(
-        "rfc-index.json", json.dumps(payload).encode(), "application/json"
-    )
+    body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+    return SimpleUploadedFile("rfc-index.json", body, "application/json")
 
 
 class ReadOnlyDatabaseTests(TestCase):
@@ -118,7 +120,16 @@ class SimulatorTestCase(TestCase):
         save_snapshot(reduce_index(mapping), day)
 
     def simulate(self, payload):
-        return self.client.post(self.url, {"index": upload(payload)})
+        """Upload, run the queued task in place, and open the run's page."""
+        with mock.patch(
+            "subscriptions.admin.run_simulation.delay", side_effect=run_simulation
+        ):
+            posted = self.client.post(self.url, {"index": upload(payload)})
+        self.assertEqual(posted.status_code, 302)
+        return self.client.get(posted["Location"])
+
+    def latest_run(self):
+        return SimulationRun.objects.latest("created_at")
 
     def two_documents(self, day=INDEX_DAY):
         return index_payload(
@@ -132,22 +143,54 @@ class SimulateViewTests(SimulatorTestCase):
         self.assertEqual(self.client.get(self.url).status_code, 302)
 
     def test_staff_without_permission_is_refused(self):
+        run = SimulationRun.objects.create()
         plain = User.objects.create(username="p", oidc_sub="s-p", is_staff=True)
         login(self.client, plain)
         self.assertEqual(self.client.get(self.url).status_code, 403)
-        self.assertEqual(self.simulate(self.two_documents()).status_code, 403)
+        posted = self.client.post(self.url, {"index": upload(self.two_documents())})
+        self.assertEqual(posted.status_code, 403)
+        run_url = reverse("admin:subscriptions-simulate-run", args=[run.pk])
+        self.assertEqual(self.client.get(run_url).status_code, 403)
 
     def test_get_shows_the_form(self):
         self.assertContains(self.client.get(self.url), "rfc-index.json")
+
+    def test_an_upload_is_queued_and_redirects_to_its_run(self):
+        with mock.patch("subscriptions.admin.run_simulation.delay") as delay:
+            posted = self.client.post(self.url, {"index": upload(self.two_documents())})
+        run = self.latest_run()
+        delay.assert_called_once_with(run.pk)
+        self.assertRedirects(
+            posted,
+            reverse("admin:subscriptions-simulate-run", args=[run.pk]),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(run.triggered_by, self.staff)
+        self.assertEqual(run.status, SimulationRun.Status.PENDING)
+
+    def test_a_queued_run_refreshes_itself(self):
+        with mock.patch("subscriptions.admin.run_simulation.delay"):
+            posted = self.client.post(self.url, {"index": upload(self.two_documents())})
+        response = self.client.get(posted["Location"])
+        self.assertContains(response, 'http-equiv="refresh"')
+        self.assertContains(response, "Queued")
+
+    def test_a_finished_run_stops_refreshing_and_is_listed(self):
+        response = self.simulate(self.two_documents())
+        self.assertNotContains(response, 'http-equiv="refresh"')
+        self.assertContains(
+            self.client.get(self.url),
+            reverse("admin:subscriptions-simulate-run", args=[self.latest_run().pk]),
+        )
 
     def test_a_new_document_is_listed_with_who_it_reaches(self):
         self.snapshot_of({"rfc9110": meta(status="std", subseries=["std97"])})
         response = self.simulate(self.two_documents())
         report = response.context["report"]
-        self.assertEqual(report.outcome, "compared")
-        self.assertEqual([row.doc_display for row in report.rows], ["RFC 9111"])
-        self.assertEqual(report.rows[0].matched, {"new_rfc": 2})
-        by_user = {row.user: row.delivery for row in report.readers}
+        self.assertEqual(report["outcome"], "compared")
+        self.assertEqual([row["doc_display"] for row in report["rows"]], ["RFC 9111"])
+        self.assertEqual(report["rows"][0]["matched"], {"new_rfc": 2})
+        by_user = {row["user"]: row["delivery"] for row in report["readers"]}
         self.assertEqual(
             by_user,
             {
@@ -156,6 +199,7 @@ class SimulateViewTests(SimulatorTestCase):
             },
         )
         self.assertContains(response, "RFC 9111")
+        self.assertEqual(self.latest_run().status, SimulationRun.Status.SUCCEEDED)
 
     def test_a_same_day_index_is_compared_as_normal(self):
         self.snapshot_of(
@@ -163,30 +207,32 @@ class SimulateViewTests(SimulatorTestCase):
             day=datetime.date.fromisoformat(INDEX_DAY),
         )
         report = self.simulate(self.two_documents()).context["report"]
-        self.assertEqual(report.outcome, "compared")
-        self.assertEqual([row.doc_display for row in report.rows], ["RFC 9111"])
+        self.assertEqual(report["outcome"], "compared")
+        self.assertEqual([row["doc_display"] for row in report["rows"]], ["RFC 9111"])
 
     def test_an_index_older_than_the_snapshot_would_not_be_compared(self):
         self.snapshot_of({"rfc9110": meta()}, day=datetime.date(2026, 9, 1))
-        with self.assertLogs("reef", level="ERROR"):
+        with self.assertLogs("reef", level="ERROR") as logs:
             response = self.simulate(self.two_documents())
         report = response.context["report"]
-        self.assertEqual(report.outcome, "older")
-        self.assertEqual(report.rows, [])
+        self.assertEqual(report["outcome"], "older")
+        self.assertEqual(report["rows"], [])
         self.assertContains(response, "Refuse to compare")
+        # Marked, so that a rehearsal is not mistaken for the real run refusing.
+        self.assertTrue(logs.records[0].getMessage().startswith("simulate: "))
 
     def test_without_a_snapshot_nothing_would_be_notified(self):
         report = self.simulate(self.two_documents()).context["report"]
-        self.assertEqual(report.outcome, "seeded")
-        self.assertEqual(report.snapshot_state, "none")
-        self.assertEqual(report.rows, [])
+        self.assertEqual(report["outcome"], "seeded")
+        self.assertEqual(report["snapshot_state"], "none")
+        self.assertEqual(report["rows"], [])
 
     def test_an_unreadable_snapshot_is_reported(self):
         DocumentSnapshot.objects.create(pk=1, payload=b"not compressed")
         with self.assertLogs("reef", level="ERROR"):
             report = self.simulate(self.two_documents()).context["report"]
-        self.assertEqual(report.snapshot_state, "unreadable")
-        self.assertEqual(report.outcome, "seeded")
+        self.assertEqual(report["snapshot_state"], "unreadable")
+        self.assertEqual(report["outcome"], "seeded")
 
     def test_document_set_subscribers_are_matched_against_the_uploaded_subseries(self):
         docset = DocumentSet.objects.create(owner=self.reader, title="Mine")
@@ -197,27 +243,97 @@ class SimulateViewTests(SimulatorTestCase):
         self.snapshot_of({"rfc9110": meta(status="ps", subseries=["std97"])})
         payload = index_payload([entry()])
         report = self.simulate(payload).context["report"]
-        self.assertEqual(report.rows[0].matched, {"set": 1})
+        self.assertEqual(report["rows"][0]["matched"], {"set": 1})
 
     def test_text_that_is_not_json_is_reported(self):
-        upload_file = SimpleUploadedFile("rfc-index.json", b"{nope")
-        response = self.client.post(self.url, {"index": upload_file})
+        response = self.simulate(b"{nope")
         self.assertContains(response, "Not valid JSON")
-        self.assertIsNone(response.context["report"])
+        self.assertEqual(self.latest_run().status, SimulationRun.Status.FAILED)
 
     def test_json_that_is_not_an_index_is_reported_with_where(self):
         response = self.simulate({"createdOn": INDEX_DAY, "index": [{"number": 1}]})
         self.assertContains(response, "Does not match the rfc-index schema at index/0")
-        self.assertIsNone(response.context["report"])
+        self.assertEqual(self.latest_run().status, SimulationRun.Status.FAILED)
 
-    def test_a_large_diff_is_capped(self):
+    def test_a_large_diff_is_matched_in_full(self):
+        """More changes than the simulator once capped at, every one matched, so
+        the readers table counts every event rather than the first few hundred."""
         self.snapshot_of({"rfc9110": meta()})
-        entries = [entry(number=n) for n in range(1, 8)]
-        with mock.patch.object(simulate_module, "MAX_CHANGES", 3):
-            report = self.simulate(index_payload(entries)).context["report"]
-        self.assertTrue(report.truncated)
-        self.assertEqual(len(report.rows), 3)
-        self.assertEqual(report.changes_found, len(entries))
+        entries = [entry(number=n) for n in range(1, 602)]
+        report = self.simulate(index_payload(entries)).context["report"]
+        self.assertEqual(report["changes_found"], len(entries))
+        self.assertEqual(len(report["rows"]), len(entries))
+        self.assertEqual(
+            {row["user"]: row["events"] for row in report["readers"]},
+            {"reader": len(entries), "quiet": len(entries)},
+        )
+
+    def test_each_phase_is_timed_and_shown(self):
+        self.snapshot_of({"rfc9110": meta()})
+        response = self.simulate(self.two_documents())
+        timings = self.latest_run().timings
+        self.assertEqual(
+            [timing["phase"] for timing in timings],
+            ["parse", "validate", "reduce", "snapshot", "compare", "match", "readers"],
+        )
+        self.assertEqual(timings[0]["queries"], 0)
+        self.assertGreater(timings[3]["queries"], 0)
+        self.assertContains(response, "Timings")
+
+    def test_the_upload_is_discarded_once_the_run_finishes(self):
+        self.simulate(self.two_documents())
+        self.assertEqual(bytes(self.latest_run().upload), b"")
+
+    def test_a_run_that_raises_keeps_its_error_and_how_far_it_got(self):
+        self.snapshot_of({"rfc9110": meta()})
+        with (
+            mock.patch.object(
+                simulate_module,
+                "plan_rfc_notifications",
+                side_effect=RuntimeError("boom"),
+            ),
+            self.assertLogs("reef", level="ERROR"),
+        ):
+            response = self.simulate(self.two_documents())
+        run = self.latest_run()
+        self.assertEqual(run.status, SimulationRun.Status.FAILED)
+        self.assertIn("RuntimeError: boom", run.error)
+        self.assertEqual(run.timings[-1]["phase"], "match")
+        self.assertIn("Matching", run.progress_message)
+        self.assertEqual(bytes(run.upload), b"")
+        self.assertContains(response, "boom")
+
+
+class ProgressTests(SimulatorTestCase):
+    def test_each_phase_is_announced_before_it_starts(self):
+        self.snapshot_of({"rfc9110": meta(status="std", subseries=["std97"])})
+        messages = []
+        simulate(json.dumps(self.two_documents()).encode(), Phases(messages.append))
+        self.assertEqual(
+            messages,
+            [
+                "Reading the uploaded JSON",
+                "Checking the upload against the rfc-index schema",
+                "Reducing the upload to the watched fields",
+                "Reading the live snapshot",
+                "Comparing 2 documents with the snapshot",
+                "Matching 1 change(s) against subscriptions",
+                "Looking up 2 reader(s)",
+            ],
+        )
+
+    def test_progress_can_be_written_while_the_simulation_runs(self):
+        """Announced outside the read-only blocks: a write from inside one would
+        be refused and fail the run."""
+        run = SimulationRun.objects.create()
+
+        def record(message):
+            SimulationRun.objects.filter(pk=run.pk).update(progress_message=message)
+
+        report = simulate(json.dumps(self.two_documents()).encode(), Phases(record))
+        self.assertEqual(report.problem, "")
+        run.refresh_from_db()
+        self.assertEqual(run.progress_message, "Looking up 0 reader(s)")
 
 
 class SimulateChangesNothingTests(SimulatorTestCase):
@@ -254,7 +370,9 @@ class SimulateChangesNothingTests(SimulatorTestCase):
         writes = [
             q["sql"]
             for q in queries
-            if not q["sql"]
+            # The run's own row is the one thing a simulation writes.
+            if '"subscriptions_simulationrun"' not in q["sql"]
+            and not q["sql"]
             .lstrip()
             .upper()
             # The simulator's own request that PostgreSQL refuse writes.

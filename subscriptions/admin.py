@@ -1,9 +1,12 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+import zlib
+
 from django import forms
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import render
-from django.urls import path
+from django.http import HttpResponseRedirect
+from django.shortcuts import get_object_or_404, render
+from django.urls import path, reverse
 
 from reef.admin_readonly import ReadOnlyAdminMixin
 
@@ -11,11 +14,12 @@ from .changes import COMPARED, OLDER, SEEDED, load_snapshot
 from .models import (
     DocumentSnapshot,
     PendingNotification,
+    SimulationRun,
     SubjectNotificationEvent,
     Subscription,
     WebNotification,
 )
-from .simulate import read_payload, simulate
+from .tasks import run_simulation
 
 # Red's index is about 17 MB; anything far beyond that is not one.
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
@@ -44,28 +48,39 @@ class SimulateForm(forms.Form):
     index = forms.FileField(
         label="rfc-index.json",
         help_text=(
-            "Red's /api/v1/rfc-index.json, or an edited copy. Read in memory and "
-            "compared with the live snapshot and subscriptions; nothing is saved."
+            "Red's /api/v1/rfc-index.json, or an edited copy. Compared with the "
+            "live snapshot and subscriptions in the background; nothing else is "
+            "saved, and the upload is discarded once the run finishes."
         ),
     )
 
 
-def simulate_view(request):
-    """What the next run would notify for an uploaded rfc-index.json. Read-only."""
+def _require_permission(request):
     if not request.user.has_perm("subscriptions.view_subscription"):
         raise PermissionDenied
-    report = None
+
+
+def simulate_view(request):
+    """Upload an rfc-index.json to see what the next run would notify. Read-only.
+
+    Only queues the run: parsing, validating and matching a whole index can outlast
+    the request, so subscriptions.tasks.run_simulation does them and
+    simulate_run_view is what a browser polls for the outcome.
+    """
+    _require_permission(request)
     form = SimulateForm(request.POST or None, request.FILES or None)
     if request.method == "POST" and form.is_valid():
         upload = form.cleaned_data["index"]
         if upload.size > MAX_UPLOAD_BYTES:
             form.add_error("index", "That file is larger than the index should be.")
         else:
-            payload, problem = read_payload(upload)
-            if problem:
-                form.add_error("index", problem)
-            else:
-                report = simulate(payload)
+            run = SimulationRun.objects.create(
+                triggered_by=request.user, upload=zlib.compress(upload.read())
+            )
+            run_simulation.delay(run.pk)
+            return HttpResponseRedirect(
+                reverse("admin:subscriptions-simulate-run", args=[run.pk])
+            )
     return render(
         request,
         "admin/subscriptions/simulate.html",
@@ -73,7 +88,25 @@ def simulate_view(request):
             **admin.site.each_context(request),
             "title": "Change detection simulator",
             "form": form,
-            "report": report,
+            "recent_runs": SimulationRun.objects.defer(
+                "upload", "result"
+            ).select_related("triggered_by")[:10],
+        },
+    )
+
+
+def simulate_run_view(request, run_id):
+    """One simulation's progress while it runs, and its report once it has."""
+    _require_permission(request)
+    run = get_object_or_404(SimulationRun.objects.defer("upload"), pk=run_id)
+    return render(
+        request,
+        "admin/subscriptions/simulate_run.html",
+        {
+            **admin.site.each_context(request),
+            "title": "Change detection simulator",
+            "run": run,
+            "report": run.result,
             "SEEDED": SEEDED,
             "OLDER": OLDER,
             "COMPARED": COMPARED,
@@ -88,6 +121,11 @@ def _get_admin_urls(get_urls):
                 "subscriptions/simulate/",
                 admin.site.admin_view(simulate_view),
                 name="subscriptions-simulate",
+            ),
+            path(
+                "subscriptions/simulate/<int:run_id>/",
+                admin.site.admin_view(simulate_run_view),
+                name="subscriptions-simulate-run",
             ),
         ] + get_urls()
 

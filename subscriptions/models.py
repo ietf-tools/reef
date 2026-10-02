@@ -1,6 +1,7 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from simple_history.models import HistoricalRecords
 
@@ -350,3 +351,57 @@ class WebNotification(models.Model):
     def __str__(self):
         state = "read" if self.read else "unread"
         return f"{self.kind} notification for {self.user} ({state})"
+
+
+class SimulationRun(models.Model):
+    """One upload to the admin change-detection simulator.
+
+    Run by a Celery task rather than inside the upload's request, which a whole
+    index and a large diff can outlast. The view stores the upload here, hands the
+    id to subscriptions.tasks.run_simulation, and redirects to a page that polls
+    this row.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Queued"
+        RUNNING = "running", "Running"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+    triggered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="simulation_runs",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    # The uploaded file, zlib-compressed: about 2 MB for Red's 17 MB index. Emptied
+    # once the run finishes, whichever way, because only the task reads it.
+    upload = models.BinaryField(blank=True, default=b"")
+    # The phase the task is in, for the polling page.
+    progress_message = models.CharField(max_length=255, blank=True)
+    # [{phase, seconds, queries}] in the order the phases ran, kept after the run
+    # so that a slow one can be explained from the page rather than the logs.
+    timings = models.JSONField(default=list, blank=True)
+    # subscriptions.simulate.Report, serialised whole with dataclasses.asdict().
+    # Dates become ISO strings, hence the encoder.
+    result = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
+    # Only for a run that raised. An upload the schema refuses is a result, with
+    # Report.problem set, not an error.
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_status_display()} ({self.created_at:%Y-%m-%d %H:%M})"
+
+    @property
+    def is_finished(self):
+        return self.status not in (self.Status.PENDING, self.Status.RUNNING)

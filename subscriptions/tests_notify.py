@@ -5,7 +5,9 @@ import datetime
 from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 from docsets.models import DocumentSet, DocumentSetEntry
 from reef import rfcmeta
@@ -13,7 +15,7 @@ from reef.testing import document_meta as meta
 from reef.testing import stub_rfc_index, warm_rfc_index
 from subjects.models import Subject, SubjectAssignment
 from subscriptions.changes import diff, load_snapshot, reduce_index
-from subscriptions.matching import subscriptions_for_change
+from subscriptions.matching import match_changes, subscriptions_for_change
 from subscriptions.models import (
     PendingNotification,
     SubjectNotificationEvent,
@@ -98,6 +100,70 @@ class PredicateMatchingTests(TestCase):
         Subscription.objects.create(user=self.user, kind=Subscription.Kind.OBSOLETED)
         change = self.change({"rfc9110": meta()}, {"rfc9110": meta(status="ds")})
         self.assertEqual(self.matched(change), set())
+
+
+class BatchedMatchingTests(TestCase):
+    """match_changes, which a publication touching thousands of documents runs
+    through in one go."""
+
+    COUNT = 50
+
+    def setUp(self):
+        self.user = User.objects.create(username="u", oidc_sub="s")
+        subject = Subject.objects.create(name="Security", slug="security")
+        docset = DocumentSet.objects.create(owner=self.user, title="Mine")
+        for n in range(1, self.COUNT + 1):
+            SubjectAssignment.objects.create(subject=subject, doc=f"rfc{n}")
+            DocumentSetEntry.objects.create(document_set=docset, doc=f"rfc{n}")
+        self.follows_rfc1 = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc1"}
+        )
+        self.follows_set = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SET, document_set=docset
+        )
+        self.follows_subject = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.SUBJECT, subject=subject
+        )
+        self.on_obsolete = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.OBSOLETED
+        )
+        self.index = rfcmeta.DocumentIndex(
+            {f"rfc{n}": meta(status="hist") for n in range(1, self.COUNT + 1)}, None
+        )
+
+    def made_historic(self, count):
+        docs = [f"rfc{n}" for n in range(1, count + 1)]
+        return diff(
+            reduce_index({doc: meta() for doc in docs}),
+            reduce_index({doc: meta(status="hist") for doc in docs}),
+        )
+
+    def test_many_changes_cost_the_queries_one_does(self):
+        with CaptureQueriesContext(connection) as one:
+            match_changes(self.made_historic(1), self.index)
+        with CaptureQueriesContext(connection) as many:
+            matched = match_changes(self.made_historic(self.COUNT), self.index)
+        self.assertEqual(len(many), len(one))
+        self.assertEqual(len(matched), self.COUNT)
+
+    def test_each_change_is_matched_on_its_own_document(self):
+        first, second = match_changes(self.made_historic(2), self.index)
+        self.assertEqual(
+            first,
+            {
+                self.follows_rfc1,
+                self.follows_set,
+                self.follows_subject,
+                self.on_obsolete,
+            },
+        )
+        self.assertEqual(
+            second, {self.follows_set, self.follows_subject, self.on_obsolete}
+        )
+
+    def test_no_changes_need_no_queries(self):
+        with self.assertNumQueries(0):
+            self.assertEqual(match_changes([], self.index), [])
 
 
 class NotifyRfcChangesTests(TestCase):

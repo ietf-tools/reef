@@ -5,37 +5,45 @@ For the admin page that debugs missing notifications. It runs the real compariso
 matching (changes.compare, matching.plan_rfc_notifications) against the live database
 and a supplied rfc-index.json, and reports the events that would be generated.
 
-It must never change anything, because it can be used against production. Three
-independent things enforce that, any one of which would be enough:
+It must never change anything but its own SimulationRun row, because it can be used
+against production. Three independent things enforce that, any one of which would
+be enough:
 
 - the pipeline it runs is the pure half: nothing in compare or plan_rfc_notifications
   writes, and the supplied index is parsed with rfcmeta's pure functions so it never
   reaches the shared cache, the process memo or the abstract store;
-- read_only_database() refuses any statement that is not a read, and on PostgreSQL
-  asks the server to refuse writes too;
+- every phase that reads the database does so inside read_only_database(), which
+  refuses any statement that is not a read, and on PostgreSQL asks the server to
+  refuse writes too;
 - read_only_database() rolls back whatever happened regardless.
+
+The run row's progress is written by the caller between phases, never inside one,
+so those writes are outside the read-only blocks rather than exceptions to them.
 """
 
 import json
+import logging
+import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 from django.contrib.auth import get_user_model
 from django.db import connection, transaction
 
 from reef import rfcmeta
 
-from .changes import compare, load_snapshot
+from .changes import compare, decode_snapshot
 from .matching import plan_rfc_notifications
 from .models import DocumentSnapshot
 
-# Planning costs a few queries per change, as the real run does. A supplied index
-# compared with a stale snapshot can differ in thousands of documents, which is not
-# something to run against a production database from a web request.
-MAX_CHANGES = 500
+logger = logging.getLogger("reef")
 
 # Savepoints are what nested atomic blocks issue, so they have to get through.
 _READS = ("SELECT", "SAVEPOINT", "RELEASE SAVEPOINT", "ROLLBACK TO SAVEPOINT")
+
+# What read_only_database() itself issues, which is not work the phase asked for and
+# would make every phase that reads look several queries dearer than it is.
+_BOOKKEEPING = ("SAVEPOINT", "RELEASE SAVEPOINT", "ROLLBACK TO SAVEPOINT", "SET LOCAL")
 
 
 def _refuse_writes(execute, sql, params, many, context):
@@ -64,6 +72,51 @@ def read_only_database():
                 yield
         finally:
             transaction.set_rollback(True)
+
+
+class _Rehearsal(logging.LoggerAdapter):
+    """compare's own log lines, marked so that a simulation is not read as a run."""
+
+    def process(self, msg, kwargs):
+        return f"simulate: {msg}", kwargs
+
+
+_log = _Rehearsal(logger, {})
+
+
+class Phases:
+    """How long each phase of a simulation took and how many queries it ran.
+
+    on_progress is told each phase as it starts, before the phase opens any
+    read-only block, so it is free to write. A phase that raises is still recorded,
+    so a failed run shows how far it got.
+    """
+
+    def __init__(self, on_progress=None):
+        self.on_progress = on_progress or (lambda message: None)
+        self.timings = []
+
+    @contextmanager
+    def phase(self, name, message):
+        self.on_progress(message)
+        queries = 0
+
+        def count(execute, sql, params, many, context):
+            nonlocal queries
+            if not str(sql).lstrip().upper().startswith(_BOOKKEEPING):
+                queries += 1
+            return execute(sql, params, many, context)
+
+        started = time.monotonic()
+        try:
+            with connection.execute_wrapper(count):
+                yield
+        finally:
+            seconds = time.monotonic() - started
+            self.timings.append(
+                {"phase": name, "seconds": round(seconds, 3), "queries": queries}
+            )
+            logger.info("simulate: %s took %.2f s (%s queries)", name, seconds, queries)
 
 
 @dataclass
@@ -95,21 +148,8 @@ class Report:
     snapshot_count: int = 0
     outcome: str = ""
     changes_found: int = 0
-    truncated: bool = False
     rows: list = field(default_factory=list)
     readers: list = field(default_factory=list)
-
-
-def read_payload(upload):
-    """The JSON an uploaded file holds, or (None, why it is not usable)."""
-    try:
-        payload = json.load(upload)
-    except (ValueError, UnicodeDecodeError) as exc:
-        return None, f"Not valid JSON: {exc}"
-    problem = rfcmeta.validation_problem(payload)
-    if problem is not None:
-        return None, f"Does not match the rfc-index schema at {problem}"
-    return payload, ""
 
 
 def _delivery(user):
@@ -120,64 +160,97 @@ def _delivery(user):
     return "web feed and email"
 
 
-def simulate(payload):
-    """The Report for a validated rfc-index.json payload. Changes nothing."""
-    mapping, created_on = rfcmeta.reduce_payload(payload)
-    index = rfcmeta.DocumentIndex(mapping, created_on)
-    report = Report(index_created_on=created_on, index_count=len(index))
+def simulate(raw, phases=None):
+    """The Report for an uploaded rfc-index.json, as bytes. Changes nothing.
 
-    with read_only_database():
+    An upload that is not JSON, or not an index, is a Report with `problem` set
+    rather than an exception.
+    """
+    phases = phases or Phases()
+    report = Report()
+
+    with phases.phase("parse", "Reading the uploaded JSON"):
+        try:
+            payload = json.loads(raw)
+        except (ValueError, UnicodeDecodeError) as exc:
+            report.problem = f"Not valid JSON: {exc}"
+            return report
+
+    with phases.phase("validate", "Checking the upload against the rfc-index schema"):
+        problem = rfcmeta.validation_problem(payload)
+        if problem is not None:
+            report.problem = f"Does not match the rfc-index schema at {problem}"
+            return report
+
+    with phases.phase("reduce", "Reducing the upload to the watched fields"):
+        mapping, created_on = rfcmeta.reduce_payload(payload)
+        # The parsed upload is many times the size of the reduced mapping, and
+        # nothing after this needs it.
+        del payload
+        index = rfcmeta.DocumentIndex(mapping, created_on)
+        report.index_created_on = created_on
+        report.index_count = len(index)
+
+    with (
+        phases.phase("snapshot", "Reading the live snapshot"),
+        read_only_database(),
+    ):
         row = DocumentSnapshot.objects.filter(pk=DocumentSnapshot.SINGLETON_PK).first()
-        previous = load_snapshot()
-        if row is None:
-            report.snapshot_state = "none"
-        elif previous is None:
-            report.snapshot_state = "unreadable"
-        else:
-            report.snapshot_state = "present"
-            report.snapshot_created_on = row.created_on
-            report.snapshot_count = len(previous)
+        previous = decode_snapshot(row, log=_log) if row else None
+    if row is None:
+        report.snapshot_state = "none"
+    elif previous is None:
+        report.snapshot_state = "unreadable"
+    else:
+        report.snapshot_state = "present"
+        report.snapshot_created_on = row.created_on
+        report.snapshot_count = len(previous)
 
-        result = compare(index, previous, row.created_on if row else None)
+    with phases.phase("compare", f"Comparing {len(index)} documents with the snapshot"):
+        result = compare(index, previous, row.created_on if row else None, log=_log)
         report.outcome = result.outcome
+        report.changes_found = len(result.changes)
 
-        changes = result.changes
-        report.changes_found = len(changes)
-        if len(changes) > MAX_CHANGES:
-            report.truncated = True
-            changes = changes[:MAX_CHANGES]
-
-        readers, matches = plan_rfc_notifications(replace(result, changes=changes))
-
-        for change, event, subscriptions in matches:
-            kinds = {}
-            for subscription in subscriptions:
-                kinds[subscription.kind] = kinds.get(subscription.kind, 0) + 1
-            report.rows.append(
-                ChangeRow(
-                    doc_display=change.doc_display,
-                    url=change.url,
-                    is_new=change.is_new,
-                    text=event["change"],
-                    fields=[
-                        (name, before, after)
-                        for name, (before, after) in change.fields.items()
-                    ],
-                    matched=kinds,
-                )
+    with (
+        phases.phase(
+            "match", f"Matching {len(result.changes)} change(s) against subscriptions"
+        ),
+        read_only_database(),
+    ):
+        readers, matches = plan_rfc_notifications(result)
+    for change, event, subscriptions in matches:
+        kinds = {}
+        for subscription in subscriptions:
+            kinds[subscription.kind] = kinds.get(subscription.kind, 0) + 1
+        report.rows.append(
+            ChangeRow(
+                doc_display=change.doc_display,
+                url=change.url,
+                is_new=change.is_new,
+                text=event["change"],
+                fields=[
+                    (name, before, after)
+                    for name, (before, after) in change.fields.items()
+                ],
+                matched=kinds,
             )
+        )
 
+    with (
+        phases.phase("readers", f"Looking up {len(readers)} reader(s)"),
+        read_only_database(),
+    ):
         users = get_user_model().objects.in_bulk(list(readers))
-        for user_id, reader in readers.items():
-            user = users[user_id]
-            report.readers.append(
-                ReaderRow(
-                    user=user.username,
-                    email=user.email,
-                    delivery=_delivery(user),
-                    events=len(reader["events"]),
-                    subscriptions=len(reader["subscriptions"]),
-                )
+    for user_id, reader in readers.items():
+        user = users[user_id]
+        report.readers.append(
+            ReaderRow(
+                user=user.username,
+                email=user.email,
+                delivery=_delivery(user),
+                events=len(reader["events"]),
+                subscriptions=len(reader["subscriptions"]),
             )
+        )
     report.readers.sort(key=lambda row: row.user)
     return report

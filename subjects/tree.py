@@ -25,6 +25,7 @@ from .models import Subject, SubjectAssignment, ancestor_paths
 __all__ = [
     "ancestor_paths",
     "covering_subject_ids",
+    "covering_subject_ids_by_doc",
     "documents_under",
     "rollup",
     "subject_tree",
@@ -46,17 +47,35 @@ def covering_subject_ids(docs):
     and it is the rule subscriptions/matching.py already relies on by reaching
     Subscription.subject through the base manager.
     """
-    assigned = set(
-        Subject.all_objects.filter(assignments__doc__in=docs).values_list(
-            "path", flat=True
-        )
-    )
+    return set().union(*covering_subject_ids_by_doc(docs).values())
+
+
+def covering_subject_ids_by_doc(docs):
+    """The ids of every subject covering each document, keyed by document.
+
+    covering_subject_ids kept apart per document, for a caller matching many
+    changes at once that has to know which document each subject covers. Still
+    two queries however many documents there are. A document nothing covers is
+    absent rather than mapped to an empty set.
+    """
+    assigned = defaultdict(set)
+    # Through the assignment rather than Subject.objects, whose manager hides
+    # retired subjects: a join reaches the row whatever its state.
+    for doc, path in SubjectAssignment.objects.filter(doc__in=docs).values_list(
+        "doc", "subject__path"
+    ):
+        assigned[doc].update((path, *ancestor_paths(path)))
     if not assigned:
-        return set()
-    wanted = set(assigned)
-    for path in assigned:
-        wanted.update(ancestor_paths(path))
-    return set(Subject.all_objects.filter(path__in=wanted).values_list("pk", flat=True))
+        return {}
+    ids = dict(
+        Subject.all_objects.filter(
+            path__in=set().union(*assigned.values())
+        ).values_list("path", "pk")
+    )
+    return {
+        doc: {ids[path] for path in paths if path in ids}
+        for doc, paths in assigned.items()
+    }
 
 
 def documents_under(subject):

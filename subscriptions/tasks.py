@@ -10,16 +10,20 @@ opening the module that schedules them:
     matching.py   which subscriptions a change should notify
     messages.py   what a notification says
     delivery.py   turning one notification into one sent message
+    simulate.py   what the next run would do with an index somebody uploads
 
 The queue stays here rather than in delivery, because a row and the task that works it
 off are two halves of one mechanism: queue_notification exists to enqueue
 deliver_notification, and separating them would only add an import cycle.
 """
 
+import dataclasses
 import datetime
 import hashlib
 import json
 import logging
+import traceback
+import zlib
 from collections import defaultdict
 
 from celery import shared_task
@@ -35,7 +39,13 @@ from reef.tasks import RetryTask
 from .changes import detect
 from .delivery import SendEmailError, send_subscription_digest
 from .matching import plan_rfc_notifications
-from .models import PendingNotification, SubjectNotificationEvent, WebNotification
+from .models import (
+    PendingNotification,
+    SimulationRun,
+    SubjectNotificationEvent,
+    WebNotification,
+)
+from .simulate import Phases, simulate
 
 logger = logging.getLogger("reef")
 
@@ -376,3 +386,54 @@ def _send_digest():
         len(staged),
     )
     return len(per_reader)
+
+
+@shared_task(ignore_result=True)
+def run_simulation(run_id):
+    """Run one upload to the admin simulator, off the request that made it.
+
+    Writes nothing but the run's own row, and that only between the simulation's
+    phases: see subscriptions/simulate.py.
+    """
+    run = SimulationRun.objects.filter(pk=run_id).first()
+    if run is None:
+        # Nowhere left to write a result, so the log is all there is.
+        logger.error("simulate: run %s vanished before it could start", run_id)
+        return
+
+    run.status = SimulationRun.Status.RUNNING
+    run.started_at = timezone.now()
+    run.save(update_fields=["status", "started_at"])
+
+    def progress(message):
+        SimulationRun.objects.filter(pk=run_id).update(progress_message=message[:255])
+
+    phases = Phases(progress)
+    try:
+        report = simulate(zlib.decompress(bytes(run.upload)), phases)
+    except Exception:
+        logger.error("simulate: run %s failed", run_id, exc_info=True)
+        run.status = SimulationRun.Status.FAILED
+        # The full traceback: this is a staff-only page, and reading it should not
+        # need access to the server logs.
+        run.error = traceback.format_exc()
+    else:
+        run.status = (
+            SimulationRun.Status.FAILED
+            if report.problem
+            else SimulationRun.Status.SUCCEEDED
+        )
+        run.result = dataclasses.asdict(report)
+    run.timings = phases.timings
+    run.upload = b""
+    run.finished_at = timezone.now()
+    run.save(
+        update_fields=[
+            "status",
+            "error",
+            "result",
+            "timings",
+            "upload",
+            "finished_at",
+        ]
+    )

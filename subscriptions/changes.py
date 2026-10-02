@@ -73,14 +73,17 @@ def reduce_index(index):
 def load_snapshot():
     """The previous reading, or None if there has never been one."""
     row = DocumentSnapshot.objects.filter(pk=DocumentSnapshot.SINGLETON_PK).first()
-    if row is None:
-        return None
+    return None if row is None else decode_snapshot(row)
+
+
+def decode_snapshot(row, log=logger):
+    """The reading a stored DocumentSnapshot holds, or None if it is unreadable."""
     try:
         return json.loads(zlib.decompress(bytes(row.payload)))
     except (zlib.error, ValueError) as exc:
         # Treated as absent, which makes the next run a seeding run: it will send
         # nothing and write a good snapshot, which is the safe way to recover.
-        logger.error("Document snapshot is unreadable (%s); treating as absent", exc)
+        log.error("Document snapshot is unreadable (%s); treating as absent", exc)
         return None
 
 
@@ -153,7 +156,7 @@ class Detection:
         save_snapshot(self.reduced, self.created_on)
 
 
-def compare(index, previous, previous_created_on):
+def compare(index, previous, previous_created_on, log=logger):
     """What a run would find comparing `index` with a previous reading.
 
     Pure: it reads nothing and writes nothing, which is what lets an admin page
@@ -163,12 +166,15 @@ def compare(index, previous, previous_created_on):
     reading, so this is a seeding run, and the index is older than the previous
     reading. A seeding run still wants the snapshot advanced, which is the caller's
     to do; an older index must not advance it.
+
+    `log` is where it says what it found, so that a caller rehearsing a run can
+    mark its lines as not being one.
     """
     current = reduce_index(index.mapping)
     result = Detection([], index, current, index.created_on, outcome=SEEDED)
 
     if previous is None:
-        logger.warning(
+        log.warning(
             "No previous snapshot, so seeding from %s documents and notifying nobody. "
             "Expected once; if it repeats, the snapshot is not being saved.",
             len(current),
@@ -184,7 +190,7 @@ def compare(index, previous, previous_created_on):
         # and is diffed as normal; only an earlier one is wrong. Comparing would report
         # every change since that older reading in reverse, and saving it would make
         # the next good reading re-announce changes already sent.
-        logger.error(
+        log.error(
             "Red's index of %s is older than the snapshot of %s; not comparing",
             index.created_on,
             previous_created_on,
@@ -196,7 +202,7 @@ def compare(index, previous, previous_created_on):
     # rebuild more than once a day.
     result.changes = diff(previous, current)
     result.outcome = COMPARED
-    logger.info(
+    log.info(
         "Red index of %s: %s document(s) changed since the snapshot of %s",
         index.created_on,
         len(result.changes),
@@ -216,13 +222,11 @@ def detect():
         logger.error("No index from Red, so no changes can be detected this run")
         return None
 
-    previous_row = DocumentSnapshot.objects.filter(
-        pk=DocumentSnapshot.SINGLETON_PK
-    ).first()
+    row = DocumentSnapshot.objects.filter(pk=DocumentSnapshot.SINGLETON_PK).first()
     result = compare(
         index,
-        load_snapshot(),
-        previous_row.created_on if previous_row else None,
+        decode_snapshot(row) if row else None,
+        row.created_on if row else None,
     )
     return None if result.outcome == OLDER else result
 

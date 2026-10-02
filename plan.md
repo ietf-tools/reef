@@ -2201,3 +2201,138 @@ while the mail stays one digest a day.
   digest at 04:30 comes after that hour's detection at 04:25, so it holds everything
   found up to then. Detection is off :20, where `precompute-engagement` also loads
   the index, so an expired cache is not fetched twice at once.
+
+## Change detection simulator: off the request, with progress
+
+The simulator (`subscriptions/simulate.py`, admin `subscriptions/simulate/`) runs
+inside the upload request. On staging, an upload of Red's live index plus one fake
+RFC ran for over ten minutes with no response and no sign of progress.
+
+### Where the time goes
+
+Measured locally against the live index (9,843 documents, 16.8 MB, createdOn
+2026-09-30):
+
+| Step | Time |
+| --- | --- |
+| `json.load` of the upload | 0.2 s |
+| `validation_problem` (jsonschema, whole document) | 3.5 s |
+| `reduce_payload` | 0.1 s |
+| `compare` / `diff` | 0.02 s |
+
+The pure half costs about 4 s on a developer machine, and more on a pod that
+requests 250m CPU. One fake RFC is one change, and planning one change is about
+five queries. None of this explains ten minutes, so the cause is one of the
+following:
+
+1. **The request was killed and nobody was told.** Gunicorn runs sync workers with
+   `--timeout 180` (`dev/build/backend-start.sh`). A request still running at 180 s
+   gets its worker killed. What the browser sees then depends on the proxies in
+   front, and can be a page that never finishes loading. Whatever the cause of the
+   slowness, an inline request is the wrong shape for this page. The subject sync
+   left inline requests for the same reason.
+2. **The staging snapshot does not match the upload.** If the snapshot was written
+   by an older reduction, or from an older index, nearly every document differs.
+   The run then truncates to `MAX_CHANGES` (500) and plans those changes one at a
+   time.
+3. **Per-change queries.** `plan_rfc_notifications` calls
+   `subscriptions_for_change` once per change. Each call runs
+   `covering_subject_ids` (2 queries), the subscription OR-join with `.distinct()`
+   (1), the predicate query (1), and 3 more for each departed subseries. At 500
+   changes that is 2,000–3,500 round trips inside one read-only transaction. This
+   is fine for the hourly run, which sees a few changes, and it is the reason
+   `MAX_CHANGES` exists.
+
+Parallelising would not help. The CPU-bound step is jsonschema validation, which
+is single-threaded under the GIL. The database step is round trips, and batching
+removes them, which threads would not.
+
+### Steps
+
+1. **Time each phase.** Record `{phase, seconds, queries}` for each phase
+   (validate, reduce, load snapshot, compare, match, readers) on the run's
+   `SimulationRun.timings` row in Postgres, and show them as a table on the run
+   page. The page is where staff read them; stdout is not enough. Count queries
+   with a counting `execute_wrapper`, which works whether or not DEBUG is on. Also
+   log each phase as one `simulate: <phase> took X s (N queries)` line, at no extra
+   cost. Phase names are what the progress messages in step 3 show.
+2. **Batch the matching** (`subscriptions/matching.py`). This is shared with
+   `detect_rfc_changes`, which also gets faster.
+   - Take the set of every document the changes touch: each `change.doc`, its
+     `containing_subseries`, and any departed subseries.
+   - Load the doc-keyed kinds in three queries, however many changes there are:
+     - RFC kind: `params__rfc__in=all_docs`.
+     - Set kind: `DocumentSetEntry` rows with `doc__in=all_docs` in non-deleted
+       sets, mapped to their subscriptions.
+     - Subject kind: one batched `covering_subject_ids`-style pass, returning
+       doc → covering subject ids instead of one merged set.
+   - Load the predicate kinds (`NEW_RFC`, `BY_STATUS`, `OBSOLETED`) once, and test
+     each change against them in Python.
+   - Build `doc → subscriptions` maps, then resolve each change by lookup.
+     `select_related("user", "document_set", "subject")` stays on the subscription
+     load.
+   - Keep `subscriptions_for_document` / `subscriptions_for_change` as thin wrappers,
+     or retire them. The current tests define the expected behaviour: set takedown,
+     retired subjects still matching, departed subseries, and per-reader dedup.
+   - Add an `assertNumQueries` test where 1 change and 500 changes run the same
+     number of queries.
+   - Remove `MAX_CHANGES`, `Report.truncated` and the template's truncation
+     note. The cap protected the database from per-change queries, and with a
+     constant query count it protects nothing. Every change is matched, so the
+     Readers table is complete rather than covering only the first 500. Replace
+     `test_a_large_diff_is_capped` with a test that a diff of more than 500
+     changes is matched in full.
+3. **Run it as a Celery task with a polled progress page.** Follow
+   `SubjectSyncRun` (`subjects/models.py`, `subjects/tasks.py`, `sync_run.html`):
+   - Add a `SimulationRun` model with `status` (queued/running/succeeded/failed),
+     `triggered_by`, `created_at`/`started_at`/`finished_at`, `progress_message`,
+     `timings` (JSON list, see step 1), `result` (JSON,
+     `dataclasses.asdict(Report)`), `error` (traceback), and
+     `upload` (BinaryField holding the zlib-compressed upload, about 2 MB).
+     Migration `subscriptions/0015`.
+   - POST: check the size limit, store the file, call
+     `run_simulation.delay(run.pk)`, and redirect to
+     `subscriptions/simulate/<run_id>/`. Parsing and schema validation both
+     happen in the task, so the request never holds a parsed 17 MB index. Upload
+     that is not JSON, or does not match the schema, ends the run as failed and
+     names the problem, with the path for a schema problem.
+   - The run page uses `<meta http-equiv="refresh">` while the run is queued or
+     running. It shows the phase and elapsed time ("Validating against the
+     schema", "Comparing 9,843 documents with the snapshot", "Matching 1 change
+     against subscriptions"), then the same report the current template renders.
+   - The form page lists the last 10 runs, as the sync page does.
+   - Progress and the read-only transaction: `read_only_database()` refuses every
+     write on the connection, so progress cannot be written from inside it. After
+     step 2, the read-only block is a few short queries. Run the phases as: pure
+     work, then read-only block, then pure rendering, and write `progress_message`
+     between them on the normal connection. Do not add a second connection
+     alias. The rule that the simulation itself never writes still holds, and
+     `tests_simulate.py` keeps checking it. The run row is written outside the
+     block.
+   - The rollback at the end of the read-only block discards only what was
+     attempted inside it, and nothing is. The run row's `progress_message`,
+     `timings`, `result` and `error` are written before or after the block,
+     so they persist. Timings for phases inside the block are gathered in
+     memory and saved once the block exits. A failure inside the block is
+     caught after the rollback and saved as `error` with the timings so far.
+   - Clear `upload` when the run finishes, whether it succeeded or failed. No
+     other run table is pruned today, so keep every run unless the result JSON
+     grows large enough to matter.
+   - Use Celery's default queue, as `run_subject_sync` does. Expect it to wait
+     behind other jobs, and say so on the page while the run is queued.
+4. **Smaller cleanups found on the way.**
+   - `simulate()` reads the `DocumentSnapshot` row twice, once directly and once
+     inside `load_snapshot()`. Read it once.
+   - `compare` logs at INFO and WARNING as if it were a real run. Under the
+     simulator, prefix those lines or log them at DEBUG, so a simulation does not
+     look like a detection in the logs.
+
+### Verification
+
+- Unit: the existing `tests_simulate.py` cases still pass, moved to run through the
+  task. Add a query-count test for batched matching, a test that a schema error
+  becomes a failed run with the path in it, and a test that the upload is cleared.
+- The `detect_rfc_changes` tests pass unchanged, since they share the matching code.
+- On staging: upload the live index plus the fake RFC. The page should redirect at
+  once, show each phase, and finish in well under a minute. The step 1 timing lines
+  confirm where the time went.

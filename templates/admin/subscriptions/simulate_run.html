@@ -1,0 +1,128 @@
+{% extends "admin/base_site.html" %}
+
+{% block extrahead %}
+  {{ block.super }}
+  {% if not run.is_finished %}
+    <meta http-equiv="refresh" content="3">
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<p>Started {{ run.created_at }}{% if run.triggered_by %} by {{ run.triggered_by }}{% endif %}.</p>
+
+{% if not run.is_finished %}
+  {% if run.status == "pending" %}
+    <p>Queued&hellip; waiting for a worker, which may be busy with other jobs.
+      This page refreshes itself every few seconds. Safe to close and come back
+      later: the run keeps going either way.</p>
+  {% else %}
+    <p>Running&hellip; this page refreshes itself every few seconds. Safe to close
+      and come back later: the run keeps going either way.</p>
+    {% if run.progress_message %}
+      <p><code>{{ run.progress_message }}</code></p>
+    {% endif %}
+  {% endif %}
+
+{% elif run.error %}
+  <p class="errornote">The simulation raised an exception rather than completing{% if run.progress_message %}, while: {{ run.progress_message }}{% endif %}.</p>
+  <pre class="errornote">{{ run.error }}</pre>
+
+{% elif report.problem %}
+  <p class="errornote">{{ report.problem }}</p>
+
+{% elif report %}
+  <h2>Inputs</h2>
+  <table>
+    <tr><th>Uploaded index</th><td>createdOn {{ report.index_created_on|default:"(missing)" }}, {{ report.index_count }} documents</td></tr>
+    <tr>
+      <th>Live snapshot</th>
+      <td>
+        {% if report.snapshot_state == "present" %}
+          createdOn {{ report.snapshot_created_on|default:"(missing)" }}, {{ report.snapshot_count }} documents
+        {% elif report.snapshot_state == "unreadable" %}
+          present but unreadable, so it counts as absent
+        {% else %}
+          none yet
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+
+  <h2>What the real run would do</h2>
+  {% if report.outcome == SEEDED %}
+    <p><strong>Seed the snapshot and notify nobody.</strong> There is no usable previous snapshot, so there is nothing to compare against. Every document in the upload would be recorded as already seen.</p>
+  {% elif report.outcome == OLDER %}
+    <p>
+      <strong>Refuse to compare, notify nobody, and leave the snapshot where it is.</strong>
+      The upload's createdOn is earlier than the snapshot's, which means Red served an
+      older index than the one last notified about. An equal createdOn is compared as
+      normal, because Red can publish several times in a day.
+    </p>
+  {% else %}
+    <p><strong>Compare and notify.</strong> {{ report.changes_found }} change(s) found.</p>
+  {% endif %}
+
+  {% if report.rows %}
+    <h2>Events</h2>
+    <table>
+      <thead>
+        <tr><th>Document</th><th>Event</th><th>Moved fields</th><th>Matching subscriptions</th></tr>
+      </thead>
+      <tbody>
+        {% for row in report.rows %}
+          <tr>
+            <td><a href="{{ row.url }}">{{ row.doc_display }}</a>{% if row.is_new %} (new){% endif %}</td>
+            <td>{{ row.text }}</td>
+            <td>
+              {% for name, before, after in row.fields %}
+                <div><code>{{ name }}</code>: {{ before }} &rarr; {{ after }}</div>
+              {% endfor %}
+            </td>
+            <td>
+              {% for kind, count in row.matched.items %}{{ kind }} &times;{{ count }}{% if not forloop.last %}, {% endif %}{% empty %}none{% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  {% if report.readers %}
+    <h2>Readers</h2>
+    <table>
+      <thead>
+        <tr><th>User</th><th>Email</th><th>Delivery</th><th>Events</th><th>Subscriptions</th></tr>
+      </thead>
+      <tbody>
+        {% for reader in report.readers %}
+          <tr>
+            <td>{{ reader.user }}</td>
+            <td>{{ reader.email|default:"(none)" }}</td>
+            <td>{{ reader.delivery }}</td>
+            <td>{{ reader.events }}</td>
+            <td>{{ reader.subscriptions }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% elif report.rows %}
+    <p>No subscription matches any of these changes.</p>
+  {% endif %}
+{% endif %}
+
+{% if run.timings %}
+  <h2>Timings</h2>
+  <table>
+    <thead>
+      <tr><th>Phase</th><th>Seconds</th><th>Queries</th></tr>
+    </thead>
+    <tbody>
+      {% for timing in run.timings %}
+        <tr><td>{{ timing.phase }}</td><td>{{ timing.seconds|floatformat:2 }}</td><td>{{ timing.queries }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+
+<p><a href="{% url 'admin:subscriptions-simulate' %}">Simulate another</a></p>
+{% endblock %}
