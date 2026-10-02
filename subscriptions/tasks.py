@@ -32,9 +32,9 @@ from django.utils import timezone
 from reef.locks import advisory_lock
 from reef.tasks import RetryTask
 
-from .changes import as_event, detect
+from .changes import detect
 from .delivery import SendEmailError, send_subscription_digest
-from .matching import subscriptions_for_change
+from .matching import plan_rfc_notifications
 from .models import PendingNotification, SubjectNotificationEvent, WebNotification
 
 logger = logging.getLogger("reef")
@@ -304,10 +304,10 @@ def _detect_and_stage():
     # Per reader and change, not per subscription: somebody who follows a document
     # directly and also holds it in a set hears once, with both reasons.
     staged = defaultdict(lambda: {"subscriptions": set(), "event": None})
-    for change in result.changes:
-        event = as_event(change, result.index)
+    _readers, matches = plan_rfc_notifications(result)
+    for change, event, subscriptions in matches:
         logger.info("Change: %s %s", change.doc_display, event["change"])
-        for subscription in subscriptions_for_change(change, result.index):
+        for subscription in subscriptions:
             entry = staged[(subscription.user_id, change.doc)]
             entry["subscriptions"].add(subscription.pk)
             entry["event"] = event

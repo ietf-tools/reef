@@ -1,0 +1,110 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<p>
+  Shows what the next change-detection run would do with an <code>rfc-index.json</code>
+  you upload, compared with the live snapshot and the live subscriptions. It runs the
+  same comparison and matching as the real run, in a read-only database transaction
+  that is always rolled back: no snapshot, notification, or cache entry is written,
+  and nothing is sent.
+</p>
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+  {{ form.non_field_errors }}
+  <fieldset class="module aligned">
+    <div class="form-row{% if form.index.errors %} errors{% endif %}">
+      {{ form.index.errors }}
+      {{ form.index.label_tag }} {{ form.index }}
+      <div class="help">{{ form.index.help_text }}</div>
+    </div>
+  </fieldset>
+  <div class="submit-row">
+    <input type="submit" value="Simulate" class="default">
+  </div>
+</form>
+
+{% if report %}
+  <h2>Inputs</h2>
+  <table>
+    <tr><th>Uploaded index</th><td>createdOn {{ report.index_created_on|default:"(missing)" }}, {{ report.index_count }} documents</td></tr>
+    <tr>
+      <th>Live snapshot</th>
+      <td>
+        {% if report.snapshot_state == "present" %}
+          createdOn {{ report.snapshot_created_on|default:"(missing)" }}, {{ report.snapshot_count }} documents
+        {% elif report.snapshot_state == "unreadable" %}
+          present but unreadable, so it counts as absent
+        {% else %}
+          none yet
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+
+  <h2>What the real run would do</h2>
+  {% if report.outcome == SEEDED %}
+    <p><strong>Seed the snapshot and notify nobody.</strong> There is no usable previous snapshot, so there is nothing to compare against. Every document in the upload would be recorded as already seen.</p>
+  {% elif report.outcome == OLDER %}
+    <p>
+      <strong>Refuse to compare, notify nobody, and leave the snapshot where it is.</strong>
+      The upload's createdOn is earlier than the snapshot's, which means Red served an
+      older index than the one last notified about. An equal createdOn is compared as
+      normal, because Red can publish several times in a day.
+    </p>
+  {% else %}
+    <p><strong>Compare and notify.</strong> {{ report.changes_found }} change(s) found.</p>
+  {% endif %}
+
+  {% if report.truncated %}
+    <p class="errornote">More changes than can be simulated at once: showing the first {{ report.rows|length }} of {{ report.changes_found }}, and the readers below are only those the shown changes reach.</p>
+  {% endif %}
+
+  {% if report.rows %}
+    <h2>Events</h2>
+    <table>
+      <thead>
+        <tr><th>Document</th><th>Event</th><th>Moved fields</th><th>Matching subscriptions</th></tr>
+      </thead>
+      <tbody>
+        {% for row in report.rows %}
+          <tr>
+            <td><a href="{{ row.url }}">{{ row.doc_display }}</a>{% if row.is_new %} (new){% endif %}</td>
+            <td>{{ row.text }}</td>
+            <td>
+              {% for name, before, after in row.fields %}
+                <div><code>{{ name }}</code>: {{ before }} &rarr; {{ after }}</div>
+              {% endfor %}
+            </td>
+            <td>
+              {% for kind, count in row.matched.items %}{{ kind }} &times;{{ count }}{% if not forloop.last %}, {% endif %}{% empty %}none{% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
+  {% if report.readers %}
+    <h2>Readers</h2>
+    <table>
+      <thead>
+        <tr><th>User</th><th>Email</th><th>Delivery</th><th>Events</th><th>Subscriptions</th></tr>
+      </thead>
+      <tbody>
+        {% for reader in report.readers %}
+          <tr>
+            <td>{{ reader.user }}</td>
+            <td>{{ reader.email|default:"(none)" }}</td>
+            <td>{{ reader.delivery }}</td>
+            <td>{{ reader.events }}</td>
+            <td>{{ reader.subscriptions }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% elif report.rows %}
+    <p>No subscription matches any of these changes.</p>
+  {% endif %}
+{% endif %}
+{% endblock %}

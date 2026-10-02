@@ -126,6 +126,13 @@ def _sort_key(doc):
     return (doc[: len(doc) - len(digits)], int(digits) if digits else 0)
 
 
+# How compare() arrived at its changes: nothing to compare against, an index older
+# than the previous reading, or an actual diff.
+SEEDED = "seeded"
+OLDER = "older"
+COMPARED = "compared"
+
+
 @dataclass
 class Detection:
     """What a run found, and what it should record once it has acted.
@@ -140,31 +147,25 @@ class Detection:
     index: object
     reduced: dict
     created_on: object
+    outcome: str = COMPARED
 
     def save(self):
         save_snapshot(self.reduced, self.created_on)
 
 
-def detect():
-    """Compare Red's index with the last reading, or None if there is none to trust.
+def compare(index, previous, previous_created_on):
+    """What a run would find comparing `index` with a previous reading.
 
-    None when Red is unavailable or serves an index older than the snapshot; either
-    way the snapshot must stay where it is. Reports no changes when there is no
-    previous snapshot, so this is a seeding run; that still wants the snapshot
-    advanced, which is the caller's to do.
+    Pure: it reads nothing and writes nothing, which is what lets an admin page
+    answer "what would the next run do with this index" without running it.
+
+    Reports no changes in the two cases that are not news: there is no previous
+    reading, so this is a seeding run, and the index is older than the previous
+    reading. A seeding run still wants the snapshot advanced, which is the caller's
+    to do; an older index must not advance it.
     """
-    index = rfcmeta.get_index()
-    if index is None:
-        logger.error("No index from Red, so no changes can be detected this run")
-        return None
-
     current = reduce_index(index.mapping)
-    result = Detection([], index, current, index.created_on)
-
-    previous_row = DocumentSnapshot.objects.filter(
-        pk=DocumentSnapshot.SINGLETON_PK
-    ).first()
-    previous = load_snapshot()
+    result = Detection([], index, current, index.created_on, outcome=SEEDED)
 
     if previous is None:
         logger.warning(
@@ -174,25 +175,27 @@ def detect():
         )
         return result
 
-    previous_created_on = previous_row.created_on if previous_row else None
     if (
         previous_created_on is not None
         and index.created_on is not None
         and index.created_on < previous_created_on
     ):
-        # Comparing would report every change since that older reading in reverse,
-        # and saving it would make the next good reading re-announce changes already
-        # sent. None leaves the snapshot where it is, as for Red being unavailable.
+        # createdOn is a date, so an equal one may still hide several publications
+        # and is diffed as normal; only an earlier one is wrong. Comparing would report
+        # every change since that older reading in reverse, and saving it would make
+        # the next good reading re-announce changes already sent.
         logger.error(
             "Red's index of %s is older than the snapshot of %s; not comparing",
             index.created_on,
             previous_created_on,
         )
-        return None
+        result.outcome = OLDER
+        return result
 
     # Diffed even when createdOn matches the snapshot's: it is a date, and Red can
     # rebuild more than once a day.
     result.changes = diff(previous, current)
+    result.outcome = COMPARED
     logger.info(
         "Red index of %s: %s document(s) changed since the snapshot of %s",
         index.created_on,
@@ -200,6 +203,28 @@ def detect():
         previous_created_on,
     )
     return result
+
+
+def detect():
+    """Compare Red's index with the last reading, or None if there is none to trust.
+
+    None when Red is unavailable or serves an index older than the snapshot; either
+    way the snapshot must stay where it is.
+    """
+    index = rfcmeta.get_index()
+    if index is None:
+        logger.error("No index from Red, so no changes can be detected this run")
+        return None
+
+    previous_row = DocumentSnapshot.objects.filter(
+        pk=DocumentSnapshot.SINGLETON_PK
+    ).first()
+    result = compare(
+        index,
+        load_snapshot(),
+        previous_row.created_on if previous_row else None,
+    )
+    return None if result.outcome == OLDER else result
 
 
 # How a watched field is named to a reader, for the case where nothing else

@@ -10,6 +10,7 @@ to, so they are matched against the change itself.
 """
 
 import logging
+from collections import defaultdict
 
 from django.db.models import Q
 
@@ -17,7 +18,7 @@ from reef import rfcmeta
 from reef.docids import normalize_doc_id
 from subjects.tree import covering_subject_ids
 
-from .changes import _added, _removed
+from .changes import _added, _removed, as_event
 from .models import Subscription
 
 logger = logging.getLogger("reef")
@@ -26,7 +27,7 @@ logger = logging.getLogger("reef")
 HISTORIC_STATUS = "hist"
 
 
-def subscriptions_for_document(doc):
+def subscriptions_for_document(doc, mapping=None):
     """Subscriptions that a change to one document should notify.
 
     Covers the three kinds that name a document. The rfc kind holds the
@@ -68,7 +69,7 @@ def subscriptions_for_document(doc):
     doc = normalize_doc_id(doc)
     # The changed document, plus every container it belongs to. A subscription naming
     # any of them is about this change.
-    docs = [doc, *rfcmeta.containing_subseries(doc)]
+    docs = [doc, *rfcmeta.containing_subseries(doc, mapping)]
     # And the same expansion on the other axis. A subject covers the documents
     # assigned to it and to everything beneath it, so a change to a document filed
     # under dkim is news to somebody following messaging. Two queries whatever the
@@ -105,7 +106,8 @@ def subscriptions_for_change(change, index):
     which also expands the subseries containing it. The predicate kinds are matched
     against the change itself.
     """
-    matched = set(subscriptions_for_document(change.doc))
+    mapping = index.mapping if index is not None else None
+    matched = set(subscriptions_for_document(change.doc, mapping))
 
     # A subseries the document has left. Joining one is already covered, because
     # subscriptions_for_document expands against current membership and the document
@@ -114,9 +116,9 @@ def subscriptions_for_change(change, index):
     # people following the container. Their subseries lost a document, which is news
     # about the subseries rather than about the document.
     for departed in _departed_subseries(change):
-        matched |= set(subscriptions_for_document(departed))
+        matched |= set(subscriptions_for_document(departed, mapping))
 
-    meta = (index.mapping.get(change.doc) or {}) if index is not None else {}
+    meta = (mapping.get(change.doc) or {}) if mapping is not None else {}
     predicates = Q(pk__in=[])  # matches nothing, so the ors below need no condition
 
     if change.is_new:
@@ -162,3 +164,25 @@ def _was_obsoleted(change):
     if "status" in change.fields:
         return change.fields["status"][1] == HISTORIC_STATUS
     return False
+
+
+def plan_rfc_notifications(result):
+    """Who a detection would notify, and which subscriptions matched each change.
+
+    Per reader, not per subscription: somebody who follows a document directly and
+    also holds it in a set hears once about it.
+
+    Only reads, so the same code answers both the scheduled run and the admin
+    simulation. Returns (readers by user id, [(change, event, subscriptions)]).
+    """
+    readers = defaultdict(lambda: {"subscriptions": set(), "events": {}})
+    matches = []
+    for change in result.changes:
+        event = as_event(change, result.index)
+        subscriptions = subscriptions_for_change(change, result.index)
+        matches.append((change, event, subscriptions))
+        for subscription in subscriptions:
+            reader = readers[subscription.user_id]
+            reader["subscriptions"].add(subscription.pk)
+            reader["events"][change.doc] = event
+    return readers, matches
