@@ -318,7 +318,9 @@ def render_change(change, index):
         if "status" in change.fields:
             status_name = meta.get("status_name")
             status = (
-                _status_title(status_name) if status_name else change.fields["status"][1]
+                _status_title(status_name)
+                if status_name
+                else change.fields["status"][1]
             )
             parts.append(f"Status changed to {status}")
         for field_name, gained_wording, lost_wording in (
