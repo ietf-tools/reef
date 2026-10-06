@@ -30,6 +30,29 @@ themselves, or say so unprompted.
 Staging is part of committing — leave `git add` alone too. Reading the repository
 is fine: `status`, `diff`, `log` and `show` are how you check your own work.
 
+## API changes are additive only
+
+Every Reef API is live, and clients generated from an older `reef_api.yaml` must
+keep working while they move to a newer one. So a change to an API may only add:
+a new endpoint, or a new optional property. Never remove, rename or retype a
+property, make an optional one required, make a non-null one nullable, or change
+what an existing key holds. For a new optional property with nothing to say,
+leave the key out rather than sending `null`.
+
+That covers every endpoint under `/api/reef/`, every precomputed file (both are
+in `reef_api.yaml`), and the JSON Reef sends to Red: the rebuild request in
+`precomputer/tasks.py` and the run callback in
+`precomputer/management/commands/precompute.py`. Those two are in no contract,
+so nothing checks them but you.
+
+After regenerating `reef_api.yaml`, `git diff reef_api.yaml` must show only
+added lines. If a change genuinely cannot be additive, stop and ask; don't make
+it.
+
+This is about what Reef serves and sends. Schemas under `reef/schemas/` describe
+what Reef reads from others, and require only what Reef reads (see
+`reef/schemas/README.md`).
+
 ## Precomputed files are the API, at another URL
 
 Every file the precomputer uploads to the blob store is byte for byte the
