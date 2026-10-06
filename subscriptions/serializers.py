@@ -1,6 +1,7 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from docsets.models import DocumentSet
@@ -85,12 +86,42 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return attrs
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "The event as stored. Every key but rfc is untyped here. rfc is on an "
+            "RFC change alone, and only when Red had an entry for the document at "
+            "the time."
+        ),
+        "properties": {
+            "rfc": {
+                "type": "object",
+                "description": (
+                    "Red's own entry for the document from rfc-index.json, an "
+                    "RfcCommon, passed on as Red published it. Only number is relied "
+                    "on; every other field is Red's to define."
+                ),
+                "properties": {"number": {"type": "integer"}},
+                "required": ["number"],
+                "additionalProperties": True,
+            },
+        },
+        "additionalProperties": True,
+    }
+)
+class WebNotificationEventField(serializers.JSONField):
+    """An event served exactly as stored, whatever keys it holds."""
+
+
 class WebNotificationSerializer(serializers.ModelSerializer):
     """One row of the caller's own notification feed.
 
     subscription_ids stays off the wire: nothing on Red needs it yet, and event
     already carries doc and url, everything a display needs to render and link.
     """
+
+    event = WebNotificationEventField(read_only=True)
 
     class Meta:
         model = WebNotification

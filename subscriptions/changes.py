@@ -45,6 +45,9 @@ class DocumentChange:
     # field name -> (previous value, current value). Empty for a new document, whose
     # only news is that it exists.
     fields: dict = field(default_factory=dict)
+    # Red's own entry for the document, passed on unreduced as Red's definition of
+    # it. None until attach_entries() has found one.
+    rfc: dict | None = None
 
     @property
     def doc_display(self):
@@ -122,6 +125,16 @@ def diff(previous, current):
     # order rather than whatever the index happened to iterate in.
     changes.sort(key=lambda change: _sort_key(change.doc))
     return changes
+
+
+def attach_entries(changes, entries):
+    """Give each change Red's own entry for its document, from `entries` by identifier.
+
+    Only for the changes, never the series: a run finds a handful, and Red's whole
+    index is many times the size of everything else a run holds.
+    """
+    for change in changes:
+        change.rfc = entries.get(change.doc)
 
 
 def _sort_key(doc):
@@ -228,7 +241,17 @@ def detect():
         decode_snapshot(row) if row else None,
         row.created_on if row else None,
     )
-    return None if result.outcome == OLDER else result
+    if result.outcome == OLDER:
+        return None
+    if result.changes:
+        # A second fetch, because the shared cache the changes came from holds the
+        # reduction alone. It can be a newer reading than that one, which is
+        # harmless: the entry is what a reader is shown about the document, not
+        # anything compared.
+        attach_entries(
+            result.changes, rfcmeta.fetch_entries(c.doc for c in result.changes)
+        )
+    return result
 
 
 # How a watched field is named to a reader, for the case where nothing else
@@ -348,10 +371,19 @@ def render_change(change, index):
 
 
 def as_event(change, index):
-    """One change in the shape delivery takes: doc, doc_display, change, url."""
-    return {
+    """One change in the shape delivery takes: doc, doc_display, change, url, rfc.
+
+    rfc is Red's own entry for the document, so that Red can render the notification
+    with what it already knows how to show for an RFC. Absent rather than null when
+    Red had no entry for it, or could not be read: nothing guarantees an RFC by that
+    number exists at Red.
+    """
+    event = {
         "doc": change.doc,
         "doc_display": change.doc_display,
         "change": render_change(change, index),
         "url": change.url,
     }
+    if change.rfc is not None:
+        event["rfc"] = change.rfc
+    return event

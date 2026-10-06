@@ -72,6 +72,24 @@ def stub_rfc_index(test, mapping=None):
 
     warm_rfc_index(DEFAULT_MAPPING if mapping is None else mapping)
 
+    # Red's own entries are a fetch of their own rather than a read of the memo.
+    # These carry only number and title, from whatever the memo holds when they are
+    # asked for: enough for a test to tell which document's entry it was handed.
+    def entries(doc_ids):
+        held, _created_on = rfcmeta._memo["value"]
+        return {
+            doc: {
+                "number": int(doc.removeprefix("rfc")),
+                "title": held[doc].get("title"),
+            }
+            for doc in doc_ids
+            if doc in held and doc.startswith("rfc")
+        }
+
+    entries_patcher = mock.patch("reef.rfcmeta.fetch_entries", side_effect=entries)
+    entries_patcher.start()
+    test.addCleanup(entries_patcher.stop)
+
     # Belt and braces: if something bypasses the memo, it fails loudly here rather
     # than quietly making a request.
     patcher = mock.patch(

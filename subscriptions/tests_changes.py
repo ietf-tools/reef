@@ -180,6 +180,30 @@ class DetectTests(TestCase):
             with self.assertLogs("reef", level="ERROR"):
                 self.assertIsNone(detect())
 
+    def test_a_change_carries_reds_entry_for_its_document(self):
+        detect().save()
+        self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 9, 1))
+        self.assertEqual(
+            detect().changes[0].rfc, {"number": 9110, "title": "HTTP Semantics"}
+        )
+
+    def test_a_run_finding_nothing_does_not_fetch_entries(self):
+        """The second fetch is for the changes alone, and most runs have none."""
+        self.rewarm({"rfc9110": meta()}, datetime.date(2026, 8, 31))
+        detect().save()
+        with mock.patch("reef.rfcmeta.fetch_entries") as fetch:
+            detect()
+        fetch.assert_not_called()
+
+    def test_a_change_red_has_no_entry_for_is_still_reported(self):
+        """The entry is what Red is shown, not what was detected."""
+        detect().save()
+        self.rewarm({"rfc9110": meta(status="hist")}, datetime.date(2026, 9, 1))
+        with mock.patch("reef.rfcmeta.fetch_entries", return_value={}):
+            result = detect()
+        self.assertEqual(len(result.changes), 1)
+        self.assertIsNone(result.changes[0].rfc)
+
     def test_saving_advances_to_the_reading_the_changes_came_from(self):
         """Not to whatever Red is serving by the time the run finishes."""
         self.rewarm({"rfc9110": meta()}, datetime.date(2026, 8, 31))
@@ -386,6 +410,19 @@ class EventShapeTests(TestCase):
                 "url": "https://www.rfc-editor.org/info/rfc9110/",
             },
         )
+
+    def test_an_event_carries_reds_entry_as_given(self):
+        change = diff({}, reduce_index({"rfc9110": meta()}))[0]
+        change.rfc = {"number": 9110, "title": "HTTP Semantics", "future": [1]}
+        index = rfcmeta.DocumentIndex({"rfc9110": meta()}, None)
+        self.assertEqual(as_event(change, index)["rfc"], change.rfc)
+
+    def test_an_rfc_red_has_no_entry_for_has_no_rfc_key(self):
+        """Absent rather than null: the key is optional, so a reader checks for it
+        once instead of for it and for null."""
+        change = diff({}, reduce_index({"rfc9110": meta()}))[0]
+        index = rfcmeta.DocumentIndex({"rfc9110": meta()}, None)
+        self.assertNotIn("rfc", as_event(change, index))
 
     def test_the_url_is_the_canonical_one(self):
         """/info/<doc>/ rather than /rfc/<doc>, which 302s to it: a notification is
