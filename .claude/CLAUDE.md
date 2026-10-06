@@ -57,7 +57,7 @@ what Reef reads from others, and require only what Reef reads (see
 
 Every file the precomputer uploads to the blob store is byte for byte the
 anonymous response of the endpoint it caches, so the schema in `reef_api.yaml`
-describes the file exactly. Never add, remove or retype a key after rendering.
+describes the file exactly. Never edit a file's keys after rendering.
 If a file needs something its endpoint does not serve, give it a view of its own
 in `reef.urls_contract`, so the contract still describes it (see
 `subjects/precompute.py`), and write that view's bytes. Every task has a test
