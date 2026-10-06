@@ -244,10 +244,11 @@ def detect():
     if result.outcome == OLDER:
         return None
     if result.changes:
-        # A second fetch, because the shared cache the changes came from holds the
-        # reduction alone. It can be a newer reading than that one, which is
-        # harmless: the entry is what a reader is shown about the document, not
-        # anything compared.
+        # Notifications include each changed RFC's full record, but the cached index
+        # the changes were found in keeps only a subset of each record's fields, so
+        # this fetches Red's index again. Red may have rebuilt the index in between;
+        # that's fine, because the full records are only shown to the reader, never
+        # compared.
         attach_entries(
             result.changes, rfcmeta.fetch_entries(c.doc for c in result.changes)
         )

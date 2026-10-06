@@ -285,12 +285,12 @@ def fetch_payload():
 def fetch_entries(doc_ids):
     """Red's own entries for `doc_ids`, as published, keyed by identifier.
 
-    For handing a document on to Red as Red defines it, so nothing is reduced and
+    For handing a document on to Red as Red defines it, so every field is kept and
     nothing is validated beyond being an entry with a number: what an entry carries
     is Red's business, and checking every field would make Reef maintain Red's
     schema for data it only passes back. A fresh fetch each time, because the shared
-    cache holds the reduction only (see _from_cache). A document Red does not have,
-    or every document when Red cannot be read, is simply absent.
+    cache keeps only a subset of each entry's fields (see _from_cache). A document
+    Red does not have, or every document when Red cannot be read, is simply absent.
     """
     wanted = set(doc_ids)
     if not wanted:
