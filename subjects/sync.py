@@ -41,6 +41,12 @@ docstring is explicit that there is no state between assigned and not.
 Manual only. There is deliberately no scheduled task calling this: a mirror of
 an external taxonomy that nobody is watching is exactly the kind of change that
 should have a person looking at the result each time.
+
+An assignment the sync creates is news to the subject's subscribers, the same as
+one staff make in the admin, and is staged for the digest through
+subscriptions.tagging from the diff -- the bulk write itself fires no post_save.
+The exception is a run into an empty assignment table: that is the back
+catalogue arriving, not documents being newly categorized, and it tells nobody.
 """
 
 import json
@@ -175,6 +181,8 @@ class SyncResult:
     retired: list = field(default_factory=list)  # [slug]
     assignments_created: int = 0
     assignments_deleted: int = 0
+    # Digest lines staged for created assignments: one per reader per document.
+    assignment_notifications: int = 0
     unresolved_assignments: list = field(default_factory=list)  # [(slug, doc)]
     top_deltas: list = field(default_factory=list)  # [(slug, old_count, new_count)]
     suggestions: dict = field(default_factory=dict)  # {retired_slug: [Suggestion]}
@@ -709,6 +717,27 @@ def apply_assignments(diff):
             )
 
 
+def notify_created_assignments(diff, initial):
+    """Stage a digest line for each subscriber of a subject a document was newly
+    given, and return how many were staged.
+
+    initial is a run into an empty assignment table. That is the back catalogue
+    arriving, and a reader following Security did not ask to hear about every
+    RFC ever written on it, so nothing is staged. Deletions are never news
+    (subscriptions.signals says why), and a dry run rolls back before reaching
+    here.
+    """
+    from subscriptions.tagging import stage_assignment_events
+
+    if initial:
+        logger.info(
+            "subject sync: first load of assignments, notifying nobody about %d",
+            diff.create_count,
+        )
+        return 0
+    return stage_assignment_events(diff.to_create)
+
+
 def _jaccard(a, b):
     union = a | b
     return len(a & b) / len(union) if union else 0.0
@@ -947,6 +976,16 @@ def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
             time.monotonic() - write_started,
         )
 
+        notify_started = time.monotonic()
+        assignment_notifications = notify_created_assignments(
+            assignment_diff, initial=assignment_total_before == 0
+        )
+        logger.info(
+            "subject sync: %d notification(s) staged, %.1fs elapsed",
+            assignment_notifications,
+            time.monotonic() - notify_started,
+        )
+
     # Post-write: suggestions and the delta report both read the now-committed
     # state, and are informational only -- nothing here writes anything.
     retired_slugs = [subject.slug for subject in vocab_diff.to_retire]
@@ -971,13 +1010,15 @@ def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
 
     logger.info(
         "subject sync: done -- %d created, %d updated, %d unretired, %d "
-        "retired, %d assignment(s) created, %d deleted, %.1fs total",
+        "retired, %d assignment(s) created, %d deleted, %d notification(s) "
+        "staged, %.1fs total",
         len(vocab_diff.to_create),
         len(vocab_diff.to_update),
         len(vocab_diff.to_unretire),
         len(vocab_diff.to_retire),
         assignment_diff.create_count,
         assignment_diff.delete_count,
+        assignment_notifications,
         time.monotonic() - run_started,
     )
 
@@ -989,6 +1030,7 @@ def _run_sync(vocabulary_url, assignments_url, confirm_large_change, write):
         retired=retired_slugs,
         assignments_created=assignment_diff.create_count,
         assignments_deleted=assignment_diff.delete_count,
+        assignment_notifications=assignment_notifications,
         unresolved_assignments=assignment_diff.unresolved,
         top_deltas=deltas[:5],
         suggestions=suggestions,
