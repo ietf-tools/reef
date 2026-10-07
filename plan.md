@@ -756,10 +756,11 @@ Then, for precomputed reads:
     outage read as a Reef failure. createdOn and its age are logged on every run
     regardless, since that is the line somebody will want when debugging. Commit: "Warn
     on a stale or incomplete Red index".
-24. Scheduling: django-celery-beat, with the default entries in CELERY_BEAT_SCHEDULE so
-    that DatabaseScheduler materialises them. It re-applies them on every beat start
-    (update_or_create in django-celery-beat 2.9.0), so retiming one of these in the
-    admin lasts only until the next restart; the schedule is changed in the settings. Two entries, because the halves go stale for
+24. Scheduling: django-celery-beat's DatabaseScheduler, with the schedules stored in the
+    database and changed in the admin. The data migration
+    precomputer/migrations/0003_periodic_tasks.py creates the initial rows and leaves
+    existing ones unchanged; CELERY_BEAT_SCHEDULE is empty, because DatabaseScheduler
+    overwrites a row with its entry there on every beat start. Two entries, because the halves go stale for
     different reasons: precompute_engagement hourly for stats and ratings, which move
     whenever a reader rates or subscribes, and precompute_all daily, which is the only
     thing that notices an RFC Red has published, since nothing in Reef's own tables
@@ -1450,7 +1451,7 @@ An upstream-vanished subject that still has live children in Reef hits
 be drawn); the sync retires depth-first, same as the "retire subtree" admin action
 already does, rather than teaching the sync a second way to do it.
 
-Manual only, deliberately: no `CELERY_BEAT_SCHEDULE` entry, no periodic task. The only
+Manual only, deliberately: no periodic task. The only
 way this runs is a staff member clicking it in the admin, or `manage.py sync_subject_tags`
 from a shell. (A cron job was considered and rejected: a mirror of an external taxonomy
 that nobody is watching is exactly the kind of change that should have a person looking

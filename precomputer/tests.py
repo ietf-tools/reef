@@ -1,6 +1,7 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 import contextlib
 import datetime
+import importlib
 import json
 import re
 import tempfile
@@ -8,6 +9,7 @@ from io import StringIO
 from pathlib import Path
 from unittest import mock
 
+from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import CommandError, call_command
@@ -16,6 +18,8 @@ from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.module_loading import import_string
+from django_celery_beat.models import CrontabSchedule, PeriodicTask
 
 from docsets.models import DocumentSet, DocumentSetEntry
 from popularity.models import DocumentPopularity
@@ -1408,3 +1412,38 @@ class PrecomputerAdminTests(ReadOnlyAdminChecks, TestCase):
     def test_rows_cannot_be_added_changed_or_deleted(self):
         for model in (PendingDocumentChange, PrecomputeRun):
             self.assertAdminReadOnly(model.objects.get())
+
+
+class PeriodicTaskMigrationTests(TestCase):
+    def test_every_scheduled_task_exists(self):
+        tasks = dict(PeriodicTask.objects.values_list("name", "task"))
+        self.assertEqual(
+            set(tasks),
+            {
+                "precompute-all",
+                "precompute-engagement",
+                "push-document-changes",
+                "detect-rfc-changes",
+                "send-digest",
+                "sweep-unsent-notifications",
+            },
+        )
+        for name, task in tasks.items():
+            with self.subTest(name=name):
+                self.assertEqual(import_string(task).name, task)
+
+    def test_existing_row_is_not_modified(self):
+        migration = importlib.import_module(
+            "precomputer.migrations.0003_periodic_tasks"
+        )
+        task = PeriodicTask.objects.get(name="send-digest")
+        task.crontab = CrontabSchedule.objects.create(hour="6", minute="0")
+        task.enabled = False
+        task.save()
+
+        migration.add_periodic_tasks(django_apps, None)
+
+        task.refresh_from_db()
+        self.assertEqual((task.crontab.hour, task.crontab.minute), ("6", "0"))
+        self.assertFalse(task.enabled)
+        self.assertEqual(PeriodicTask.objects.count(), 6)
