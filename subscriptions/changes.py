@@ -289,6 +289,15 @@ def _removed(pair):
     return sorted(set(before) - set(after))
 
 
+def _status_title(status_name):
+    """A status name as RFCs write it: "Proposed Standard", not "proposed standard".
+
+    Red may send status names in lower case. Only first letters are raised, so an
+    acronym Red already capitalises stays intact.
+    """
+    return " ".join(word[:1].upper() + word[1:] for word in status_name.split())
+
+
 def render_change(change, index):
     """The sentence a digest shows for one document, composed from the diff.
 
@@ -304,10 +313,15 @@ def render_change(change, index):
 
     if change.is_new:
         status = meta.get("status_name")
-        parts.append(f"Published as {status}" if status else "Published")
+        parts.append(f"Published as {_status_title(status)}" if status else "Published")
     else:
         if "status" in change.fields:
-            status = meta.get("status_name") or change.fields["status"][1]
+            status_name = meta.get("status_name")
+            status = (
+                _status_title(status_name)
+                if status_name
+                else change.fields["status"][1]
+            )
             parts.append(f"Status changed to {status}")
         for field_name, gained_wording, lost_wording in (
             ("obsoleted_by", "Obsoleted by {}", "No longer obsoleted by {}"),

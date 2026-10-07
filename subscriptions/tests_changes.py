@@ -267,7 +267,7 @@ class RenderChangeTests(TestCase):
     def test_a_new_document_names_its_status(self):
         self.assertEqual(
             self.render({}, {"rfc9110": meta(status_name="proposed standard")}),
-            "Published as proposed standard.",
+            "Published as Proposed Standard.",
         )
 
     def test_a_new_document_with_no_status_still_reads(self):
@@ -283,7 +283,7 @@ class RenderChangeTests(TestCase):
                 {"rfc9110": meta(status="ps", status_name="proposed standard")},
                 {"rfc9110": meta(status="hist", status_name="historic")},
             ),
-            "Status changed to historic.",
+            "Status changed to Historic.",
         )
 
     def test_being_obsoleted_names_the_document(self):
@@ -329,7 +329,7 @@ class RenderChangeTests(TestCase):
                     )
                 },
             ),
-            "Status changed to historic; Obsoleted by RFC 9999.",
+            "Status changed to Historic; Obsoleted by RFC 9999.",
         )
 
     def test_a_relation_losing_an_entry_names_what_it_lost(self):
@@ -382,7 +382,7 @@ class EventShapeTests(TestCase):
             {
                 "doc": "rfc9110",
                 "doc_display": "RFC 9110",
-                "change": "Published as proposed standard.",
+                "change": "Published as Proposed Standard.",
                 "url": "https://www.rfc-editor.org/info/rfc9110/",
             },
         )

@@ -273,7 +273,7 @@ class NotifyRfcChangesTests(TestCase):
         changes = [event["change"] for event in events]
         self.assertEqual(len(changes), 3)
         self.assertEqual(changes[0], changes[2])
-        self.assertIn("historic", changes[2])
+        self.assertIn("Historic", changes[2])
 
     def test_a_reader_with_digest_email_off_gets_the_web_notification_only(self):
         self.user.receive_digest_email = False
