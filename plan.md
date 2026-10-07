@@ -757,23 +757,27 @@ Then, for precomputed reads:
     regardless, since that is the line somebody will want when debugging. Commit: "Warn
     on a stale or incomplete Red index".
 24. Scheduling: django-celery-beat's DatabaseScheduler, with the schedules stored in the
-    database and changed in the admin. The data migration
-    precomputer/migrations/0003_periodic_tasks.py creates the initial rows and leaves
-    existing ones unchanged; CELERY_BEAT_SCHEDULE is empty, because DatabaseScheduler
-    overwrites a row with its entry there on every beat start. Two entries, because the halves go stale for
-    different reasons: precompute_engagement hourly for stats and ratings, which move
-    whenever a reader rates or subscribes, and precompute_all daily, which is the only
-    thing that notices an RFC Red has published, since nothing in Reef's own tables
-    moves when that happens. detect_rfc_changes runs hourly and send_digest daily; see
-    "Hourly change detection, daily digest" at the end. A further task,
+    database and changed in the admin. A data migration creates the initial rows and
+    leaves existing ones unchanged; CELERY_BEAT_SCHEDULE is empty, because
+    DatabaseScheduler overwrites a row with its entry there on every beat start. Two
+    precompute entries, because the halves go stale for different reasons:
+    precompute_engagement hourly for stats and ratings, which move whenever a reader
+    rates or subscribes, and precompute_all daily, which rebuilds and purges every file
+    as a floor for the targeted runs. That floor also refreshes Red's metadata in the
+    subject files after Red publishes or updates an RFC, since nothing in Reef's own
+    tables moves when that happens. detect_rfc_changes runs hourly and send_digest
+    daily; see "Hourly change detection, daily digest" at the end. A further task,
     precompute_curated, is enqueued by signals rather than scheduled: popularity,
     subjects and surveys are edited deliberately by staff who then expect to see the
-    change published. Reader-driven models are deliberately not wired to signals,
-    because a task per rating would enqueue thousands to rebuild a file nobody reads in
-    between. Signals fire on_commit, so a rolled-back save publishes nothing, and with a
-    countdown so that a few edits in one sitting usually collapse into one run; several
-    edits further apart still produce several runs, which is accepted rather than solved
-    because debouncing properly needs shared state development has no backend for. Runs
+    change published. Reader-driven models (ratings, set entries, RFC subscriptions)
+    do not enqueue a run, because a task per rating would enqueue thousands; their
+    signals only mark the document in PendingDocumentChange, and
+    push_document_changes rebuilds the marked documents and notifies Red. Both kinds
+    of signal act on_commit, so a rolled-back save publishes nothing. The curated run
+    is enqueued with a countdown so that a few edits in one sitting usually collapse
+    into one run; several edits further apart still produce several runs, which is
+    accepted rather than solved because debouncing properly needs shared state
+    development has no backend for. Runs
     are serialised by a Postgres advisory lock: two at once race on the purge, since a
     key absent from the run doing the purging looks stale rather than in flight.
     Advisory rather than the usual cache.add() lock because development is DummyCache,
