@@ -3,6 +3,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from reef.docids import normalize_doc_id
+from reef.rfcmeta import require_document
 
 from .models import DocumentSet, DocumentSetEntry
 
@@ -13,6 +14,16 @@ def canonical_doc_id(value):
         return normalize_doc_id(value)
     except DjangoValidationError as exc:
         raise serializers.ValidationError(exc.messages) from exc
+
+
+def existing_doc_id(value):
+    """Canonicalize an identifier and reject it if absent from a readable index."""
+    doc = canonical_doc_id(value)
+    try:
+        require_document(doc)
+    except DjangoValidationError as exc:
+        raise serializers.ValidationError(exc.messages) from exc
+    return doc
 
 
 class DocumentSetEntrySerializer(serializers.ModelSerializer):

@@ -14,6 +14,7 @@ import zlib
 from unittest import mock
 
 import jsonschema
+from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, override_settings
 
 from reef import rfcmeta
@@ -464,6 +465,41 @@ class ContainingSubseriesTests(SimpleTestCase):
             with self.assertLogs("reef", level="WARNING") as logs:
                 self.assertEqual(rfcmeta.containing_subseries("rfc2119"), [])
         self.assertIn("without expanding subseries", "\n".join(logs.output))
+
+
+class DocumentExistsTests(SimpleTestCase):
+    def setUp(self):
+        rfcmeta.clear_cache()
+        self.addCleanup(rfcmeta.clear_cache)
+        rfcmeta._memo["value"] = (
+            {"rfc2119": {"title": "Key words", "subseries": ["bcp14"]}},
+            None,
+        )
+        rfcmeta._memo["expires"] = float("inf")
+
+    def test_an_rfc_in_the_index_exists(self):
+        self.assertIs(rfcmeta.document_exists("rfc2119"), True)
+
+    def test_an_rfc_missing_from_the_index_does_not_exist(self):
+        self.assertIs(rfcmeta.document_exists("rfc99999"), False)
+
+    def test_a_subseries_exists_when_an_rfc_belongs_to_it(self):
+        self.assertIs(rfcmeta.document_exists("bcp14"), True)
+        self.assertIs(rfcmeta.document_exists("bcp999"), False)
+
+    def test_an_unreadable_index_is_unknown(self):
+        rfcmeta.clear_cache()
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=urllib.error.URLError("refused")
+        ):
+            self.assertIsNone(rfcmeta.document_exists("rfc99999"))
+            rfcmeta.require_document("rfc99999")
+
+    def test_require_document_names_the_missing_document(self):
+        with self.assertRaisesMessage(
+            ValidationError, "RFC 99999 is not in the RFC index."
+        ):
+            rfcmeta.require_document("rfc99999")
 
 
 class SyncedSchemaTests(SimpleTestCase):

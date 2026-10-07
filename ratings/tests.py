@@ -2,12 +2,17 @@
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 
+from reef.testing import stub_rfc_index
+
 from .models import Rating
 
 User = get_user_model()
 
 
 class RatingApiTests(APITestCase):
+    def setUp(self):
+        stub_rfc_index(self, {"rfc1": {"subseries": []}, "rfc9110": {"subseries": []}})
+
     def test_anonymous_aggregate_empty(self):
         resp = self.client.get("/api/reef/ratings/rfc9999/")
         self.assertEqual(resp.status_code, 200)
@@ -19,6 +24,16 @@ class RatingApiTests(APITestCase):
     def test_put_requires_auth(self):
         resp = self.client.put("/api/reef/ratings/rfc1/", {"value": 4}, format="json")
         self.assertIn(resp.status_code, (401, 403))
+
+    def test_put_refuses_an_rfc_missing_from_the_index(self):
+        user = User.objects.create(username="u", oidc_sub="s")
+        self.client.force_authenticate(user=user)
+        resp = self.client.put(
+            "/api/reef/ratings/rfc99999/", {"value": 4}, format="json"
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json(), {"rfc": ["RFC 99999 is not in the RFC index."]})
+        self.assertFalse(Rating.objects.exists())
 
     def test_put_upserts_and_aggregates(self):
         user = User.objects.create(username="u", oidc_sub="s")

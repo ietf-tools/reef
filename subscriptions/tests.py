@@ -26,6 +26,9 @@ User = get_user_model()
 
 
 class SubscriptionApiTests(APITestCase):
+    def setUp(self):
+        stub_rfc_index(self)
+
     def test_requires_auth(self):
         self.assertIn(
             self.client.get("/api/reef/subscriptions/").status_code, (401, 403)
@@ -63,6 +66,21 @@ class SubscriptionApiTests(APITestCase):
         )
         self.assertEqual(create.status_code, 201)
         self.assertEqual(create.json()["params"], {"rfc": "rfc9110"})
+
+    def test_create_refuses_an_rfc_missing_from_the_index(self):
+        user = User.objects.create(username="u", oidc_sub="s")
+        self.client.force_authenticate(user=user)
+
+        create = self.client.post(
+            "/api/reef/subscriptions/",
+            {"kind": "rfc", "params": {"rfc": "rfc99999"}},
+            format="json",
+        )
+        self.assertEqual(create.status_code, 400)
+        self.assertEqual(
+            create.json(), {"params": ["RFC 99999 is not in the RFC index."]}
+        )
+        self.assertFalse(Subscription.objects.exists())
 
     def test_rfc_kind_requires_an_rfc_param(self):
         user = User.objects.create(username="u", oidc_sub="s")
@@ -251,6 +269,9 @@ class SubscriptionUniquenessTests(APITestCase):
     """One subscription per (user, kind, params), whichever way it is written."""
 
     def setUp(self):
+        stub_rfc_index(
+            self, {"rfc791": {"subseries": ["std5"]}, "rfc9110": {"subseries": []}}
+        )
         self.user = User.objects.create(username="u", oidc_sub="s")
         self.client.force_authenticate(user=self.user)
 
@@ -918,6 +939,9 @@ class SendSubscriptionDigestTests(APITestCase):
 
 
 class SubscribingSendsNoMailTests(APITestCase):
+    def setUp(self):
+        stub_rfc_index(self)
+
     def test_creating_a_subscription_sends_no_email(self):
         user = User.objects.create(
             username="u",

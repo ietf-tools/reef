@@ -12,6 +12,7 @@ from .serializers import (
     DocumentSetOrderSerializer,
     DocumentSetSerializer,
     canonical_doc_id,
+    existing_doc_id,
 )
 
 
@@ -79,7 +80,7 @@ class DocumentSetDocument(OwnedSetMixin, APIView):
         document_set = get_object_or_404(self.get_queryset(), pk=pk)
         entry, created = DocumentSetEntry.objects.get_or_create(
             document_set=document_set,
-            doc=canonical_doc_id(doc),
+            doc=existing_doc_id(doc),
             defaults={"rank": self._next_rank(document_set)},
         )
         if created:

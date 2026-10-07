@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from reef.docids import normalize_doc_id
+from reef.rfcmeta import require_document
 
 from .models import Rating
 from .serializers import RatingAggregateSerializer, RatingWriteSerializer
@@ -95,6 +96,10 @@ class RatingDetail(APIView):
     )
     def put(self, request, rfc):
         rfc = _canonical(rfc)
+        try:
+            require_document(rfc)
+        except DjangoValidationError as exc:
+            raise ValidationError({"rfc": exc.messages}) from exc
         serializer = RatingWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         Rating.objects.update_or_create(

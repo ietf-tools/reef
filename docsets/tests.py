@@ -6,6 +6,8 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from rest_framework.test import APITestCase
 
+from reef.testing import stub_rfc_index
+
 from .models import DESCRIPTION_MAX_LENGTH, DocumentSet, DocumentSetEntry
 
 User = get_user_model()
@@ -105,6 +107,14 @@ class DocumentSetApiTests(APITestCase):
 
 class DocumentSetMembershipTests(APITestCase):
     def setUp(self):
+        stub_rfc_index(
+            self,
+            {
+                "rfc9110": {"subseries": ["std97"]},
+                "rfc2119": {"subseries": ["bcp14"]},
+                "rfc3986": {"subseries": ["std66"]},
+            },
+        )
         self.user = User.objects.create(username="u", oidc_sub="s")
         self.client.force_authenticate(user=self.user)
         self.set_id = self.client.post(
@@ -123,6 +133,12 @@ class DocumentSetMembershipTests(APITestCase):
         self.assertEqual(self.add("bcp14").status_code, 201)
         self.assertEqual(self.add("std66").status_code, 201)
         self.assertEqual(self.docs(), ["rfc9110", "bcp14", "std66"])
+
+    def test_add_refuses_a_document_missing_from_the_index(self):
+        for doc in ("rfc99999", "bcp999"):
+            with self.subTest(doc=doc):
+                self.assertEqual(self.add(doc).status_code, 400)
+        self.assertEqual(self.docs(), [])
 
     def test_adding_is_idempotent_across_spellings(self):
         self.assertEqual(self.add("rfc9110").status_code, 201)
