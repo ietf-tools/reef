@@ -2,10 +2,9 @@
 
 from django.db import migrations
 
-# Every scheduled task in the project, as name: (task, crontab fields) in UTC.
-# Existing rows are not modified, so a schedule edited in the admin is kept.
+# Initial schedules, in UTC. Existing rows are not modified, so admin edits are kept.
 PERIODIC_TASKS = {
-    # Rebuilds and purges every file, as a floor for the targeted runs below.
+    # Rebuilds and purges every file, as a floor for the targeted runs.
     "precompute-all": (
         "precomputer.tasks.precompute_all",
         {"hour": "3", "minute": "0"},
@@ -14,7 +13,6 @@ PERIODIC_TASKS = {
         "precomputer.tasks.precompute_engagement",
         {"minute": "20"},
     ),
-    # Must stay well above REEF_DOCUMENT_CHANGE_QUIET_SECONDS.
     "push-document-changes": (
         "precomputer.tasks.push_document_changes",
         {"minute": "*/5"},
@@ -23,8 +21,7 @@ PERIODIC_TASKS = {
         "subscriptions.tasks.detect_rfc_changes",
         {"minute": "25"},
     ),
-    # After that hour's detection, so the digest holds everything staged since the
-    # previous one.
+    # After detection at :25, so the digest includes that hour's changes.
     "send-digest": (
         "subscriptions.tasks.send_digest",
         {"hour": "4", "minute": "30"},

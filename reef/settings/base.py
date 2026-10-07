@@ -457,9 +457,9 @@ CELERY_BROKER_URL = os.environ.get("REEF_BROKER_URL", "amqp://mq/")
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_IGNORE_RESULT = True
 
-# Schedules are stored in the database and changed in the admin. The initial rows are
-# created by precomputer/migrations/0003_periodic_tasks.py. CELERY_BEAT_SCHEDULE stays
-# empty: DatabaseScheduler overwrites a row with its entry there on every beat start.
+# Schedules are stored in the database and changed in the admin.
+# CELERY_BEAT_SCHEDULE stays empty: DatabaseScheduler overwrites a row with its
+# entry there on every beat start.
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_BEAT_SCHEDULE = {}
 
