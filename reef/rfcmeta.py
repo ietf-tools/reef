@@ -10,11 +10,12 @@ One file, anonymous, on Red's public origin: /api/v1/rfc-index.json, the whole
 series -- every field Red's own RfcCommon carries, not the "mini" subset Red also
 publishes for lighter callers. One shared copy of it beats a request per document.
 
-The index is validated against reef/schemas/rfc-index.schema.json, generated from
-Red's Zod definition (RfcCommonSchema, in rfc-validators.ts) and synced by hand. The
+The index is validated against reef/schemas/rfc-index.schema.json, the subset of
+Red's upstream schema (RfcCommonSchema, in rfc-validators.ts) that Reef reads. The
 asymmetry that matters is JSON Schema's own: a field Red adds validates fine, a
-required field Red removes does not. Nothing here rejects unknown keys, and it must
-stay that way, or every field Red adds becomes a Reef outage.
+required field Red removes does not. Nothing here rejects unknown keys or closes a
+list of values, and it must stay that way, or every field or value Red adds becomes
+a Reef outage.
 
 `abstract` is deliberately not in the reduced, shared mapping below -- see
 `cached_abstract()`. Every other entry point degrades rather than raises. Red being
@@ -279,6 +280,34 @@ def fetch_payload():
     the one Reef serves.
     """
     return _fetch(INDEX_PATH, settings.REEF_RFC_DATA_TIMEOUT)
+
+
+def fetch_entries(doc_ids):
+    """Red's own entries for `doc_ids`, as published, keyed by identifier.
+
+    For handing a document on to Red as Red defines it, so every field is kept and
+    nothing is validated beyond being an entry with a number: what an entry carries
+    is Red's business, and checking every field would make Reef maintain Red's
+    schema for data it only passes back. A fresh fetch each time, because the shared
+    cache keeps only a subset of each entry's fields (see _from_cache). A document
+    Red does not have, or every document when Red cannot be read, is simply absent.
+    """
+    wanted = set(doc_ids)
+    if not wanted:
+        return {}
+    payload = fetch_payload()
+    entries = payload.get("index") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        logger.error("No entries from Red's index, so %s go without", sorted(wanted))
+        return {}
+    found = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("number") is None:
+            continue
+        doc_id = f"rfc{entry['number']}"
+        if doc_id in wanted:
+            found[doc_id] = entry
+    return found
 
 
 def reduce_payload(payload):

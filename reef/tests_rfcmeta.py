@@ -115,6 +115,38 @@ class LoadIndexTests(SimpleTestCase):
         self.assertIsNotNone(index)
         self.assertEqual(index.get("rfc9110")["title"], "HTTP Semantics")
 
+    def test_a_value_red_adds_is_accepted(self):
+        """No list of statuses, streams or subseries types is closed here, so a new
+        one reaches change detection rather than refusing the whole series."""
+        index = self.load(
+            index_payload(
+                [
+                    entry(
+                        status={"slug": "new", "name": "something new"},
+                        stream={"slug": "NEW", "name": "New stream"},
+                        subseries=[{"type": "new", "number": 1}],
+                        formats=[{"format": "new"}],
+                    )
+                ]
+            )
+        )
+        self.assertEqual(index.get("rfc9110")["status"], "new")
+
+    def test_a_field_reef_does_not_read_can_change_or_go(self):
+        """formats is Red's business: Reef never reads it, so neither its removal
+        nor a change to its shape is Reef's to refuse."""
+        dropped = entry()
+        del dropped["formats"]
+        self.assertIsNotNone(self.load(index_payload([dropped])))
+        self.assertIsNotNone(self.load(index_payload([entry(formats="pdf")])))
+
+    def test_a_field_reef_degrades_without_is_optional(self):
+        sparse = entry()
+        for name in ("stream", "authors", "subseries"):
+            del sparse[name]
+        index = self.load(index_payload([sparse]))
+        self.assertEqual(index.get("rfc9110")["authors"], [])
+
     def test_a_required_field_red_removes_is_refused(self):
         """The other half: a removal Reef depends on must not pass silently."""
         broken = entry()
@@ -173,6 +205,48 @@ class LoadIndexTests(SimpleTestCase):
         del payload["index"][0]["number"]
         with self.assertLogs("reef", level="ERROR"):
             self.assertIsNone(self.load(payload))
+
+
+@override_settings(REEF_RFC_DATA_BASE_URL=BASE_URL)
+class FetchEntriesTests(SimpleTestCase):
+    """Red's own entries, passed on rather than reduced."""
+
+    def fetch(self, payload, doc_ids):
+        with mock.patch("urllib.request.urlopen", return_value=_response(payload)):
+            return rfcmeta.fetch_entries(doc_ids)
+
+    def test_an_entry_comes_back_as_red_published_it(self):
+        """Fields Reef has never heard of included: they are Red's to define."""
+        published = entry(errata_url="https://example.org/errata", future={"a": 1})
+        self.assertEqual(
+            self.fetch(index_payload([published]), ["rfc9110"]),
+            {"rfc9110": published},
+        )
+
+    def test_only_the_documents_asked_for_come_back(self):
+        payload = index_payload([entry(), entry(number=2119, title="Key words")])
+        self.assertEqual(list(self.fetch(payload, ["rfc2119"])), ["rfc2119"])
+
+    def test_a_document_red_does_not_have_is_absent(self):
+        self.assertEqual(self.fetch(index_payload(), ["rfc1"]), {})
+
+    def test_an_entry_failing_the_index_schema_still_comes_back(self):
+        """Passing an entry on is not reading it, so a field Red has dropped or
+        retyped is not Reef's to refuse here."""
+        published = {"number": 9110, "title": "HTTP Semantics"}
+        self.assertEqual(
+            self.fetch(index_payload([published]), ["rfc9110"]),
+            {"rfc9110": published},
+        )
+
+    def test_red_being_unreadable_means_no_entries_rather_than_an_error(self):
+        with self.assertLogs("reef", level="ERROR"):
+            self.assertEqual(self.fetch(b"not json", ["rfc9110"]), {})
+
+    def test_asking_for_nothing_does_not_fetch(self):
+        with mock.patch("urllib.request.urlopen") as urlopen:
+            self.assertEqual(rfcmeta.fetch_entries([]), {})
+        urlopen.assert_not_called()
 
 
 class MetaFromEntryTests(SimpleTestCase):
@@ -393,7 +467,7 @@ class ContainingSubseriesTests(SimpleTestCase):
 
 
 class SyncedSchemaTests(SimpleTestCase):
-    """The schema file itself, which is a copy of Red's and easy to break in a sync."""
+    """The schema file itself, which is hand-written and easy to break in an edit."""
 
     def test_it_is_a_valid_draft_2020_12_schema(self):
         jsonschema.Draft202012Validator.check_schema(rfcmeta._schema())
@@ -404,11 +478,14 @@ class SyncedSchemaTests(SimpleTestCase):
         self.assertIn("title", item["required"])
 
     def test_it_does_not_forbid_unknown_properties(self):
-        """Mirrors Zod's io='input' export, which carries no additionalProperties:
-        false, for exactly this reason. If this ever becomes False, every field Red
-        adds breaks Reef."""
-        item = rfcmeta._schema()["properties"]["index"]["items"]
-        self.assertNotIn("additionalProperties", item)
+        """If this is ever False anywhere, every field Red adds there breaks Reef."""
+        self.assertNotIn("additionalProperties", json.dumps(rfcmeta._schema()))
+
+    def test_it_does_not_close_any_list_of_values(self):
+        """A status or stream Red adds is news, not a malformed index."""
+        text = json.dumps(rfcmeta._schema())
+        self.assertNotIn('"enum"', text)
+        self.assertNotIn('"const"', text)
 
 
 @override_settings(REEF_RFC_DATA_BASE_URL=BASE_URL)

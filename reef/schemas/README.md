@@ -1,60 +1,46 @@
 # Schemas Reef validates other people's data against
 
-Files here describe data Reef reads from somewhere else. They are copies, not
-sources: each one is generated in the repository that owns the data, and synced
-here by hand.
+Each file here is a subset of an upstream schema: the part of someone else's data
+that Reef reads, and no more.
 
 ## rfc-index.schema.json
 
-Describes `https://www.rfc-editor.org/api/v1/rfc-index.json`, the whole RFC
-series in one file, which `reef.rfcmeta` reads to resolve an identifier to a
-title and the rest of what `subjects/precompute.py` publishes per document.
-Red owns the shape; the JSON Schema mirrors Red's own Zod definition
-(`RfcCommonSchema` and `RfcIndexSchema`, in `website/app/utilities/
-rfc-validators.ts`), because Reef is Python and cannot share it directly.
+A subset of Red's upstream schema for
+`https://www.rfc-editor.org/api/v1/rfc-index.json` (`RfcCommonSchema` and
+`RfcIndexSchema`, in `website/app/utilities/rfc-validators.ts`), covering what
+`reef.rfcmeta` reads. It changes when Reef starts or stops reading a field.
 
-Reef previously read a smaller "mini" index instead
-(`rfc-mini-index.schema.json`, now removed); the full index is a strict
-superset of it, so there is no longer a reason to fetch both.
+### What it requires
 
-### Syncing
+- `createdOn` and `index` at the top: change detection refuses an index older than
+  the last one it compared, which needs the date.
+- `number`, `title` and `status` (`slug` and `name`) on every entry: the
+  identifier, what every page shows, and what change detection compares.
+- `acronym` and `name` on `area` and `group`, and `type` and `value` on each of
+  `identifiers`, when those are present at all: Reef publishes them as they are and
+  its own contract requires both.
 
-Unlike the mini index this replaced, Red has no `npm run generate:schema`
-output for the full index yet -- only `RfcMiniIndexSchema` is wired into
-`precomputer/src/utilities/export-json-schema.ts`. This file was hand-derived
-from `RfcCommonSchema` directly instead. If Red's own generator is ever
-extended to also emit one for `RfcIndexSchema`, the same `io: 'input'` export
-(see below) should replace this file rather than sit beside it, the same way
-the mini index's copy was kept in sync:
+Every other field Reef reads is optional and only type-checked, because Reef
+degrades to an empty value without it: `stream`, `authors`, `published`,
+`keywords`, `pages`, `abstract`, `subseries`, and the `number` of each entry in
+the four relation fields.
 
-```
-cd ~/Code/red/precomputer && npm run generate:schema
-cp ~/Code/red/precomputer/generated/rfc-index.schema.json \
-   ~/Code/reef/reef/schemas/rfc-index.schema.json
-```
+### What it deliberately does not do
 
-Nothing detects that this copy has fallen behind Red's — that is the accepted
-cost of not fetching the schema at runtime, and the trade is that Reef
-validates offline and a shape change arrives as a reviewable diff in a Reef
-pull request.
-
-### What it does and does not catch
-
-The schema carries no `additionalProperties: false`. That is deliberate and
-load-bearing: Red has undertaken to change these files additively, and Reef
-has to hold up its end by not rejecting keys it has not seen before.
-Validating with `additionalProperties: false` would turn every field Red adds
-into a Reef outage.
+- **Forbid unknown keys.** There is no `additionalProperties: false` anywhere. Red
+  has undertaken to change this file additively, and Reef holds up its end by not
+  rejecting keys it has not seen; forbidding them would turn every field Red adds
+  into a Reef outage.
+- **Enumerate values.** Statuses, streams, subseries types and the like are plain
+  strings. A status Red adds is news to report, not a malformed index, and a closed
+  list here would refuse the whole series over it.
+- **Describe fields Reef does not read**, such as `formats` or an author's
+  `email`: checking them would make Reef fail on changes it would never have
+  noticed.
 
 What that leaves:
 
-- a field Reef reads being **removed** fails, if it is in `required`
-- a field being **retyped** fails
-- a field being **added**, at any depth, passes
-
-The required set is `number`, `title`, `status`, `stream`, `authors` and
-`formats`. Everything else Reef reads is optional -- `published`, `area`,
-`group`, `keywords`, `pages`, `abstract`, `subseries`, and the four relation
-fields -- because the datatracker may omit them and Red passes the absence
-through. Their removal is therefore invisible to this check. That gap is
-known and accepted; it is optional by intent rather than by oversight.
+- a required field being **removed** fails
+- a field Reef reads being **retyped** fails
+- a field being **added**, at any depth, passes, as does any change to a field Reef
+  does not read
