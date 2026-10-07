@@ -2315,8 +2315,7 @@ matching, and keep uploads small.
 
 Red will host the public survey runner, and Reef's Nuxt client (`client/`) will
 eventually be removed. For a while both run in parallel: `/s?slug=<slug>` is a working
-survey page on Reef's origin and on Red's. The parameter is `slug` on both, never `id`,
-so a link means the same thing whichever host it points at.
+survey page on Reef's origin and on Red's. The parameter is `slug` on both, so a link means the same thing whichever host it points at.
 
 Red controls the rollout. It takes the slug from each `OpenSurvey`, either from `slug`
 or by parsing it out of `url`, and links to its own `/s?slug=<slug>`. Reef's `url` keeps
