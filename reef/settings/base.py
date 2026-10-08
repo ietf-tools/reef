@@ -4,7 +4,6 @@
 import os
 from pathlib import Path
 
-from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -458,11 +457,11 @@ CELERY_BROKER_URL = os.environ.get("REEF_BROKER_URL", "amqp://mq/")
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_IGNORE_RESULT = True
 
-# Schedules live in the database (django-celery-beat). DatabaseScheduler writes each
-# entry in CELERY_BEAT_SCHEDULE below over the database row of the same name every
-# time beat starts, so these are retimed here: an admin edit to one of them lasts
-# until the next restart. Entries added only in the admin are not touched.
+# Schedules are stored in the database and changed in the admin.
+# CELERY_BEAT_SCHEDULE stays empty: DatabaseScheduler overwrites a row with its
+# entry there on every beat start.
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+CELERY_BEAT_SCHEDULE = {}
 
 # The precomputer gets its own queue. A full run holds a worker for as long as it
 # takes and, once it resolves document metadata, a few megabytes of parsed index with
@@ -471,44 +470,4 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_TASK_ROUTES = {
     "precomputer.tasks.*": {"queue": "precompute"},
     "popularity.tasks.*": {"queue": "precompute"},
-}
-
-CELERY_BEAT_SCHEDULE = {
-    # Daily. This is the only job that notices an RFC Red has published and Reef has
-    # never seen, since nothing in Reef's own tables moves when that happens.
-    "precompute-all": {
-        "task": "precomputer.tasks.precompute_all",
-        "schedule": crontab(hour="3", minute="0"),
-    },
-    # Hourly. Ratings, subscriptions and set entries arrive from readers all day, and
-    # these are the two files that change when they do.
-    "precompute-engagement": {
-        "task": "precomputer.tasks.precompute_engagement",
-        "schedule": crontab(minute="20"),
-    },
-    # Every five minutes: the documents readers changed, once quiet, then Red is told.
-    "push-document-changes": {
-        "task": "precomputer.tasks.push_document_changes",
-        "schedule": crontab(minute="*/5"),
-    },
-    # Hourly, so a publication reaches the web feed within about two hours of Red's
-    # index reflecting it: up to an hour until the next run, plus the index's cache
-    # of up to REEF_RFC_INDEX_CACHE_SECONDS. The mail is the daily digest below.
-    "detect-rfc-changes": {
-        "task": "subscriptions.tasks.detect_rfc_changes",
-        "schedule": crontab(minute="25"),
-    },
-    # Daily, just after that hour's detection, so the digest holds everything
-    # staged since yesterday's. Publication is bursty, and one mail a day gathers a
-    # burst into one.
-    "send-digest": {
-        "task": "subscriptions.tasks.send_digest",
-        "schedule": crontab(hour="4", minute="30"),
-    },
-    # Hourly. Recovers notifications that were written down but never delivered,
-    # which is what the database row exists for.
-    "sweep-unsent-notifications": {
-        "task": "subscriptions.tasks.sweep_unsent_notifications",
-        "schedule": crontab(minute="40"),
-    },
 }
