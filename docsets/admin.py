@@ -1,7 +1,9 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.contrib import admin
+from django.core.exceptions import ValidationError
 
 from reef.admin_documents import DocumentTitleMixin
+from reef.docids import normalize_doc_id
 
 from .models import DocumentSet, DocumentSetEntry
 
@@ -23,8 +25,23 @@ class DocumentSetAdmin(admin.ModelAdmin):
 
     list_display = ["title", "owner", "deleted_at", "updated_at"]
     list_filter = [("deleted_at", admin.EmptyFieldListFilter)]
-    search_fields = ["title", "description", "entries__doc"]
+    search_fields = ["id", "title", "description"]
+    fields = ["id", "owner", "title", "description", "deleted_at", "deleted_reason"]
+    readonly_fields = ["id"]
     inlines = [DocumentSetEntryInline]
+
+    def get_search_results(self, request, queryset, search_term):
+        """Also match the term as a document identifier, so "RFC 9110" and "9110"
+        find the sets holding rfc9110."""
+        unsearched = queryset
+        queryset, may_have_duplicates = super().get_search_results(
+            request, queryset, search_term
+        )
+        try:
+            doc = normalize_doc_id(search_term, default_series="rfc")
+        except ValidationError:
+            return queryset, may_have_duplicates
+        return queryset | unsearched.filter(entries__doc=doc), True
 
     def get_queryset(self, request):
         # all_objects, not the default manager: staff have to be able to find a
