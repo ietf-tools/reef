@@ -219,6 +219,16 @@ def match_changes(changes, index):
     ):
         found = set(found)
         if change.is_new:
+            # Following one RFC is about its changes after publication; this kind of
+            # notification shall be skipped for the publication itself
+            found = {
+                subscription
+                for subscription in found
+                if not (
+                    subscription.kind == Subscription.Kind.RFC
+                    and subscription.params.get("rfc") == change.doc
+                )
+            }
             found |= new_rfc
         if status:
             found |= by_status.get(status, set())
