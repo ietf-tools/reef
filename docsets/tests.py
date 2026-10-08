@@ -4,9 +4,12 @@ import uuid
 from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.test import TestCase
+from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from reef.testing import stub_rfc_index
+from reefauth.testing import login
 
 from .models import DESCRIPTION_MAX_LENGTH, DocumentSet, DocumentSetEntry
 
@@ -388,3 +391,52 @@ class SoftDeletedDocumentSetTests(APITestCase):
         )
         self.assertEqual(response.status_code, 201)
         self.assertNotEqual(response.json()["id"], str(self.document_set.pk))
+
+
+class DocumentSetAdminSearchTests(TestCase):
+    def setUp(self):
+        staff = User.objects.create_superuser(
+            username="staff", oidc_sub="staff", password="x"
+        )
+        login(self.client, staff)
+        stub_rfc_index(self)
+        owner = User.objects.create(username="u", oidc_sub="s")
+        self.http = DocumentSet.objects.create(owner=owner, title="HTTP core")
+        DocumentSetEntry.objects.create(document_set=self.http, doc="rfc9110")
+        self.keywords = DocumentSet.objects.create(owner=owner, title="Key words")
+        DocumentSetEntry.objects.create(document_set=self.keywords, doc="bcp14")
+        DocumentSetEntry.objects.create(document_set=self.keywords, doc="rfc19110")
+
+    def search(self, term):
+        resp = self.client.get(
+            reverse("admin:docsets_documentset_changelist"), {"q": term}
+        )
+        self.assertEqual(resp.status_code, 200)
+        return {s.pk for s in resp.context["cl"].result_list}
+
+    def test_change_page_shows_the_id(self):
+        resp = self.client.get(
+            reverse("admin:docsets_documentset_change", args=[self.http.pk])
+        )
+        self.assertEqual(resp.status_code, 200)
+        # The id is in every URL on the page, so check the read-only field itself.
+        self.assertContains(
+            resp, f'<div class="readonly">{self.http.pk}</div>', html=True
+        )
+        self.assertEqual(
+            list(resp.context["adminform"].form.fields),
+            ["owner", "title", "description", "deleted_at", "deleted_reason"],
+        )
+
+    def test_by_id(self):
+        set_id = str(self.http.pk)
+        for term in (set_id, set_id.upper(), set_id[:8]):
+            with self.subTest(term=term):
+                self.assertEqual(self.search(term), {self.http.pk})
+
+    def test_by_document(self):
+        for term in ("rfc9110", "RFC 9110", "RFC-09110", "9110"):
+            with self.subTest(term=term):
+                self.assertIn(self.http.pk, self.search(term))
+        self.assertEqual(self.search("RFC 9110"), {self.http.pk})
+        self.assertEqual(self.search("BCP 14"), {self.keywords.pk})
