@@ -40,7 +40,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 
-from reef.docids import normalize_doc_id
+from reef.docids import display_doc_id, normalize_doc_id
 
 logger = logging.getLogger("reef")
 
@@ -471,6 +471,30 @@ def cached_abstract(doc_id):
     same process; precomputer/registry.py's subjects task is the one that does.
     """
     return _abstracts.get(doc_id)
+
+
+def document_exists(doc_id):
+    """Whether Red's index has a canonical identifier, or None if the index cannot be
+    read. A subseries such as bcp14 exists when an RFC in the index belongs to it."""
+    shared = _shared(fetch=True)
+    if shared is None:
+        return None
+    mapping = shared[0]
+    if doc_id.startswith("rfc"):
+        return doc_id in mapping
+    return any(doc_id in meta["subseries"] for meta in mapping.values())
+
+
+def require_document(doc_id):
+    """Raise ValidationError if Red's index does not have a canonical identifier.
+
+    Accepted when the index cannot be read, so that Red being unavailable does not
+    block readers' writes.
+    """
+    if document_exists(doc_id) is False:
+        raise DjangoValidationError(
+            f"{display_doc_id(doc_id)} is not in the RFC index."
+        )
 
 
 def containing_subseries(doc_id, mapping=None):

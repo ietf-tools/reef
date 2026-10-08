@@ -5,6 +5,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from docsets.models import DocumentSet
+from reef.rfcmeta import require_document
 from subjects.models import Subject
 
 from .models import Subscription, WebNotification, normalize_params, relation_problems
@@ -74,6 +75,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         kind = attrs.get("kind")
         try:
             attrs["params"] = normalize_params(kind, attrs.get("params") or {})
+            if kind == Subscription.Kind.RFC:
+                require_document(attrs["params"]["rfc"])
         except DjangoValidationError as exc:
             raise serializers.ValidationError({"params": exc.messages}) from exc
 
