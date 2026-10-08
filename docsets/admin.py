@@ -32,8 +32,7 @@ class DocumentSetAdmin(admin.ModelAdmin):
 
     def get_search_results(self, request, queryset, search_term):
         """Also match the term as a document identifier, so "RFC 9110" and "9110"
-        find the sets holding rfc9110. Matched exactly: a substring search on
-        documents would also find rfc19110."""
+        find the sets holding rfc9110."""
         unsearched = queryset
         queryset, may_have_duplicates = super().get_search_results(
             request, queryset, search_term
