@@ -59,6 +59,23 @@ class PredicateMatchingTests(TestCase):
         change = self.change({"rfc9110": meta()}, {"rfc9110": meta(status="hist")})
         self.assertEqual(self.matched(change), set())
 
+    def test_a_new_document_does_not_match_its_own_rfc_subscription(self):
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+        )
+        new_rfc = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.NEW_RFC
+        )
+        change = self.change({}, {"rfc9110": meta()})
+        self.assertEqual(self.matched(change), {new_rfc})
+
+    def test_a_changed_document_matches_its_rfc_subscription(self):
+        own = Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+        )
+        change = self.change({"rfc9110": meta()}, {"rfc9110": meta(status="hist")})
+        self.assertEqual(self.matched(change), {own})
+
     def test_by_status_matches_the_status_name_red_gives(self):
         """Not the slug: the parameter is what somebody would pick in Red's UI."""
         subscription = Subscription.objects.create(
@@ -219,6 +236,19 @@ class NotifyRfcChangesTests(TestCase):
         # The digest surfaces nothing a second time.
         self.assertEqual(WebNotification.objects.count(), 1)
         self.assertEqual(SubjectNotificationEvent.objects.count(), 0)
+
+    def test_a_publication_is_not_told_to_the_rfc_subscription(self):
+        self.seed()
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9999"}
+        )
+        self.rewarm(
+            {"rfc9110": meta(), "rfc9999": meta(title="New")},
+            datetime.date(2026, 9, 1),
+        )
+        self.assertEqual(detect_rfc_changes(), 0)
+        self.assertEqual(self.digest(), 0)
+        self.assertFalse(WebNotification.objects.exists())
 
     def test_several_runs_before_the_digest_are_one_mail(self):
         self.seed()
@@ -497,6 +527,14 @@ class SubseriesMembershipTests(TestCase):
     def test_joining_a_subseries_reaches_its_followers(self):
         after = {"rfc2119": meta(subseries=["bcp14"])}
         change = self.change({"rfc2119": meta()}, after)
+        warm_rfc_index(after)
+        self.assertIn(
+            self.follows_bcp14, subscriptions_for_change(change, self.index(after))
+        )
+
+    def test_a_new_document_in_a_subseries_reaches_its_followers(self):
+        after = {"rfc2119": meta(subseries=["bcp14"])}
+        change = self.change({}, after)
         warm_rfc_index(after)
         self.assertIn(
             self.follows_bcp14, subscriptions_for_change(change, self.index(after))
