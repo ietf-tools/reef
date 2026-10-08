@@ -219,8 +219,8 @@ def match_changes(changes, index):
     ):
         found = set(found)
         if change.is_new:
-            # Following one RFC is about its changes after publication; the
-            # publication itself is what new_rfc and by_status announce.
+            # Following one RFC is about its changes after publication; this kind of
+            # notification shall be skipped for the publication itself
             found = {
                 subscription
                 for subscription in found
