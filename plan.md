@@ -2315,3 +2315,102 @@ matching, and keep uploads small.
 - On staging: upload the live index plus the fake RFC. The page should redirect at
   once, show each phase, and finish in well under a minute. The step 1 timing lines
   confirm where the time went.
+
+## Survey runner hosted on Red
+
+Red will host the public survey runner, and Reef's Nuxt client (`client/`) will
+eventually be removed. For a while both run in parallel: `/s?slug=<slug>` is a working
+survey page on Reef's origin and on Red's. The parameter is `slug` on both, so a link means the same thing whichever host it points at.
+
+Red controls the rollout. It takes the slug from each `OpenSurvey`, either from `slug`
+or by parsing it out of `url`, and links to its own `/s?slug=<slug>`. Reef's `url` keeps
+pointing at Reef's runner (`{REEF_SITE_URL}/s?slug=<slug>`) for as long as that runner
+exists. Neither `REEF_SITE_URL` nor the serializer changes, so neither the API nor the
+precomputed files change either.
+
+### What Red's runner must do
+
+The Nuxt runner talks to Reef only through the public API, so Red's runner uses the
+same calls, with an `rfc-editor` bearer token instead of a `reef-staging` one:
+
+- `GET /api/reef/surveys/{slug}/definition/` gets the SurveyJS `definition` and
+  `theme`. A 403 means the survey is authenticated-only and the visitor is anonymous,
+  so it's Red's cue to sign them in and retry. A 404 means the survey is closed or
+  doesn't exist.
+- `POST /api/reef/surveys/{slug}/responses/` with `{"data": ...}`.
+- `GET /api/reef/surveys/open/`, with `include_authenticated` and `include_answered`
+  if Red wants the runner's behaviour. Both are optional and stay.
+- Send requests with `credentials: 'omit'`. Reef never authenticates these calls by
+  cookie.
+- Keep the visitor's answers across a re-login. When a submit fails because the token
+  lapsed or was refused, the Nuxt runner stores the answers in `sessionStorage`, sends
+  the visitor to sign in, and resubmits once on return, reporting rather than
+  redirecting if that second attempt also fails
+  (`client/app/composables/useSurveySubmission.ts`). Without the same, a visitor whose
+  token expired mid-survey loses their answers.
+- Use a SurveyJS version compatible with the builder's. While both runners are live,
+  they render the same `definition` and `theme` JSON, so their versions are upgraded
+  together.
+
+### Reef configuration
+
+No code change. Per environment:
+
+- `REEF_API_OIDC_ISSUERS`, `REEF_API_OIDC_JWKS_ENDPOINTS` and `REEF_API_OIDC_AUDIENCES`
+  include `rfc-editor`'s issuer, JWKS URL (at the same list position as its issuer) and
+  Red's client id. `REEF_API_OIDC_ALGORITHMS` already defaults to `RS256,ES256`, which
+  covers rfc-editor's ES256.
+- `REEF_CORS_ALLOWED_ORIGINS` includes Red's origin.
+
+### Authentik
+
+- **Same subject on both applications.** Reef identifies a survey-taker only by `sub`
+  (`User.oidc_sub`). If `rfc-editor` and `reef-staging` issue different subjects for
+  the same person, that person becomes two Reef users. A survey answered on one
+  domain then shows `answered: false` on the other, and nothing stops a second
+  response, since responses have no per-user uniqueness constraint. Both providers
+  must use the same subject mode ("Based on the User's hashed ID") before Red's runner
+  goes live.
+- **Profile claims in Red's access tokens.** `sync_user_from_claims` overwrites
+  `name`, `email` and `avatar` from every bearer token, writing `""` for a missing
+  claim, so a token without `email` blanks the address digests and notifications are
+  sent to. Red already requests `openid profile email offline_access`. What matters is
+  that Authentik copies those claims into the access token itself, not only into the
+  ID token and userinfo, so check by decoding one of Red's access tokens.
+
+### Removing the Nuxt runner
+
+Once Red no longer links to Reef's runner:
+
+1. Redirect `/s` on Reef's origin to Red's, keeping the query string (in NGINX,
+   `location = /s { return 301 <Red origin>$request_uri; }`). The redirect is
+   permanent: saved links, old mail and cached precomputed files still point at Reef.
+2. Delete `client/`, its build and deploy steps in `.github/workflows/build.yml`, the
+   `NUXT_PUBLIC_*` values in `docker-compose.yml` and `.env.example`, and the catch-all
+   `location /` that proxies to it. Decide what Reef's `/` serves instead (a redirect
+   to Red, or the admin login).
+3. Point `REEF_SITE_URL` at Red's origin and rebuild the precomputed files, so `url`
+   leads straight to the runner instead of through the redirect. The key still holds
+   "where to take this survey", so this is a value change, not a contract change.
+   Update the comments on `REEF_SITE_URL` (`reef/settings/base.py`) and
+   `OpenSurveySerializer.get_url`, which describe the runner as sharing Reef's origin.
+4. After the last `reef-staging` access token has expired, remove `reef-staging` from
+   the `REEF_API_OIDC_*` lists and retire the Authentik application. Update the "Nuxt
+   survey runner" row of the authentication model above, and the `useOidc`/`client/`
+   entries in the repository layout.
+
+The API itself doesn't change at any step.
+
+### Verification
+
+- During the parallel run, the same survey loads and submits on both origins. A
+  signed-in person who answers on one sees `answered: true` on the other, which
+  confirms the shared subject.
+- After a submit from Red, the user's `email` and `name` in the Reef admin are
+  unchanged.
+- An authenticated-only survey opened anonymously on Red leads to sign-in and then the
+  survey; a submit with an expired token keeps the answers and resubmits after
+  sign-in.
+- After removal, `https://<reef origin>/s?slug=<slug>` answers 301 to
+  `https://<red origin>/s?slug=<slug>` with the query intact, and `git diff
+  reef_api.yaml` is empty.
