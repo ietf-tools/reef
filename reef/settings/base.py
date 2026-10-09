@@ -437,6 +437,11 @@ REEF_PRECOMPUTE_REQUIRE_S3 = False
 # Parallel uploads. Rendering is serial database work; this is how many of the
 # resulting files are in flight to the store at once.
 REEF_PRECOMPUTE_CONCURRENCY = int(os.environ.get("REEF_PRECOMPUTE_CONCURRENCY", "8"))
+# Whether Django answers the worker's /api/v1/<key> paths itself, rendering each
+# precomputed file on request (precomputer/live.py). Development only: a
+# deployment serves those paths from the bucket, and rendering them per request
+# is the cost the precomputer exists to avoid.
+REEF_SERVE_PRECOMPUTED_LIVE = False
 
 # Red's precompute-multiple EventListener, taking {"rfcs": "9110,9111", "skipIndices":
 # "true"}. Empty: Red is not told and picks the change up on its own daily run.
