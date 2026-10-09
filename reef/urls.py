@@ -32,5 +32,8 @@ urlpatterns = [
     path("api/reef/", include("me.urls")),
 ]
 
+if settings.REEF_SERVE_PRECOMPUTED_LIVE:
+    urlpatterns += [path("", include("precomputer.urls"))]
+
 if settings.DEBUG and "debug_toolbar" in settings.INSTALLED_APPS:
     urlpatterns = [path("__debug__/", include("debug_toolbar.urls"))] + urlpatterns

@@ -36,6 +36,7 @@ from precomputer.tasks import (
 )
 from ratings.models import Rating
 from reef import rfcmeta
+from reef.settings import base as base_settings
 from reef.locks import _key, advisory_lock
 from reef.testing_admin import ReadOnlyAdminChecks
 from reefauth.testing import login
@@ -286,6 +287,66 @@ class OutputTests(PrecomputeTestCase):
                 "surveys/open-one/definition.json",
             },
         )
+
+
+class LiveTests(PrecomputeTestCase):
+    """The devcontainer's /api/v1/<key>, which Red's dev server reads in place of
+    the bucket."""
+
+    def setUp(self):
+        super().setUp()
+        user = User.objects.create(username="a", oidc_sub="a")
+        Rating.objects.create(rfc="rfc9110", user=user, value=4)
+        messaging = Subject.objects.create(name="Messaging", slug="messaging")
+        email = Subject.objects.create(name="Email", slug="email", parent=messaging)
+        SubjectAssignment.objects.create(subject=email, doc="rfc9110")
+        SubjectAlias.objects.create(slug="mail", subject=email)
+        Survey.objects.create(
+            title="Open",
+            slug="open-one",
+            status=Survey.Status.PUBLISHED,
+            visibility=Survey.Visibility.OPEN,
+        )
+        Survey.objects.create(
+            title="Signed in only",
+            slug="private-one",
+            status=Survey.Status.PUBLISHED,
+            visibility=Survey.Visibility.AUTHENTICATED,
+        )
+
+    def test_every_file_a_run_writes_is_served_byte_for_byte(self):
+        self.precompute()
+        written = self.written()
+        self.assertIn("subjects/mail.json", written)
+        for key in written:
+            response = self.client.get(f"/api/v1/{key}")
+            self.assertEqual(response.status_code, 200, key)
+            self.assertEqual(
+                response.content, (self.out_dir / key).read_bytes(), key
+            )
+            self.assertEqual(
+                response["Content-Type"], "application/json;charset=utf-8"
+            )
+
+    def test_a_key_no_run_writes_is_a_404(self):
+        for key in (
+            "nothing.json",
+            "subjects/no-such-subject.json",
+            "ratings/rfc2119.json",
+            "surveys/private-one/definition.json",
+        ):
+            self.assertEqual(self.client.get(f"/api/v1/{key}").status_code, 404, key)
+
+    def test_reds_dev_server_may_read_it_cross_origin(self):
+        response = self.client.get(
+            "/api/v1/surveys/published.json", HTTP_ORIGIN="http://localhost:3000"
+        )
+        self.assertEqual(
+            response["Access-Control-Allow-Origin"], "http://localhost:3000"
+        )
+
+    def test_it_is_not_routed_outside_development(self):
+        self.assertFalse(base_settings.REEF_SERVE_PRECOMPUTED_LIVE)
 
 
 class SubjectIndexTests(PrecomputeTestCase):
