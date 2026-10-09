@@ -31,6 +31,11 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 
+# Red's dev server reads the precomputed files from here too, at the /api/v1/
+# paths the worker serves them at in a deployment, rendered on request.
+REEF_SERVE_PRECOMPUTED_LIVE = True
+CORS_URLS_REGEX = r"^/api/(reef|v1)/.*$"
+
 # Email via mailpit in the dev environment.
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.environ.get("REEF_EMAIL_HOST", "mailpit")
