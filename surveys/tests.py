@@ -1,6 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 from rest_framework.test import APITestCase
 
@@ -48,20 +47,14 @@ class OpenSurveyListTests(APITestCase):
         slugs = {s["slug"] for s in resp.json()}
         self.assertEqual(slugs, {"open-pub", "auth-pub"})
 
-    @override_settings(REEF_SITE_URL="https://reef.example.org")
+    @override_settings(REEF_RFC_SITE_URL="https://red.example.org/")
     def test_open_item_includes_runner_url(self):
         resp = self.client.get("/api/reef/surveys/open/")
         item = resp.json()[0]
-        self.assertEqual(item["url"], "https://reef.example.org/s?slug=open-pub")
-
-    def test_open_item_refuses_an_unconfigured_site_url(self):
-        """A bare "/s?slug=..." resolves correctly only by the accident of
-        sharing an origin with whatever fetched it -- true for a browser on
-        Reef's own Nuxt runner, false for a precomputed file. Refusing rather
-        than degrading is what keeps that assumption from going unnoticed."""
-        with override_settings(REEF_SITE_URL=None):
-            with self.assertRaises(ImproperlyConfigured):
-                self.client.get("/api/reef/surveys/open/")
+        self.assertEqual(
+            item["url"],
+            "https://red.example.org/survey/?slug=open-pub&returnTo=/",
+        )
 
     def test_item_carries_visibility(self):
         """Red decides from the row itself whether to offer a survey anonymously."""

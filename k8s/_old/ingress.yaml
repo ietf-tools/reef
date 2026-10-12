@@ -51,10 +51,3 @@ spec:
                 name: reef-backend
                 port:
                   number: 8000
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: reef-frontend
-                port:
-                  number: 3000

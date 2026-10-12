@@ -22,7 +22,7 @@ export const etagMatches = (ifNoneMatch: string | null, etag: string): boolean =
  * CORS_URLS_REGEX): a fixed allow-list, no credentials, never a wildcard.
  * Needed here because a bucket hit never reaches Django's own CORS middleware.
  */
-export const corsOrigin = (req: IRequest, env: Env): string | undefined => {
+export const corsOrigin = (req: IRequest, env: Pick<Env, 'ALLOWED_ORIGINS'>): string | undefined => {
   const origin = req.headers.get('origin')
   if (!origin) {
     return undefined

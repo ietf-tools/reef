@@ -2307,7 +2307,7 @@ components:
       - updated_at
     SurveyDefinition:
       type: object
-      description: Definition and theme served to the Nuxt runner.
+      description: Definition and theme served to the survey runner.
       properties:
         slug:
           type: string

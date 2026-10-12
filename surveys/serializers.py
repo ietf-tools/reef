@@ -2,7 +2,6 @@
 import json
 
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -88,19 +87,12 @@ class OpenSurveySerializer(serializers.ModelSerializer):
         ]
 
     def get_url(self, obj) -> str:
-        # The runner is a static bundle with no server in front of it, so the
-        # slug travels as a query parameter: /s is one real prerendered page,
-        # where /s/<slug> would need a path NGINX cannot know ahead of time.
-        # Slugs match ^[-a-zA-Z0-9_]+$, so none of this needs escaping.
-        #
-        # A caller with no REEF_SITE_URL configured gets a raised error rather
-        # than a bare "/s?slug=..." that only resolves correctly by accident
-        # of sharing an origin with whatever fetched it -- true for a browser
-        # on Reef's own Nuxt runner, false for anything else, including a
-        # precomputed file with no origin of its own.
-        if not settings.REEF_SITE_URL:
-            raise ImproperlyConfigured("REEF_SITE_URL is not set")
-        return f"{settings.REEF_SITE_URL}/s?slug={obj.slug}"
+        # The runner is Red's /survey/ page. returnTo is the path on Red it
+        # sends the visitor back to afterwards; Red's home page, since Reef
+        # cannot know which page they came from. Slugs match ^[-a-zA-Z0-9_]+$,
+        # so none of this needs escaping.
+        base = settings.REEF_RFC_SITE_URL.rstrip("/")
+        return f"{base}/survey/?slug={obj.slug}&returnTo=/"
 
     @extend_schema_field(
         serializers.ListField(child=serializers.CharField(), allow_null=True)
@@ -117,7 +109,7 @@ class OpenSurveySerializer(serializers.ModelSerializer):
 
 
 class SurveyDefinitionSerializer(serializers.ModelSerializer):
-    """Definition and theme served to the Nuxt runner."""
+    """Definition and theme served to the survey runner."""
 
     class Meta:
         model = Survey

@@ -7,9 +7,9 @@ token is present so the same class works on both protected endpoints (paired
 with IsAuthenticated) and public endpoints that merely want to identify a user
 when a token happens to be supplied (for example the open-survey list).
 
-Several Authentik applications call this API (the survey runner as
-"reef-staging", and Red as "rfc-editor"), each with its own issuer, JWKS and
-client id. Which are accepted is configured by REEF_API_OIDC_ISSUERS,
+Authentik applications that call this API (today only Red, including its survey
+runner, as "rfc-editor") each have their own issuer, JWKS and client id. Which
+are accepted is configured by REEF_API_OIDC_ISSUERS,
 REEF_API_OIDC_JWKS_ENDPOINTS and REEF_API_OIDC_AUDIENCES — deliberately separate
 from the REEF_ADMIN_OIDC_* settings that log Reef's own staff into the builder
 site, which is an unrelated role that happens to involve the same identity

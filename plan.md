@@ -18,10 +18,11 @@ https://account.ietf.org/.
 - Surveys, full stack in Reef:
   - The Django site hosts the SurveyJS Creator (builder) and Analytics (dashboard).
     Login is required (staff and authors).
-  - The Reef Nuxt site hosts the themed survey runner where visitors fill out
-    surveys. It supports both anonymous and logged-in surveys.
+  - Red hosts the survey runner where visitors fill out surveys, anonymous or
+    logged in, through Reef's public API. Reef hosted it in a Nuxt client until
+    Red took it over; see "Survey runner hosted on Red" at the end.
   - Red calls a Reef API for open surveys, then shows a popover linking to the
-    survey on the Reef Nuxt runner. Red renders no survey UI.
+    survey on its own runner.
 - Ratings, API only. Red renders the star widget; Reef stores and aggregates.
 - Popularity, API only. Reef serves a most-popular ranking of RFCs for any consumer to
   read; it is tied to none of them.
@@ -113,14 +114,15 @@ API shape.
 
 ## Architecture
 
-One NGINX origin per environment fronts three processes. The Django session cookie
-covers the builder and analytics site; the Nuxt runner and all APIs use OIDC bearer
-tokens.
+One origin per environment (NGINX in development, the Cloudflare Worker in worker/ in
+a deployment) fronts Django. The Django session cookie covers the builder and
+analytics site; all APIs use OIDC bearer tokens.
 
 ```
                          +----------------- Reef -----------------+
 Browser -> NGINX :8088 -+- /admin,/oidc,/api,/static -> Django + DRF :8001 -> PostgreSQL
-                        +- /,/s    ------------------------------> Nuxt survey runner :3001
+                        +- /s  ---- 301 ----> Red's /survey/, query intact
+                        +- /   ---- static "nothing here" page
 Red  --------------------  GET /api/reef/... (bearer / anon) ---> Django + DRF
 Red  <-- precomputed JSON <---- blob store <---- manage.py precompute (scheduled)
 All logins ----------------------------------------------------> Authentik (account.ietf.org)
@@ -131,9 +133,10 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 - Django site (builder and analytics): server-rendered template pages that mount the
   vanilla SurveyJS bundles (survey-creator-js, survey-analytics), self-hosted, no CDN.
   Login uses mozilla_django_oidc. The /admin/survey-builder/ paths require login.
-- Nuxt runner (client/, static SPA, no SSR): themed survey pages (survey-vue3-ui plus a
-  per-survey theme JSON). Browser OIDC uses oidc-client-ts (PKCE), the same library
-  Red uses. Protected surveys require login; open surveys are anonymous.
+- Survey runner: a page on Red (`/survey/?slug=<slug>`), rendering the survey's definition
+  and theme JSON with SurveyJS and signing the survey-taker in against Red's own
+  `rfc-editor` application. Protected surveys require login; open surveys are
+  anonymous. Reef's own `/s` is a permanent redirect to it.
 - DRF APIs (/api/reef/): Reef acts as an OIDC resource server, validating Authentik
   bearer (JWT) access tokens. Anonymous access is allowed for public reads.
 - Every valid reef-admin login is trusted as staff and superuser; there is no local
@@ -179,7 +182,7 @@ Document titles <- GET www.rfc-editor.org/api/v1/... (anonymous, no key)
 | Surface | Mechanism |
 |---|---|
 | Django /admin, including the builder and analytics nested under it at /admin/survey-builder/ | mozilla_django_oidc code flow to a Django session (the "reef-admin" application); there is no local login |
-| Nuxt survey runner | oidc-client-ts (Auth Code plus PKCE) to an access token; required only for protected surveys |
+| Survey runner (on Red) | Red's own login against `rfc-editor` to an access token; required only for protected surveys |
 | Reef DRF APIs | resource server: validate Authentik bearer JWT. Optional on the open-survey list (adds user-specific surveys when present), required for rating submit and subscriptions, anonymous for popularity and open surveys |
 
 ### Repository layout (Purple-shaped)
@@ -189,10 +192,10 @@ reef/
   .devcontainer/           service "app", forwards :8088; init/start hooks and extend overlays
   .github/workflows/       build.yml, build-base-app.yml, test.yml
   docker/                  dev env: base/app/db.Dockerfile, configs/nginx-proxy.conf,
-                             scripts/app-*.sh (tmux: runserver, nuxt, nginx, celery), run, cleanall
+                             scripts/app-*.sh (tmux: runserver, nginx, celery), run, cleanall
   docker-compose.yml       db, app, mailpit, pgadmin, mq (rabbitmq), celery
-  dev/build/               prod images: backend.Dockerfile, frontend.Dockerfile,
-                             statics.Dockerfile, celery, gunicorn.conf.py, *-start.sh
+  dev/build/               prod images: backend.Dockerfile, statics.Dockerfile, celery,
+                             gunicorn.conf.py, *-start.sh
   manage.py  pyproject.toml  requirements.txt
   reef/                    Django project
     settings/{__init__,base,development,staging,production,build}.py
@@ -234,12 +237,11 @@ reef/
     signals.py             a staff edit to curated content enqueues a refresh
     management/commands/precompute.py   the single entry point
   vendor/                  package.json for self-hosted SurveyJS Creator/Analytics bundles into Django static
-  client/                  Nuxt 4 survey runner (themed)
-    nuxt.config.ts         ssr disabled, :3001; prerendered routes, browser-only API base
-    app/pages/{index,s}.vue
-    app/components/SurveyRunner.client.vue
-    app/composables/{useOidc,useSurveyApi}.ts
-    app/assets/theme/
+  worker/                  Cloudflare Worker fronting a deployment
+    wrangler.jsonc         routes, R2 bucket, and which paths reach the worker's code
+    public/index.html      the only static asset: a "nothing here" page at /
+    src/blobs.ts           /api/v1/* from the bucket, falling back to Django
+    src/runner.ts          /s, a 301 to Red's survey runner
   k8s/                     base plus overlays/{staging,production}
   docs/  README.md
 ```
@@ -457,11 +459,11 @@ Surveys (built):
 - GET /surveys/open/: open-survey list for Red (tickets #112 and #115; consumed by the
   Red popover and modal, #225). Bearer optional: include user-specific surveys (for
   example from subscriptions) when a user is identified, otherwise open/anonymous only.
-  Returns per survey: id, slug, title, description, url (link to the runner on the Reef
-  Nuxt site). Stateless with respect to taken/dismissed state: Red tracks that
-  client-side in localStorage; Reef returns the full targeted list. The shape must be
+  Returns per survey: id, slug, title, description, url (link to the runner on Red,
+  `{REEF_RFC_SITE_URL}/survey/?slug=<slug>&returnTo=/`). Stateless with respect to
+  taken/dismissed state: Red tracks that client-side in localStorage; Reef returns the full targeted list. The shape must be
   agreed with #225.
-- GET /surveys/{slug}/definition/: definition plus theme for the Nuxt runner (bearer
+- GET /surveys/{slug}/definition/: definition plus theme for the runner (bearer
   required only when visibility is authenticated).
 - POST /surveys/{slug}/responses/: submit (bearer required only for authenticated
   surveys). Tickets #113 and #116.
@@ -573,14 +575,9 @@ Per-document statistics (built, no ticket yet):
 
 drf-spectacular is the single source of truth for the API contract. It serves
 /api/reef/schema/ and Swagger at runtime, and manage.py spectacular exports the
-schema to reef_api.yaml, which is committed as the published contract. Both
-consumers work from that schema rather than hand-agreed shapes:
-
-- Reef's Nuxt runner generates TypeScript types from reef_api.yaml with
-  openapi-typescript (pure npm, no Java toolchain) and calls the API with typed
-  fetch helpers.
-- Red consumes the same published reef_api.yaml to generate its own client
-  independently in its repository.
+schema to reef_api.yaml, which is committed as the published contract. Red, the
+one consumer, works from that schema rather than hand-agreed shapes, generating its
+own client from it independently in its repository.
 
 This keeps the /api/reef/surveys/open/ contract with Red (#225) and the runner
 contract machine-checkable on both sides. The heavier openapi-generator client
@@ -960,21 +957,23 @@ Then, for precomputed reads:
 ## Verification
 
 - Dev bring-up: devcontainer (or docker/run); migrate and collectstatic run; tmux
-  shows Django (:8001), Nuxt (:3001), nginx (:8088), and celery. http://localhost:8088/
-  serves the runner; /api/reef/schema/ responds; mailpit catches mail.
+  shows Django (:8001), nginx (:8088), and celery. http://localhost:8088/ serves the
+  "nothing here" page and /s redirects to /survey/ on Red's dev server on :3000; /api/reef/schema/
+  responds; mailpit catches mail.
 - Auth:
   - /admin/ (and its nested /admin/survey-builder/) redirects to OIDC login at
     account.ietf.org and returns a session; unauthorized users are blocked, and
     there is no local username/password login.
-  - Nuxt: an open survey loads anonymously; a survey with visibility authenticated
-    triggers oidc-client-ts login before rendering.
+  - Runner on Red: an open survey loads anonymously; a survey with visibility
+    authenticated answers 403 to an anonymous definition fetch, and Red signs the
+    visitor in before rendering.
   - GET /api/reef/surveys/open/ with no token returns open surveys only; with a user
     bearer it also returns that user's targeted surveys.
 - Core survey flow (author, offer, fill, analyze):
   1. /admin/survey-builder/surveys/new/ builds and saves a survey in the embedded
      Creator; publish, set theme and visibility.
-  2. GET /surveys/open/ returns it; a visitor opens the popover link to the Reef Nuxt
-     /s?slug=<slug> runner and submits.
+  2. GET /surveys/open/ returns it; a visitor opens the popover link to Red's
+     /survey/?slug=<slug> runner and submits.
   3. A Response row is stored (POST .../responses/ returns 201) and is visible in
      /admin/.
   4. /admin/survey-builder/surveys/<id>/analytics/ renders the results.
@@ -1103,8 +1102,8 @@ Then, for precomputed reads:
   from the manage API as a 400 rather than a 500. A survey the authenticated caller
   answered is not offered again, one somebody else answered still is, and an anonymous
   response hides it from nobody. Targeting does not change who may take a survey.
-- Checks: ruff check and manage.py test; manage.py spectacular --validate; npm run lint
-  and typecheck in client/.
+- Checks: ruff check and manage.py test; manage.py spectacular --validate; npm test in
+  worker/.
 - Modes: build images; run with REEF_DEPLOYMENT_MODE=production and real env;
   Creator and Analytics load without a watermark; CSP serves only self-hosted bundles.
 - k8s: kubectl kustomize k8s/overlays/staging renders and dry-run applies.
@@ -1324,8 +1323,6 @@ Then, for precomputed reads:
   obsoleted_by, updates, updated_by and subseries; abstract, keywords, area, group and
   pages are rfc-common only and would need either a change in Red or a per-document
   fetch.
-- Nuxt OIDC client registration: confirm a public (PKCE) Authentik client for the runner
-  versus reusing Red's client configuration.
 - Survey targeting: half built. Where a survey is offered is settled and done — an
   audience of documents, subject slugs or both, resolved at read time and published as a
   flat list Red filters on. What that sentence also covered, and what is untouched, is
@@ -2315,3 +2312,134 @@ matching, and keep uploads small.
 - On staging: upload the live index plus the fake RFC. The page should redirect at
   once, show each phase, and finish in well under a minute. The step 1 timing lines
   confirm where the time went.
+
+## Survey runner hosted on Red
+
+Red hosts the public survey runner, and Reef's Nuxt client (`client/`) has been
+removed. Both ran in parallel first. Red's runner is at `/survey/?slug=<slug>` and
+Reef's was at `/s?slug=<slug>`. The parameter is `slug` on both, which is what lets
+Reef's `/s` redirect to Red's `/survey/` with the query unchanged.
+
+Status: Red's runner is live and the parallel run is over. Removal steps 1 to 4
+below are done in the repository. Left to do outside it: the deployment secrets
+and Authentik in step 4.
+
+Red controls the rollout. It takes the slug from each `OpenSurvey`, either from `slug`
+or by parsing it out of `url`, and links to its own runner, where it loads the survey
+from Reef's API. Reef's `url` is
+`{REEF_RFC_SITE_URL}/survey/?slug=<slug>&returnTo=/`: Red's runner, sending the visitor
+back to Red's home page afterwards. Anything parsing the slug out of `url` has to read
+the `slug` query parameter, not everything after `slug=`, since `returnTo` follows it.
+The key's type and meaning ("where to take this survey") are unchanged, so this is a
+value change, not a contract change.
+
+### What Red's runner does
+
+The Nuxt runner talked to Reef only through the public API, so Red's runner uses the
+same calls, with an `rfc-editor` bearer token instead of one from Reef's own
+applications (`reef-staging` for the staging runner, `reef` for production's):
+
+- `GET /api/reef/surveys/{slug}/definition/` gets the SurveyJS `definition` and
+  `theme`. A 403 means the survey is authenticated-only and the visitor is anonymous,
+  so it's Red's cue to sign them in and retry. A 404 means the survey is closed or
+  doesn't exist.
+- `POST /api/reef/surveys/{slug}/responses/` with `{"data": ...}`.
+- `GET /api/reef/surveys/open/`, with `include_authenticated` and `include_answered`
+  if Red wants the runner's behaviour. Both are optional and stay.
+- Requests are sent with `credentials: 'omit'`. Reef never authenticates these calls
+  by cookie.
+- The visitor's answers survive a re-login. When a submit fails because the token
+  lapsed or was refused, the runner stores the answers in `sessionStorage`, sends the
+  visitor to sign in, and resubmits once on return, reporting rather than redirecting
+  if that second attempt also fails. Without that, a visitor whose token expired
+  mid-survey loses their answers.
+- Its SurveyJS version is compatible with the builder's, since it renders the
+  `definition` and `theme` JSON the builder saves. The two are upgraded together.
+
+### Reef configuration
+
+No code change. Per environment:
+
+- `REEF_API_OIDC_ISSUERS`, `REEF_API_OIDC_JWKS_ENDPOINTS` and `REEF_API_OIDC_AUDIENCES`
+  include `rfc-editor`'s issuer, JWKS URL (at the same list position as its issuer) and
+  Red's client id. `REEF_API_OIDC_ALGORITHMS` already defaults to `RS256,ES256`, which
+  covers rfc-editor's ES256.
+- `REEF_CORS_ALLOWED_ORIGINS` includes Red's origin.
+
+### Authentik
+
+- **Same subject on every application.** Reef identifies a survey-taker only by `sub`
+  (`User.oidc_sub`). If `rfc-editor` and Reef's own survey-taking application issue
+  different subjects for the same person, that person becomes two Reef users. A
+  survey answered under one then shows `answered: false` under the other, and nothing
+  stops a second response, since responses have no per-user uniqueness constraint.
+  The providers use the same subject mode ("Based on the User's hashed ID"), so the
+  users Reef's runner created are the same users Red's runner signs in.
+- **Profile claims in Red's access tokens.** `sync_user_from_claims` overwrites
+  `name`, `email` and `avatar` from every bearer token, writing `""` for a missing
+  claim, so a token without `email` blanks the address digests and notifications are
+  sent to. Red requests `openid profile email offline_access`. What matters is that
+  Authentik copies those claims into the access token itself, not only into the ID
+  token and userinfo, so check by decoding one of Red's access tokens.
+
+### Removing the Nuxt runner
+
+1. Done. `/s` on Reef's origin redirects to `/survey/` on Red's, keeping the query
+   string. In a deployment the worker does it (`worker/src/runner.ts`), with `/s` in
+   `run_worker_first` and Red's origin in each environment's `RED_ORIGIN` in
+   `worker/wrangler.jsonc`. The redirect is a 301: saved links and old mail still
+   point at Reef. In development NGINX does it, as a 302 to
+   Red's dev server on `localhost:3000`, so that a browser does not cache a redirect
+   to a local port for good.
+2. Done. `client/` is deleted, along with its build steps in `build.yml` and
+   `release.yml`, its typecheck job in `test.yml`, `dev/build/frontend.Dockerfile`,
+   the devcontainer's Nuxt task and ports, the `NUXT_PUBLIC_*` values in
+   `docker-compose.yml` and `.env.example`, and NGINX's catch-all `location /`.
+   Reef's `/` serves a plain static page, `worker/public/index.html`, saying there is
+   nothing here and linking to www.rfc-editor.org. It is the worker's only static
+   asset, served by NGINX in development too, and any other unrouted path is a 404.
+3. Done. `OpenSurveySerializer.get_url` builds
+   `{REEF_RFC_SITE_URL}/survey/?slug=<slug>&returnTo=/` from the setting that already
+   names Red's public site (notifications link to documents with it), so no new
+   configuration is needed. `REEF_SITE_URL` is unchanged: still Reef's own origin,
+   still required, and no longer read by anything.
+4. Retire Reef's own survey-taking applications: `reef-staging`, which the staging
+   runner signed in with, and `reef` (`https://account.ietf.org/application/o/reef/`),
+   which the production runner did. Done in the repository: the default
+   `REEF_API_OIDC_ISSUERS` and `REEF_API_OIDC_JWKS_ENDPOINTS` in
+   `reef/settings/base.py` name `rfc-editor` alone, `.env.example` lists only
+   `rfc-editor`'s issuer, JWKS and client id, and the comments and docs no longer
+   mention either application. To do, after the deploy without the Nuxt runner plus
+   one access-token lifetime (the providers' "Access token validity"), since only a
+   tab opened before that deploy could still hold a token and no client is left to
+   refresh one:
+   - In the `reef-secrets-env` secret for staging and production, remove the old
+     application's issuer, JWKS URL and client id from `REEF_API_OIDC_ISSUERS`,
+     `REEF_API_OIDC_JWKS_ENDPOINTS` and `REEF_API_OIDC_AUDIENCES`, at the same list
+     position in the first two. A secret that leaves the issuer lists unset gets the
+     new `rfc-editor`-only default.
+   - In Authentik, delete or disable both applications and their providers.
+
+The API itself doesn't change at any step. The one line of `reef_api.yaml` that moves
+is the `SurveyDefinition` schema's description, which comes from
+`SurveyDefinitionSerializer`'s docstring and now names "the survey runner" rather than
+"the Nuxt runner": description text, nothing a generated client is shaped by.
+
+### Verification
+
+- During the parallel run, the same survey loaded and submitted on both origins, and a
+  signed-in person who answered on one saw `answered: true` on the other, which
+  confirmed the shared subject.
+- After a submit from Red, the user's `email` and `name` in the Reef admin are
+  unchanged.
+- An authenticated-only survey opened anonymously on Red leads to sign-in and then the
+  survey; a submit with an expired token keeps the answers and resubmits after
+  sign-in.
+- After removal, `https://<reef origin>/s?slug=<slug>` answers 301 to
+  `https://<red origin>/survey/?slug=<slug>` with the query intact
+  (`worker/src/runner.test.ts` covers the rewrite), `https://<reef origin>/` serves the
+  static page, and `git diff reef_api.yaml` shows only the `SurveyDefinition`
+  description.
+- `/api/v1/surveys/open.json` carries
+  `https://<red origin>/survey/?slug=<slug>&returnTo=/` in each `url`, and that link
+  opens the survey on Red.

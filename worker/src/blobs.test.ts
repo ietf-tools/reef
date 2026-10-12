@@ -77,10 +77,7 @@ describe('deployed CORS allow-lists', () => {
 
   it('still serves each environment its own site', () => {
     const origin = (name: string, value: string) =>
-      corsOrigin({ headers: new Headers({ origin: value }) } as never, {
-        REEF_BUCKET: {} as R2Bucket,
-        ALLOWED_ORIGINS: envVars(name)
-      })
+      corsOrigin({ headers: new Headers({ origin: value }) } as never, { ALLOWED_ORIGINS: envVars(name) })
     expect(origin('staging', 'https://www.staging.rfc-editor.org')).toBe('https://www.staging.rfc-editor.org')
     expect(origin('production', 'https://www.rfc-editor.org')).toBe('https://www.rfc-editor.org')
   })

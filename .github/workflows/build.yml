@@ -202,18 +202,8 @@ jobs:
         with:
           node-version: "26"
 
-      - name: Build Production Frontend
-        env:
-          NUXT_PUBLIC_OIDC_AUTHORITY: https://account.ietf.org/application/o/reef-staging/
-          NUXT_PUBLIC_OIDC_CLIENT_ID: dAytIOu6rzN2Za3kyeFlo3FhHh3K0al0w0k1N649
-          NUXT_PUBLIC_RFCEDITOR_BASE: https://www.staging.rfc-editor.org
-          DEBIAN_FRONTEND: noninteractive
-          BROWSERSLIST_IGNORE_OLD_DATA: 1
+      - name: Install Worker Dependencies
         run: |
-          echo "Installing node packages for client..."
-          (cd client && npm ci)
-          echo "Generating SPA build..."
-          (cd client && npm run generate)
           echo "Installing node packages for worker..."
           (cd worker && npm ci)
 
