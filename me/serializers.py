@@ -49,3 +49,9 @@ class MyDocumentsSerializer(serializers.Serializer):
 
     sets = MyDocumentSetSerializer(many=True)
     documents = MyDocumentSerializer(many=True)
+
+
+class MyRatingSerializer(serializers.Serializer):
+    rfc = serializers.CharField()
+    value = serializers.IntegerField()
+    updated_at = serializers.DateTimeField()

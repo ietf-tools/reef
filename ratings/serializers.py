@@ -15,9 +15,3 @@ class RatingAggregateSerializer(serializers.Serializer):
     # rated this document; the two are indistinguishable to the client, which
     # already knows whether it sent a credential.
     your_rating = serializers.IntegerField(allow_null=True)
-
-
-class MyRatingSerializer(serializers.Serializer):
-    rfc = serializers.CharField()
-    value = serializers.IntegerField()
-    updated_at = serializers.DateTimeField()
