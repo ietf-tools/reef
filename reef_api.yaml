@@ -114,6 +114,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/MyDocuments'
           description: ''
+  /api/reef/me/ratings/:
+    get:
+      operationId: me_ratings_list
+      description: Return every document the authenticated caller has rated, with
+        their 1-5 `value` and when it was last set, most recently changed first. Requires
+        a credential. Unpaginated. A caller who has rated nothing gets an empty list.
+      summary: List your own ratings
+      tags:
+      - me
+      security:
+      - BearerAuth: []
+      - cookieAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MyRating'
+          description: ''
   /api/reef/notifications/:
     get:
       operationId: notifications_list
@@ -1580,6 +1601,20 @@ components:
       required:
       - documents
       - sets
+    MyRating:
+      type: object
+      properties:
+        doc:
+          type: string
+        value:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - doc
+      - updated_at
+      - value
     OpenSurvey:
       type: object
       description: |-

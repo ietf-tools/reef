@@ -47,6 +47,19 @@ def _aggregate(rfc, user=None):
     }
 
 
+def _respond(rfc, user):
+    """The aggregate as a response that no cache may keep or share.
+
+    The body carries `your_rating`, so it depends on who is asking. Nothing
+    caches /api/reef/ today; the headers are here so that adding a cache later
+    cannot leak one user's rating to another.
+    """
+    response = Response(RatingAggregateSerializer(_aggregate(rfc, user)).data)
+    patch_vary_headers(response, ("Authorization", "Cookie"))
+    response["Cache-Control"] = "private, no-store"
+    return response
+
+
 class RatingDetail(APIView):
     """One RFC's rating: the public aggregate, plus the caller's own.
 
@@ -73,14 +86,7 @@ class RatingDetail(APIView):
         responses=RatingAggregateSerializer,
     )
     def get(self, request, rfc):
-        data = _aggregate(_canonical(rfc), request.user)
-        response = Response(RatingAggregateSerializer(data).data)
-        # The body now depends on who is asking, so it must not be served from
-        # a shared cache to the next caller. Nothing caches /api/reef/ today;
-        # this is here so that adding a cache later cannot leak one user's
-        # rating to another.
-        patch_vary_headers(response, ("Authorization", "Cookie"))
-        return response
+        return _respond(_canonical(rfc), request.user)
 
     @extend_schema(
         summary="Set the caller's rating of an RFC",
@@ -107,7 +113,7 @@ class RatingDetail(APIView):
             user=request.user,
             defaults={"value": serializer.validated_data["value"]},
         )
-        return Response(RatingAggregateSerializer(_aggregate(rfc, request.user)).data)
+        return _respond(rfc, request.user)
 
     @extend_schema(
         summary="Withdraw the caller's rating of an RFC",
@@ -130,4 +136,4 @@ class RatingDetail(APIView):
         # client redraws the same widget after either call, and a withdrawal
         # moves the public average it is displaying.
         Rating.objects.filter(rfc=rfc, user=request.user).delete()
-        return Response(RatingAggregateSerializer(_aggregate(rfc, request.user)).data)
+        return _respond(rfc, request.user)
