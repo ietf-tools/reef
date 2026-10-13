@@ -196,8 +196,8 @@ class MyRatingList(ListAPIView):
 
     permission_classes = [IsAuthenticated]
     serializer_class = MyRatingSerializer
-    # A user has at most one rating per RFC, so the list is bounded by the
-    # size of the RFC series, and a client wants all of it to draw its own
+    # A user has at most one rating per document, so the list is bounded by
+    # the number of documents, and a client wants all of it to draw its own
     # history.
     pagination_class = None
 

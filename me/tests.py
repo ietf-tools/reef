@@ -172,10 +172,10 @@ class MyRatingListTests(APITestCase):
         resp = self.client.get("/api/reef/me/ratings/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
-            {(r["rfc"], r["value"]) for r in resp.json()},
+            {(r["doc"], r["value"]) for r in resp.json()},
             {("rfc1", 3), ("rfc9110", 5)},
         )
-        self.assertEqual(set(resp.json()[0]), {"rfc", "value", "updated_at"})
+        self.assertEqual(set(resp.json()[0]), {"doc", "value", "updated_at"})
 
     def test_empty_when_nothing_rated(self):
         self.client.force_authenticate(

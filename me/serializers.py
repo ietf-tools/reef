@@ -52,6 +52,9 @@ class MyDocumentsSerializer(serializers.Serializer):
 
 
 class MyRatingSerializer(serializers.Serializer):
-    rfc = serializers.CharField()
+    # Any document identifier, not only an RFC: a BCP, STD or other subseries
+    # member is rated the same way, so the key is `doc` where Rating's column
+    # is still `rfc`.
+    doc = serializers.CharField(source="rfc")
     value = serializers.IntegerField()
     updated_at = serializers.DateTimeField()

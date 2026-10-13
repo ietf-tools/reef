@@ -1604,7 +1604,7 @@ components:
     MyRating:
       type: object
       properties:
-        rfc:
+        doc:
           type: string
         value:
           type: integer
@@ -1612,7 +1612,7 @@ components:
           type: string
           format: date-time
       required:
-      - rfc
+      - doc
       - updated_at
       - value
     OpenSurvey:
