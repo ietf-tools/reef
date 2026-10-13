@@ -1,10 +1,12 @@
 import { IttyRouter } from 'itty-router'
 import type { IRequest } from 'itty-router'
 import { serveBlob } from './blobs'
+import { redirectToRunner } from './runner'
 
 const router = IttyRouter<IRequest, [Env, ExecutionContext]>()
 
 router
+  .get('/s', (req, env) => redirectToRunner(req, env))
   .get('/api/v1/stats.json', (req, env) => serveBlob(req, env, 'stats.json', '/api/reef/stats/'))
   .get('/api/v1/popularity.json', (req, env) => serveBlob(req, env, 'popularity.json', '/api/reef/popularity/'))
   // Not routed in Django at all (see precomputer/registry.py), so no originPath: a
@@ -40,7 +42,7 @@ router
    * origin (the Cloudflare Tunnel) rather than looping back into this worker. That
    * holds as long as the `global_fetch_strictly_public` compatibility flag stays
    * off, which is the default. Everything not listed in run_worker_first never
-   * reaches here at all -- it's served straight from the Nuxt build in `dist/`.
+   * reaches here at all -- it's served straight from the static files in `public/`.
    */
   .all('*', (request: IRequest) => fetch(request))
 

@@ -29,8 +29,3 @@ data:
   REEF_OIDC_APP_SLUG: "reef"
   REEF_OIDC_RP_CLIENT_ID: ""
   REEF_OIDC_STAFF_GROUPS: ""
-  # Frontend (Nuxt) configuration.
-  NUXT_API_BASE_SERVER: "http://reef-backend:8000"
-  NUXT_PUBLIC_API_BASE: ""
-  NUXT_PUBLIC_OIDC_AUTHORITY: "https://account.ietf.org/application/o/reef/"
-  NUXT_PUBLIC_OIDC_CLIENT_ID: ""

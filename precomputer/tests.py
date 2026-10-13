@@ -777,11 +777,11 @@ class PurgeTests(PrecomputeTestCase):
         )
 
     def test_keys_no_task_owns_are_left_alone(self):
-        stranger = self.out_dir / "other" / "nuxt-assets.json"
+        stranger = self.out_dir / "other" / "unowned.json"
         stranger.parent.mkdir(parents=True)
         stranger.write_text("{}")
         self.precompute()
-        self.assertIn("other/nuxt-assets.json", self.written())
+        self.assertIn("other/unowned.json", self.written())
 
     def test_a_task_that_did_not_run_is_not_purged(self):
         self.precompute()

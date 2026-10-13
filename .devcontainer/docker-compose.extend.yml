@@ -1,7 +1,7 @@
 services:
   app:
     # Keep the container running so VS Code can attach; the servers are started
-    # by the term-server.sh / term-client.sh tasks.
+    # by the term-server.sh task.
     command: /bin/sh -c "while sleep 1000; do :; done"
     environment:
       # Set here rather than via devcontainer.json's containerEnv: this overlay

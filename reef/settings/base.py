@@ -40,7 +40,7 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # Serves STATIC_ROOT. Nothing in front of gunicorn does: the Cloudflare
-    # Worker hands /static/ back to the origin (see client/wrangler.jsonc) and
+    # Worker hands /static/ back to the origin (see worker/wrangler.jsonc) and
     # the origin is this process. Documented position, directly after
     # SecurityMiddleware -- a static file is answered here and never reaches
     # CSPMiddleware, which is what we want, as a CSP header on a .js file
@@ -93,9 +93,8 @@ AUTHENTICATION_BACKENDS = (
 # /admin/survey-builder/, under the "reef-admin-staging" application — the only
 # interactive login Reef performs.
 # Public survey-taking is never
-# logged into here: it authenticates against the separate "reef-staging"
-# application entirely client-side (the Nuxt runner talks to Authentik
-# directly), so Reef only ever sees the resulting access token as an API
+# logged into here: Red's survey runner signs the survey-taker in against Red's
+# own application, so Reef only ever sees the resulting access token as an API
 # caller — see REEF_API_OIDC_* below, a separate role with its own issuer, JWKS
 # and client id.
 #
@@ -156,25 +155,15 @@ REEF_SURVEY_RESPONSE_MAX_BYTES = int(
     os.environ.get("REEF_SURVEY_RESPONSE_MAX_BYTES", "65536")
 )
 
-# Reef's own public origin, scheme included and no trailing slash. Needed for one
-# thing: the link Red's toast follows to the survey runner, which is Reef's own
-# Nuxt client sharing this same origin, not a separate service -- see
-# surveys.serializers.OpenSurveySerializer.get_url(). A precomputed file has no
-# request to read this off, so it has to come from settings rather than
-# request.build_absolute_uri(). No default here, like ALLOWED_HOSTS: every
-# environment sets its own, because there is no value that would be right by
-# accident.
-REEF_SITE_URL = os.environ.get("REEF_SITE_URL")
-
 # Bearer (resource-server) validation of Authentik access tokens.
 #
-# Independent of the RP login settings above. Two callers: Red's "rfc-editor"
-# application, and "reef-staging", which public survey-takers sign into through
-# the Nuxt runner (see above). Reef only validates the access tokens those
-# applications already issued; it is never a party to either login. Each calling
-# application has its own issuer and JWKS, so accepting a caller means naming
-# its slug here; each also mints access tokens whose `aud` is its own client
-# id, so that id has to be listed as an accepted audience.
+# Independent of the RP login settings above. One caller: Red's "rfc-editor"
+# application, which also signs in survey-takers on the runner Red hosts. Reef
+# only validates the access tokens that application already issued; it is never
+# a party to the login. Each calling application has its own issuer and JWKS, so
+# accepting a caller means naming its slug here; each also mints access tokens
+# whose `aud` is its own client id, so that id has to be listed as an accepted
+# audience.
 #
 # REEF_API_OIDC_ISSUERS and REEF_API_OIDC_JWKS_ENDPOINTS fall back with `or`
 # rather than an os.environ.get default, because compose passes a variable
@@ -183,16 +172,15 @@ REEF_SITE_URL = os.environ.get("REEF_SITE_URL")
 #
 # REEF_API_OIDC_ISSUERS: comma-separated token issuers that are accepted, and
 # REEF_API_OIDC_JWKS_ENDPOINTS: the comma-separated JWKS URL of each, in the same
-# order. Defaults to the two callers Reef expects, so an unlisted caller is
-# rejected rather than silently trusted. Leaving out the "reef-staging" issuer
-# refuses every signed-in survey-taker, including on open surveys, where their
-# token turns an otherwise anonymous request into a 401.
+# order. Defaults to the caller Reef expects, so an unlisted caller is rejected
+# rather than silently trusted. Leaving out the "rfc-editor" issuer refuses every
+# signed-in survey-taker, including on open surveys, where their token turns an
+# otherwise anonymous request into a 401.
 _api_oidc_issuers = [
     i.strip()
     for i in (
         os.environ.get("REEF_API_OIDC_ISSUERS", "")
-        or "https://account.ietf.org/application/o/rfc-editor/,"
-        "https://account.ietf.org/application/o/reef-staging/"
+        or "https://account.ietf.org/application/o/rfc-editor/"
     ).split(",")
     if i.strip()
 ]
@@ -200,8 +188,7 @@ _api_oidc_jwks_endpoints = [
     j.strip()
     for j in (
         os.environ.get("REEF_API_OIDC_JWKS_ENDPOINTS", "")
-        or "https://account.ietf.org/application/o/rfc-editor/jwks/,"
-        "https://account.ietf.org/application/o/reef-staging/jwks/"
+        or "https://account.ietf.org/application/o/rfc-editor/jwks/"
     ).split(",")
     if j.strip()
 ]
@@ -271,8 +258,8 @@ REST_FRAMEWORK = {
 
 # CORS. Red is served from its own origin and calls the Reef API from the
 # browser, so those responses need Access-Control-Allow-Origin. Only the API is
-# cross-origin; the builder, admin and Nuxt runner all share the NGINX origin,
-# so confine the headers to /api/reef/ rather than the whole site.
+# cross-origin; the builder and admin share the NGINX origin, so confine the
+# headers to /api/reef/ rather than the whole site.
 CORS_URLS_REGEX = r"^/api/reef/.*$"
 
 # Set per environment: dev allows Red's dev server, production reads the
@@ -290,9 +277,9 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "0.1.0",
     "SCHEMA_PATH_PREFIX": "/api/reef/",
     # Survey visibility is the only serialized field with that name. Pinned
-    # anyway: VisibilityEnum is the name Red and the Nuxt client already
-    # generate from, and drf-spectacular would rename it to a hash of the
-    # choices as soon as a second field called visibility was exposed.
+    # anyway: VisibilityEnum is the name Red already generates from, and
+    # drf-spectacular would rename it to a hash of the choices as soon as a
+    # second field called visibility was exposed.
     "ENUM_NAME_OVERRIDES": {
         "VisibilityEnum": "surveys.models.SURVEY_VISIBILITY_CHOICES",
     },

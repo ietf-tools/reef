@@ -1,8 +1,8 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """The committed API contract has to match the code that generates it.
 
-reef_api.yaml is not documentation, it is the contract Red and the Nuxt client
-generate their types from, and it is committed rather than built. So it goes stale
+reef_api.yaml is not documentation, it is the contract Red generates its types
+from, and it is committed rather than built. So it goes stale
 silently: a serializer changes, the file does not, and the next consumer to regenerate
 gets types describing an API that no longer exists.
 

@@ -76,19 +76,6 @@ jobs:
           /tmp/audit/bin/pip install --disable-pip-version-check pip-audit
           /tmp/audit/bin/pip-audit --strict --no-deps -r /tmp/installed.txt
 
-  client:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: client
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "26"
-      - run: npm install
-      - run: npm run typecheck
-
   worker:
     runs-on: ubuntu-latest
     defaults:

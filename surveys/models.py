@@ -183,9 +183,9 @@ class Survey(models.Model):
 
 
 # Pinned for SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"]. VisibilityEnum is the
-# name Red and the Nuxt client already generate from, and without the override
-# it would be renamed to a hash of the choices the next time another serialized
-# field named visibility appeared.
+# name Red already generates from, and without the override it would be renamed
+# to a hash of the choices the next time another serialized field named
+# visibility appeared.
 SURVEY_VISIBILITY_CHOICES = Survey.Visibility.choices
 
 

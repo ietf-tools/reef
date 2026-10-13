@@ -45,12 +45,6 @@ services:
       - REEF_API_OIDC_JWKS_ENDPOINTS=${REEF_API_OIDC_JWKS_ENDPOINTS:-}
       - REEF_API_OIDC_AUDIENCES=${REEF_API_OIDC_AUDIENCES:-}
       - REEF_API_OIDC_ALGORITHMS=${REEF_API_OIDC_ALGORITHMS:-}
-      # The Nuxt runner's browser OIDC login, against "reef-staging". Defaulted
-      # here rather than left empty: Nuxt takes an empty variable as the value,
-      # which would override nuxt.config.ts with nothing.
-      - NUXT_PUBLIC_OIDC_AUTHORITY=${NUXT_PUBLIC_OIDC_AUTHORITY:-https://account.ietf.org/application/o/reef-staging/}
-      - NUXT_PUBLIC_OIDC_CLIENT_ID=${NUXT_PUBLIC_OIDC_CLIENT_ID:-dAytIOu6rzN2Za3kyeFlo3FhHh3K0al0w0k1N649}
-      - NUXT_PUBLIC_RFCEDITOR_BASE=${NUXT_PUBLIC_RFCEDITOR_BASE:-https://www.rfc-editor.org}
     depends_on:
       - db
       - mq

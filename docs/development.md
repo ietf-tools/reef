@@ -6,9 +6,9 @@ Reef runs in Docker. Use the VS Code Dev Container, or run `docker/run` for a
 tmux-based session. Both bring up:
 
 - `db` - PostgreSQL
-- `app` - Django (`runserver` on 8001), the Nuxt dev server (3001), and NGINX
-  (8088) which fronts both. The Nuxt dev server uses 3001 rather than the Nuxt
-  default of 3000 to avoid colliding with Red's dev server.
+- `app` - Django (`runserver` on 8001) and NGINX (8088) in front of it. NGINX
+  also serves `worker/public/` at `/` and redirects `/s` to `/survey/` on Red's
+  dev server on 3000, which hosts the survey runner, as the worker does in a deployment.
 - `celery` - background worker
 - `mq` - RabbitMQ broker
 - `mailpit` - captures outgoing email (web UI on 8025)
@@ -34,12 +34,6 @@ values:
   interactive login Reef performs (Django admin and the builder/analytics site
   nested under it at `/admin/survey-builder/` — the same administration
   functionality, gated the same way).
-- `NUXT_PUBLIC_OIDC_AUTHORITY` / `NUXT_PUBLIC_OIDC_CLIENT_ID` - the issuer and
-  public (PKCE) Authentik client the Nuxt runner uses to authenticate a
-  survey-taker directly against Reef's own "reef-staging" application. Entirely
-  client-side; Reef is never a party to this login, see the API section below
-  for the server-side half. Both default in `client/nuxt.config.ts`, and since
-  the runner is a static bundle they take effect at build time, not at runtime.
 - `REEF_SURVEYJS_LICENSE_KEY` - required in production for Creator and Analytics.
 
 Production adds environment-driven `REEF_DJANGO_SECRET_KEY`, `REEF_ALLOWED_HOSTS`,
@@ -57,11 +51,10 @@ a server log:
   `development.py` and ignores this variable.
 - `REEF_API_OIDC_ISSUERS` / `REEF_API_OIDC_JWKS_ENDPOINTS` - comma-separated
   issuer URLs whose access tokens the API accepts, and the JWKS URL of each in
-  the same order. Two callers: `rfc-editor` (Red itself) and `reef-staging`
-  (survey-takers the Nuxt runner authenticated, per
-  `NUXT_PUBLIC_OIDC_AUTHORITY` above), and both are the default. Leaving out the
-  `reef-staging` issuer refuses every signed-in survey-taker with a 401, even on
-  an open survey that would have accepted them anonymously. A token's `iss` is
+  the same order. One caller: `rfc-editor` (Red itself, including the survey
+  runner it hosts), which is the default. Leaving it out refuses every
+  signed-in survey-taker with a 401, even on an open survey that would have
+  accepted them anonymously. A token's `iss` is
   matched against the list exactly, so include the trailing slash; the 401 a
   caller gets back names the issuer it presented. Staging and production share
   the Authentik instance and its applications, so the values are the same in
@@ -70,8 +63,8 @@ a server log:
   applications, which is what Authentik puts in a token's `aud`. No default: a
   client id is opaque and per-deployment, so unlike the issuers above there's
   nothing sensible to name automatically — an empty list disables audience
-  verification, so every real deployment must set this. List `NUXT_PUBLIC_OIDC_CLIENT_ID`
-  (a token with an unlisted `aud` is refused with a 401) plus Red's client id, which Red commits as the `oidcClientId` default in its
+  verification, so every real deployment must set this. List Red's client id
+  (a token with an unlisted `aud` is refused with a 401), which Red commits as the `oidcClientId` default in its
   `website/nuxt.config.ts` and Authentik shows under the rfc-editor application's
   provider. To confirm what a caller actually sends, decode the JWT in its
   `Authorization` header and read `aud`. These are public client ids, not secrets.
@@ -107,24 +100,19 @@ digest and differ only in an opening sentence.
 
 ## Authentik setup
 
-Reef itself registers two applications in Authentik (account.ietf.org):
+Reef itself registers one application in Authentik (account.ietf.org):
 
 - `reef-admin-staging` — the Django admin and its nested `/admin/survey-builder/` builder/analytics,
   the same administration functionality gated the same way. One confidential
   client against it, redirect URI `http://localhost:8088/oidc/callback/` for
   development, plus the staging and production equivalents.
 
-- `reef-staging` — public survey-taking, entirely client-side (see
-  `NUXT_PUBLIC_OIDC_AUTHORITY` above). One public (PKCE) client, redirect URI
-  `<runner origin>/auth/callback`, with `offline_access` allowed: the runner
-  renews its access token with the refresh token, and without one a
-  survey-taker's sign-in lapses when the access token does. Reef's server only
-  validates the resulting access token as an API caller (`REEF_API_OIDC_*`).
-
-All three applications (these two and Red's `rfc-editor`) must give the same
-person the same `sub`, so use the same subject mode on each provider. Reef keys
-its users on `sub` alone, so a mismatch splits one person into several users:
-a response submitted on the runner then doesn't count as answered when Red asks.
+Survey-takers sign in to Red's `rfc-editor` application. Reef keys its users on
+`sub` alone, so `rfc-editor` and any other application that calls the API must
+give the same person the same `sub` (the same subject mode on each provider);
+a mismatch splits one person into several users. Red's access tokens must also
+carry the `name` and `email` claims, since Reef overwrites a user's profile
+from every token and a missing claim blanks it.
 
 The admin login's OIDC URLs are each their own variable, none derived from
 another, and default in `reef/settings/base.py` to the `reef-admin-staging`
@@ -139,8 +127,9 @@ Only credentials and the redirect URI need configuring.
   the same interactive, server-side OIDC login (session), via the
   `reef-admin-staging` application — follow the "Sign in with Authentik" link on
   `/admin/login/`, or go directly to `/oidc/authenticate/?next=/admin/`.
-- Nuxt runner: browser OIDC via oidc-client-ts, against the `reef-staging`
-  application; required only for surveys whose visibility is `authenticated`.
+- Survey runner: hosted by Red, which signs the survey-taker in against
+  `rfc-editor` and calls the API with that bearer token; required only for
+  surveys whose visibility is `authenticated`.
 - API: Reef validates Authentik bearer tokens as a resource server; the
   open-survey list treats a token as optional (it adds user-specific surveys
   when present) and popularity and open surveys are anonymous.
@@ -151,8 +140,8 @@ roles, configured separately. The `OIDC_*` settings (from
 `/admin/` and its nested `/admin/survey-builder/` alike. Which callers the
 API accepts is `REEF_API_OIDC_ISSUERS`, `REEF_API_OIDC_JWKS_ENDPOINTS`,
 `REEF_API_OIDC_AUDIENCES` and
-`REEF_API_OIDC_ALGORITHMS` — `rfc-editor` and `reef-staging`, each with its own
-issuer, JWKS, client id and signing key, independent of the admin login's. A caller
+`REEF_API_OIDC_ALGORITHMS` — `rfc-editor`, with its own issuer, JWKS, client
+id and signing key, independent of the admin login's. A caller
 whose issuer is not listed is rejected with a message naming the
 issuer it presented, and each token is verified against its own issuer's JWKS.
 
@@ -184,11 +173,9 @@ be in no contract. That file is `reef.urls` plus those views and nothing serves 
 
 A test checks the committed file still matches the code, because nothing else does:
 `spectacular --validate` says the schema is well formed, not that reef_api.yaml is
-current, and the file is what Red and the Nuxt client generate their types from.
+current, and the file is what Red generates its types from.
 
-`reef_api.yaml` is committed. The Nuxt client generates TypeScript types from it
-with openapi-typescript (the `gen:api` script, run on `npm install`); Red
-generates its own client from the same file.
+`reef_api.yaml` is committed. Red generates its own client from it.
 
 ## SurveyJS bundles
 
@@ -203,5 +190,5 @@ runs during container init and the statics image build. See `vendor/README.md`.
 ./manage.py test
 ruff check .
 ruff format --check .
-cd client && npm run typecheck
+cd worker && npm test
 ```

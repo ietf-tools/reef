@@ -37,12 +37,6 @@ fi
 echo "Collecting static files..."
 ./manage.py collectstatic --no-input || true
 
-# Install client dependencies if the Nuxt client is present
-if [ -f client/package.json ]; then
-    echo "Installing client dependencies..."
-    (cd client && npm install) || true
-fi
-
 sudo touch /.dev-ready
 
 # Outside VS Code, launch a tmux session running the servers.
@@ -56,10 +50,6 @@ if [ -z "$EDITOR_VSCODE" ]; then
   tmux new-session -d -s dev -c '/workspace'
   sleep 1
   tmux send-keys './manage.py runserver 8001' Enter
-  if [ -f client/package.json ]; then
-    tmux split-window -h -c '/workspace/client'
-    tmux send-keys 'npm run dev' Enter
-  fi
   tmux -2 attach-session -d -c '/workspace'
 
   echo "You've exited tmux. Send \"exit\" to stop the containers and quit."

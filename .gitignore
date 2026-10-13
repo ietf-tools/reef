@@ -1,11 +1,3 @@
-# Nuxt dev/build outputs
-.output
-.data
-.nuxt
-.nitro
-.cache
-dist
-
 # Node dependencies
 node_modules
 
@@ -41,10 +33,6 @@ venv
 celerybeat-schedule
 celerybeat-schedule-shm
 celerybeat-schedule-wal
-
-# Generated TypeScript API types (regenerated from reef_api.yaml by openapi-typescript).
-# The contract itself, reef_api.yaml, is committed.
-client/app/types/reef-api.ts
 
 # Collected static
 /static

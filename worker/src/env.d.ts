@@ -7,4 +7,6 @@ interface Env {
    * wrangler.jsonc.
    */
   ALLOWED_ORIGINS: string
+  /** Red's origin, no trailing slash: where `/s` sends a survey link. */
+  RED_ORIGIN: string
 }

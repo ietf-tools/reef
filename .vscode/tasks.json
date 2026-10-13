@@ -10,7 +10,7 @@
   "tasks": [
     {
       "label": "Create terminals",
-      "dependsOn": ["Server", "Client"],
+      "dependsOn": ["Server"],
       "group": {
         "kind": "build",
         "isDefault": true
@@ -24,20 +24,6 @@
       "type": "shell",
       "command": "/bin/zsh",
       "args": ["-c", ".devcontainer/term-server.sh"],
-      "options": {
-        "cwd": "/workspace"
-      },
-      "isBackground": true,
-      "problemMatcher": [],
-      "presentation": {
-        "group": "shell-group"
-      }
-    },
-    {
-      "label": "Client",
-      "type": "shell",
-      "command": "/bin/zsh",
-      "args": ["-c", ".devcontainer/term-client.sh"],
       "options": {
         "cwd": "/workspace"
       },
