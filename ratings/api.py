@@ -4,6 +4,7 @@ from django.db.models import Avg, Count
 from django.utils.cache import patch_vary_headers
 from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import ValidationError
+from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,7 +13,11 @@ from reef.docids import normalize_doc_id
 from reef.rfcmeta import require_document
 
 from .models import Rating
-from .serializers import RatingAggregateSerializer, RatingWriteSerializer
+from .serializers import (
+    MyRatingSerializer,
+    RatingAggregateSerializer,
+    RatingWriteSerializer,
+)
 
 
 def _canonical(rfc):
@@ -131,3 +136,33 @@ class RatingDetail(APIView):
         # moves the public average it is displaying.
         Rating.objects.filter(rfc=rfc, user=request.user).delete()
         return Response(RatingAggregateSerializer(_aggregate(rfc, request.user)).data)
+
+
+class MyRatingList(ListAPIView):
+    """Every rating the caller has made, most recently changed first."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = MyRatingSerializer
+    # A user has at most one rating per RFC, so the list is bounded by the
+    # size of the RFC series, and a client wants all of it to draw its own
+    # history.
+    pagination_class = None
+
+    @extend_schema(
+        summary="List your own ratings",
+        description=(
+            "Return every document the authenticated caller has rated, with "
+            "their 1-5 `value` and when it was last set, most recently changed "
+            "first. Requires a credential. Unpaginated. A caller who has rated "
+            "nothing gets an empty list."
+        ),
+    )
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        patch_vary_headers(response, ("Authorization", "Cookie"))
+        return response
+
+    def get_queryset(self):
+        return Rating.objects.filter(user=self.request.user).order_by(
+            "-updated_at", "rfc"
+        )

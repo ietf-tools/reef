@@ -173,3 +173,30 @@ class RatingApiTests(APITestCase):
     def test_unparseable_identifier_rejected(self):
         resp = self.client.get("/api/reef/ratings/not-a-document/")
         self.assertEqual(resp.status_code, 400)
+
+
+class MyRatingListTests(APITestCase):
+    def test_requires_auth(self):
+        resp = self.client.get("/api/reef/me/ratings/")
+        self.assertIn(resp.status_code, (401, 403))
+
+    def test_lists_only_the_callers_ratings(self):
+        me = User.objects.create(username="me", oidc_sub="me")
+        other = User.objects.create(username="other", oidc_sub="other")
+        Rating.objects.create(rfc="rfc1", user=me, value=3)
+        Rating.objects.create(rfc="rfc9110", user=me, value=5)
+        Rating.objects.create(rfc="rfc9110", user=other, value=1)
+        self.client.force_authenticate(user=me)
+        resp = self.client.get("/api/reef/me/ratings/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            {(r["rfc"], r["value"]) for r in resp.json()},
+            {("rfc1", 3), ("rfc9110", 5)},
+        )
+        self.assertEqual(set(resp.json()[0]), {"rfc", "value", "updated_at"})
+
+    def test_empty_when_nothing_rated(self):
+        self.client.force_authenticate(
+            user=User.objects.create(username="u", oidc_sub="s")
+        )
+        self.assertEqual(self.client.get("/api/reef/me/ratings/").json(), [])
