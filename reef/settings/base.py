@@ -155,13 +155,6 @@ REEF_SURVEY_RESPONSE_MAX_BYTES = int(
     os.environ.get("REEF_SURVEY_RESPONSE_MAX_BYTES", "65536")
 )
 
-# Reef's own public origin, scheme included and no trailing slash: the origin the
-# worker fronts in a deployment and NGINX in development. Nothing reads it at
-# present; a survey's url is on Red's origin, REEF_RFC_SITE_URL. No default here,
-# like ALLOWED_HOSTS: every environment sets its own, because there is no value
-# that would be right by accident.
-REEF_SITE_URL = os.environ.get("REEF_SITE_URL")
-
 # Bearer (resource-server) validation of Authentik access tokens.
 #
 # Independent of the RP login settings above. One caller: Red's "rfc-editor"

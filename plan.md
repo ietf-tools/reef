@@ -1710,13 +1710,6 @@ temporary settings override, no network in tests):
   `PrecomputeAdminViewTests` already has, plus a case for the confirm-large-change
   round trip.
 
-### Deployment dependency: REEF_SITE_URL
-
-Staging and production now require `REEF_SITE_URL` (Reef's own origin, e.g.
-`https://reef.ietf.org`) or the app fails to start; it replaces the optional
-`REEF_SURVEY_RUNNER_BASE_URL`, which silently produced a bare `/s?slug=...` path
-when unset.
-
 ## Popularity from Matomo
 
 `popularity.PopularEntry` is a hand-typed list: an `rfc` and a `rank`, edited in the
@@ -2401,8 +2394,8 @@ No code change. Per environment:
 3. Done. `OpenSurveySerializer.get_url` builds
    `{REEF_RFC_SITE_URL}/survey/?slug=<slug>&returnTo=/` from the setting that already
    names Red's public site (notifications link to documents with it), so no new
-   configuration is needed. `REEF_SITE_URL` is unchanged: still Reef's own origin,
-   still required, and no longer read by anything.
+   configuration is needed. `REEF_SITE_URL` is removed: nothing read it, so staging and
+   production no longer need to set it.
 4. Retire Reef's own survey-taking applications: `reef-staging`, which the staging
    runner signed in with, and `reef` (`https://account.ietf.org/application/o/reef/`),
    which the production runner did. Done in the repository: the default

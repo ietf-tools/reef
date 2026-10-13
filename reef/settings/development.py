@@ -11,9 +11,6 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
-# The devcontainer's NGINX origin, fronting this app.
-REEF_SITE_URL = os.environ.get("REEF_SITE_URL", "http://localhost:8088")
-
 # Developer tooling.
 INSTALLED_APPS += [
     "debug_toolbar",
