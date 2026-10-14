@@ -28,7 +28,7 @@ CORS_ALLOWED_ORIGINS = [
 
 # Red's dev server reads the precomputed files from here too, at the /api/v1/
 # paths the worker serves them at in a deployment, rendered on request.
-REEF_SERVE_PRECOMPUTED_LIVE = True
+REEF_SERVE_PRECOMPUTED_ON_DEMAND = True
 CORS_URLS_REGEX = r"^/api/(reef|v1)/.*$"
 
 # Email via mailpit in the dev environment.

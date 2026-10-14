@@ -289,7 +289,7 @@ class OutputTests(PrecomputeTestCase):
         )
 
 
-class LiveTests(PrecomputeTestCase):
+class OnDemandTests(PrecomputeTestCase):
     """The devcontainer's /api/v1/<key>, which Red's dev server reads in place of
     the bucket."""
 
@@ -342,7 +342,7 @@ class LiveTests(PrecomputeTestCase):
         )
 
     def test_it_is_not_routed_outside_development(self):
-        self.assertFalse(base_settings.REEF_SERVE_PRECOMPUTED_LIVE)
+        self.assertFalse(base_settings.REEF_SERVE_PRECOMPUTED_ON_DEMAND)
 
 
 class SubjectIndexTests(PrecomputeTestCase):

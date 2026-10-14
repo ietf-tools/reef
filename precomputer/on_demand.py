@@ -1,7 +1,7 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """The precomputed files, rendered on request instead of read from a store.
 
-Development only, behind REEF_SERVE_PRECOMPUTED_LIVE. Red reads these files at
+Development only, behind REEF_SERVE_PRECOMPUTED_ON_DEMAND. Red reads these files at
 ``/api/v1/<key>`` on its public origin, where the worker serves them out of the
 bucket. In the devcontainer there is no worker and no bucket, so this answers
 the same paths, and a developer running Red against a local Reef sees the

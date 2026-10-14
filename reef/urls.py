@@ -32,7 +32,7 @@ urlpatterns = [
     path("api/reef/", include("me.urls")),
 ]
 
-if settings.REEF_SERVE_PRECOMPUTED_LIVE:
+if settings.REEF_SERVE_PRECOMPUTED_ON_DEMAND:
     urlpatterns += [path("", include("precomputer.urls"))]
 
 if settings.DEBUG and "debug_toolbar" in settings.INSTALLED_APPS:
