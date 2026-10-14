@@ -36,8 +36,8 @@ from precomputer.tasks import (
 )
 from ratings.models import Rating
 from reef import rfcmeta
-from reef.settings import base as base_settings
 from reef.locks import _key, advisory_lock
+from reef.settings import base as base_settings
 from reef.testing_admin import ReadOnlyAdminChecks
 from reefauth.testing import login
 from subjects.models import Subject, SubjectAlias, SubjectAssignment
@@ -321,12 +321,8 @@ class LiveTests(PrecomputeTestCase):
         for key in written:
             response = self.client.get(f"/api/v1/{key}")
             self.assertEqual(response.status_code, 200, key)
-            self.assertEqual(
-                response.content, (self.out_dir / key).read_bytes(), key
-            )
-            self.assertEqual(
-                response["Content-Type"], "application/json;charset=utf-8"
-            )
+            self.assertEqual(response.content, (self.out_dir / key).read_bytes(), key)
+            self.assertEqual(response["Content-Type"], "application/json;charset=utf-8")
 
     def test_a_key_no_run_writes_is_a_404(self):
         for key in (
