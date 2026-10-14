@@ -12,11 +12,5 @@ services:
       # Oh My Zsh's update check prompts in the interactive zsh the tasks use to
       # run the servers, and the prompt would block them from ever starting.
       - DISABLE_AUTO_UPDATE=true
-      # Red's dev server signs in against the "rfc-editor-staging" application, so
-      # its tokens carry that issuer. Production "rfc-editor" stays accepted too.
-      # A .env value still wins; tokens are also refused unless their client id is
-      # in REEF_API_OIDC_AUDIENCES, when that is set.
-      - REEF_API_OIDC_ISSUERS=${REEF_API_OIDC_ISSUERS:-https://account.ietf.org/application/o/rfc-editor/,https://account.ietf.org/application/o/rfc-editor-staging/}
-      - REEF_API_OIDC_JWKS_ENDPOINTS=${REEF_API_OIDC_JWKS_ENDPOINTS:-https://account.ietf.org/application/o/rfc-editor/jwks/,https://account.ietf.org/application/o/rfc-editor-staging/jwks/}
     volumes:
       - .:/workspace
