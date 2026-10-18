@@ -78,7 +78,8 @@ class Command(BaseCommand):
         )
         self.stdout.write(
             f"{result.assignments_created} assignment(s) created, "
-            f"{result.assignments_deleted} deleted"
+            f"{result.assignments_deleted} deleted, "
+            f"{result.assignment_notifications} subscriber notification(s) staged"
         )
         for slug, doc in result.unresolved_assignments:
             self.stderr.write(f"{slug}: no such subject or document (doc {doc})")
