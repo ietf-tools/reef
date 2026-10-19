@@ -744,6 +744,14 @@ class DigestSubjectTests(APITestCase):
         events = [{"doc": "rfc9110", "change": "a"}, {"doc": "rfc9110", "change": "b"}]
         self.assertEqual(digest_subject(events), "RFC series updates: RFC 9110")
 
+    def test_one_document_is_named_with_its_title(self):
+        mapping = {"rfc9110": {"title": "HTTP Semantics"}}
+        with mock.patch("reef.rfcmeta._shared", return_value=(mapping, None)):
+            self.assertEqual(
+                digest_subject([{"doc": "rfc9110", "change": "Published"}]),
+                "RFC series updates: RFC 9110: HTTP Semantics",
+            )
+
     def test_events_with_no_document(self):
         # A predicate kind can match something that is not about one document.
         self.assertEqual(
