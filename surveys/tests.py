@@ -135,6 +135,61 @@ class DefinitionAndResponseTests(APITestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(Response.objects.get().meta, {})
 
+    def test_submission_stores_the_anti_spam_measures(self):
+        make_survey(slug="s12")
+        resp = self.client.post(
+            "/api/reef/surveys/s12/responses/",
+            {"data": {"q1": "yes"}, "duration_seconds": 42, "pages_viewed": 3},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json(), {"data": {"q1": "yes"}})
+        stored = Response.objects.get()
+        self.assertEqual(stored.duration_seconds, 42)
+        self.assertEqual(stored.pages_viewed, 3)
+
+    def test_submission_without_the_anti_spam_measures_stores_null(self):
+        make_survey(slug="s13")
+        resp = self.client.post(
+            "/api/reef/surveys/s13/responses/", {"data": {}}, format="json"
+        )
+        self.assertEqual(resp.status_code, 201)
+        stored = Response.objects.get()
+        self.assertIsNone(stored.duration_seconds)
+        self.assertIsNone(stored.pages_viewed)
+
+    def test_submission_may_report_one_anti_spam_measure_alone(self):
+        make_survey(slug="s14")
+        resp = self.client.post(
+            "/api/reef/surveys/s14/responses/",
+            {"data": {}, "pages_viewed": 0},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        stored = Response.objects.get()
+        self.assertIsNone(stored.duration_seconds)
+        self.assertEqual(stored.pages_viewed, 0)
+
+    def test_submission_with_an_implausible_anti_spam_measure_is_rejected(self):
+        make_survey(slug="s15")
+        for field, value in [
+            ("duration_seconds", -1),
+            ("duration_seconds", 30 * 24 * 60 * 60 + 1),
+            ("duration_seconds", "soon"),
+            ("pages_viewed", -1),
+            ("pages_viewed", 10_001),
+            ("pages_viewed", 1.5),
+        ]:
+            with self.subTest(field=field, value=value):
+                resp = self.client.post(
+                    "/api/reef/surveys/s15/responses/",
+                    {"data": {}, field: value},
+                    format="json",
+                )
+                self.assertEqual(resp.status_code, 400)
+                self.assertIn(field, resp.json())
+        self.assertEqual(Response.objects.count(), 0)
+
 
 class ManagementPermissionTests(APITestCase):
     def test_anonymous_cannot_list_management(self):

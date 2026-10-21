@@ -205,6 +205,20 @@ class Response(models.Model):
     )
     submitted_at = models.DateTimeField(auto_now_add=True)
     meta = models.JSONField(default=dict, blank=True)
+    duration_seconds = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Seconds the submitter took on the survey, as reported by "
+        "the submitting client. An anti-spam measure: blank when not reported, "
+        "which includes every response stored before the field existed.",
+    )
+    pages_viewed = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Pages viewed before submitting, as counted by the submitting "
+        "client. An anti-spam measure: blank when not reported, which includes "
+        "every response stored before the field existed.",
+    )
 
     class Meta:
         ordering = ["-submitted_at"]

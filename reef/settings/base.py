@@ -155,6 +155,11 @@ REEF_SURVEY_RESPONSE_MAX_BYTES = int(
     os.environ.get("REEF_SURVEY_RESPONSE_MAX_BYTES", "65536")
 )
 
+# Upper bounds on the anti-spam measures a submission may report. They are
+# self-reported, so these only reject values no person could have produced.
+REEF_SURVEY_DURATION_MAX_SECONDS = 30 * 24 * 60 * 60
+REEF_SURVEY_PAGES_MAX = 10_000
+
 # Bearer (resource-server) validation of Authentik access tokens.
 #
 # Independent of the RP login settings above. One caller: Red's "rfc-editor"

@@ -19,6 +19,14 @@ class SurveyAdmin(admin.ModelAdmin):
 
 @admin.register(Response)
 class ResponseAdmin(admin.ModelAdmin):
-    list_display = ["survey", "submitted_by", "submitted_at"]
+    list_display = ["survey", "submitted_by", "submitted_at", "duration_seconds"]
     list_filter = ["survey"]
-    readonly_fields = ["survey", "data", "submitted_by", "submitted_at", "meta"]
+    readonly_fields = [
+        "survey",
+        "data",
+        "submitted_by",
+        "submitted_at",
+        "meta",
+        "duration_seconds",
+        "pages_viewed",
+    ]
