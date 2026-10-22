@@ -8,10 +8,12 @@ calls these rather than editing rows, and a task or command that moderates would
 Soft delete only. Hard deletion of spam, after a retention period, is separate work.
 """
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from docsets.models import DocumentSet
+from ratings.models import Rating
 from surveys.models import Response
 
 from .models import ModerationAction
@@ -21,10 +23,6 @@ Action = ModerationAction.Action
 # What an account block writes as the reason on the content it removes, so that
 # the content's own admin page says why it is gone.
 BLOCK_CONSEQUENCE_REASON = "Account blocked."
-
-
-class CannotBlock(Exception):
-    """The account may not be blocked; the message says why, for the moderator."""
 
 
 def _name(user):
@@ -207,6 +205,59 @@ def restore_responses(actor, responses, reason="", *, caused_by=None):
     return restored
 
 
+def snapshot_rating(rating):
+    return {"rfc": rating.rfc, "value": rating.value}
+
+
+def _set_rating_removed(rating, reason, removed):
+    # Saved one at a time, not updated in bulk, so that the save signal marks the
+    # document and its statistics are refreshed.
+    rating.deleted_at = timezone.now() if removed else None
+    rating.deleted_reason = reason
+    rating.save(update_fields=["deleted_at", "deleted_reason", "updated_at"])
+
+
+@transaction.atomic
+def delete_ratings(actor, ratings, reason="", *, caused_by=None):
+    """Remove the live ratings among `ratings`, one log row each."""
+    removed = []
+    for rating in ratings.filter(deleted_at__isnull=True).select_related("user"):
+        removed.append(
+            log_action(
+                actor,
+                Action.DELETE_RATING,
+                "rating",
+                rating.pk,
+                subject_user=rating.user,
+                reason=reason,
+                snapshot=snapshot_rating(rating),
+                caused_by=caused_by,
+            )
+        )
+        _set_rating_removed(rating, reason, True)
+    return removed
+
+
+@transaction.atomic
+def restore_ratings(actor, ratings, reason="", *, caused_by=None):
+    restored = []
+    for rating in ratings.filter(deleted_at__isnull=False).select_related("user"):
+        restored.append(
+            log_action(
+                actor,
+                Action.RESTORE_RATING,
+                "rating",
+                rating.pk,
+                subject_user=rating.user,
+                reason=reason,
+                snapshot=snapshot_rating(rating),
+                caused_by=caused_by,
+            )
+        )
+        _set_rating_removed(rating, "", False)
+    return restored
+
+
 @transaction.atomic
 def block_user(actor, user, reason="", *, remove_content=False):
     """Refuse the account's API access, optionally taking its content down too.
@@ -216,9 +267,9 @@ def block_user(actor, user, reason="", *, remove_content=False):
     that is already blocked is left alone and returns None.
     """
     if user.is_staff:
-        raise CannotBlock("Staff accounts cannot be blocked.")
+        raise ValidationError("Staff accounts cannot be blocked.")
     if actor is not None and actor.pk == user.pk:
-        raise CannotBlock("You cannot block your own account.")
+        raise ValidationError("You cannot block your own account.")
     if user.is_blocked:
         return None
 
@@ -243,6 +294,12 @@ def block_user(actor, user, reason="", *, remove_content=False):
         delete_responses(
             actor,
             Response.objects.filter(submitted_by=user),
+            BLOCK_CONSEQUENCE_REASON,
+            caused_by=block,
+        )
+        delete_ratings(
+            actor,
+            Rating.objects.filter(user=user),
             BLOCK_CONSEQUENCE_REASON,
             caused_by=block,
         )
@@ -293,6 +350,18 @@ def unblock_user(actor, user, reason=""):
         restore_responses(
             actor,
             Response.all_objects.filter(pk__in=response_ids),
+            reason,
+            caused_by=entry,
+        )
+        rating_ids = [
+            int(target_id)
+            for target_id in consequences.filter(
+                action=Action.DELETE_RATING
+            ).values_list("target_id", flat=True)
+        ]
+        restore_ratings(
+            actor,
+            Rating.all_objects.filter(pk__in=rating_ids),
             reason,
             caused_by=entry,
         )
