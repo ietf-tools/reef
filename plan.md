@@ -2541,7 +2541,22 @@ separate piece of work.
 
 ## Spam moderation tools
 
-Status: plan, not started. Nothing here is built.
+Status: steps 1 and 2 of the suggested order are built: the `moderation` app (the
+moderator log and logged admin actions for sets, surveys, responses and accounts),
+`Response` soft delete, and the local account block. Migrations
+`moderation/0001`, `reefauth/0006` and `surveys/0005`; `reef_api.yaml` is
+unchanged. Authentik deactivation, detection, throttling and the team-dev/team-staff
+exemption are not built.
+
+What the local block does: `block_user` sets `User.blocked_at`, and the bearer
+authenticator then refuses the account's tokens as invalid (401, no reason), on public
+endpoints as well as writes. A blocked account also cannot log in to the admin. Staff
+accounts and the moderator's own account cannot be blocked. "Block and remove content"
+takes down the account's sets and responses, logged as consequences of the block, and
+unblocking restores exactly those and nothing removed separately. Removing content is
+soft delete throughout; hard purge is not built.
+
+Not covered by block-and-remove yet: the account's ratings and subscriptions.
 
 Surveys (responses) and document sets (titles, descriptions) are receiving spam. Staff
 today have the soft delete on a set or survey and the raw Response list in the admin,

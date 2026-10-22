@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+{% load admin_urls %}
+
+{% block content %}
+<form method="post">
+  {% csrf_token %}
+  {% for obj in queryset %}
+    <input type="hidden" name="{{ checkbox_name }}" value="{{ obj.pk }}">
+  {% endfor %}
+  <input type="hidden" name="action" value="{{ action_name }}">
+  <input type="hidden" name="confirm" value="1">
+  <p>{{ prompt }}</p>
+  <ul>
+    {% for obj in queryset %}<li>{{ obj }}</li>{% endfor %}
+  </ul>
+  {{ form.as_p }}
+  <input type="submit" value="Confirm">
+  <a href="{% url opts|admin_urlname:'changelist' %}">Cancel</a>
+</form>
+{% endblock %}

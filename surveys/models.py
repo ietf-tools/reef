@@ -189,8 +189,31 @@ class Survey(models.Model):
 SURVEY_VISIBILITY_CHOICES = Survey.Visibility.choices
 
 
+class ResponseQuerySet(models.QuerySet):
+    def live(self):
+        return self.filter(deleted_at__isnull=True)
+
+    def deleted(self):
+        return self.filter(deleted_at__isnull=False)
+
+
+class LiveResponseManager(models.Manager.from_queryset(ResponseQuerySet)):
+    """Sees live responses only. The default manager, so that omission is safe.
+
+    A removed response must not reach analytics, tabulation or an export, and the
+    way that fails is a query that forgets to exclude it. survey.responses is
+    built from the default manager too, so it is covered as well.
+    """
+
+    def get_queryset(self):
+        return super().get_queryset().live()
+
+
 class Response(models.Model):
     """A single set of answers submitted for a survey."""
+
+    objects = LiveResponseManager()
+    all_objects = models.Manager.from_queryset(ResponseQuerySet)()
 
     survey = models.ForeignKey(
         Survey, on_delete=models.CASCADE, related_name="responses"
@@ -218,6 +241,18 @@ class Response(models.Model):
         help_text="Pages viewed before submitting, as counted by the submitting "
         "client. An anti-spam measure: blank when not reported, which includes "
         "every response stored before the field existed.",
+    )
+
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Blank for a live response. Set when staff remove it: it is "
+        "then left out of analytics, results and exports. Clear it to restore.",
+    )
+    deleted_reason = models.TextField(
+        blank=True,
+        help_text="Why the response was removed, for whoever reviews the "
+        "decision later. Never served through the API.",
     )
 
     class Meta:
