@@ -2538,3 +2538,236 @@ separate piece of work.
 - A submit with neither field behaves exactly as before.
 - A submit with both shows them in the Reef admin on that response.
 - Responses from before the migration show them blank, not 0.
+
+## Spam moderation tools
+
+Status: plan, not started. Nothing here is built.
+
+Surveys (responses) and document sets (titles, descriptions) are receiving spam. Staff
+today have the soft delete on a set or survey and the raw Response list in the admin,
+and nothing else: no way to find spam except reading everything, no way to stop the
+account behind it, and no record of who removed what. This section adds tools for
+admins to detect suspicious content, delete it, block the account behind it, and keep
+a moderator log of every one of those actions.
+
+### What the code tells us (constraints on the design)
+
+- **Bearer auth does not check `is_active`.** `BearerTokenAuthentication.authenticate`
+  validates the JWT against the JWKS and returns the User from
+  `sync_user_from_claims`, which never reads or writes `is_active`. Setting
+  `is_active=False` locally would therefore block nothing on the API today, and
+  disabling the account in Authentik does not revoke an access token already issued
+  (Reef validates them offline). So the local block is the enforcement, and the
+  Authentik call is the durable, cross-service half. Both are needed.
+- **Anonymous responses record no submitter**, on purpose (`Response.submitted_by` is
+  null for them). Blocking an account cannot reach them. Open surveys are probably the
+  larger spam surface, and they need content/behaviour signals and survey-level
+  controls rather than account blocking. This is the biggest gap in the "block the
+  account" framing.
+- **Soft delete exists** on `Survey` and `DocumentSet` (`deleted_at`, `deleted_reason`,
+  default manager hides deleted rows). `Response` has neither, and no history table.
+  `DocumentSet` and `DocumentSetEntry` have `simple_history`, which records changes but
+  is not a moderator log: it does not say *why*, and it is per-model.
+- **`Response.duration_seconds` and `pages_viewed`** already exist as spam signals,
+  forgeable by a determined bot. Acting on them was explicitly left for later; this is
+  that work.
+- **Sets are readable by anyone holding the id** and are attributable to an IETF
+  account, so a spam set is also a reputational problem on an ietf.org origin.
+- **Staff are every OIDC login through the reef-admin application** (`is_staff` and
+  `is_superuser` together), so there is one admin tier. A moderator log should record
+  the staff user, but there is no separate "moderator" role to scope to.
+- **Additive-only API rule applies.** Blocking changes what existing endpoints answer
+  (a blocked user's writes are refused), which is a behaviour change, not a schema
+  change; see "API impact" below.
+
+### Proposed pieces
+
+1. **Moderation log** (a new `moderation` app). One append-only `ModerationAction`
+   row per action: `actor` (staff user, SET_NULL with the username copied so it
+   survives), `action` (choice), `target_type` and `target_id` (generic, not a FK, so
+   the log outlives the target), `subject_user` (nullable FK, SET_NULL, plus a copied
+   `oidc_sub`), `reason`, `snapshot` (JSON of the content as it was: title, description,
+   response `data`), `authentik_result` (status, error text), `created_at`. No update
+   or delete in the admin; read-only and exportable. The snapshot matters: a hard purge
+   must not destroy the evidence for why it was done.
+2. **Account block** on `reefauth.User`: `blocked_at`, `blocked_reason`, `blocked_by`.
+   Enforced centrally rather than per view: a DRF permission (or authentication
+   step) that refuses every bearer write from a blocked user with 403 and a stable
+   error code, plus the OIDC login backend refusing a blocked staff-less account. Reads
+   of public data are unaffected. Distinguish *block* (writes refused, content kept)
+   from *block and purge* (content soft-deleted too).
+3. **Authentik client** (`reefauth/authentik.py`, no Django imports, like
+   `popularity/matomo.py`). A service-account API token held in an env var, scoped to
+   user read/update only. Operations: find the Authentik user for an `oidc_sub`,
+   set `is_active` false/true, optionally list and revoke that user's sessions and
+   tokens. Runs on a retrying celery task, never in the request: the local block lands
+   immediately and the Authentik call is recorded on the log row as pending, succeeded
+   or failed, with a visible retry in the admin. Authentik being down must not stop a
+   moderator doing anything locally.
+4. **Detection** is delegated; see "Detection" below. Flags are for review, never
+   automatic deletion.
+5. **Moderation queue in the admin.** An open-flags list grouped by account, then by
+   survey, with the content, the signals, the account's other content, and bulk
+   actions: dismiss, delete selected, block account and purge its content. The one
+   screen a moderator lives in; the model admins stay as the fallback.
+6. **Deleting content**: soft delete first (reuses `deleted_at`), a separate explicit
+   hard purge after a retention period for spam only. Add the same soft delete to
+   `Response` (a `deleted_at` column, excluded from analytics, tabulation, exports and
+   the precomputed files by the default manager). Restore must be possible and logged.
+
+### Decisions
+
+- **Reef staff may deactivate Authentik accounts.** Blocking an account does both
+  halves: the local block, effective immediately, and the Authentik deactivation on a
+  celery task. The confirmation step says in plain words that the account is disabled
+  across every IETF service, so the moderator knows the reach of what they are doing.
+- **Anonymous spam is not a design driver.** Account blocking is the core. Anonymous
+  submissions may later score as more suspicious, but that is a refinement of the
+  detection rules and changes nothing structural, so there is no measuring step first.
+- **Reef never reactivates an Authentik account.** Unblocking clears the local block
+  only. Reactivation is done by hand in Authentik, by whoever administers it, so a
+  moderator's mistake in Reef cannot silently re-enable an account that Authentik was
+  holding disabled for its own reasons. The log records that Authentik was left
+  deactivated.
+- **Members of team-dev and team-staff are never deactivated** (low priority
+  refinement, built after the core). Every other account may be. The groups come from
+  Authentik, so the check reads the user's current group membership at the moment of
+  the action, not a copy. A protected account can still be blocked locally; only the
+  Authentik call is refused, and the refusal is logged.
+- **Moderated content is a 404, to Red included.** A taken-down set or survey, and any
+  content of a blocked account, answers as if it never existed, the way soft-deleted
+  sets already do. There is no error code, no new shape, and nothing for Red to know
+  about or render. (Supersedes the earlier idea of a stable 403 code.)
+- **Reef does not define what spam looks like.** Detection is delegated to a
+  third-party classifier on the text content. Reef owns only the seam, the flag queue
+  and the actions; it maintains no rules, blocklists or term lists. See "Detection".
+- **The classifier is Akismet.** Sending set titles, descriptions and free-text
+  survey answers to it is accepted. The seam stays, so it can be replaced. Still to
+  confirm before building: that its terms allow use outside WordPress and that IETF
+  gets the nonprofit key (60,000 calls a month).
+- **The user is never told.** No email, no message, no reason in an API refusal. A
+  user who cares can enquire, and staff answer from the moderator log. The log's
+  `reason` and snapshot therefore have to be enough to answer an enquiry unaided.
+
+### Detection
+
+A `ModerationFlag` (target, provider, verdict, raw provider response, created_at,
+state: open/dismissed/actioned, resolved_by) is raised when a classifier says a piece
+of text looks like spam. Reef sends only free text: set title and description, and the
+string answers within a response. A `SpamClassifier` seam in its own module, no Django
+imports, one implementation per provider, so the provider can change without touching
+flags, the queue or the log. Runs on a celery task after the write, never in the
+request, so a classifier outage delays flagging and blocks nobody. A failed call is
+retried and then recorded as unchecked, never as clean.
+
+The existing `duration_seconds` and `pages_viewed` are shown to the moderator beside
+a flag as context. Reef does not score on them.
+
+Provider: Akismet (decided). The alternatives considered:
+
+- **Akismet**: hosted, built for user-submitted text, a plain REST API usable from any
+  language. Free for qualifying nonprofits up to 60,000 calls a month; qualification
+  needs proof of nonprofit status, and it is unconfirmed that IETF qualifies. Sends
+  content to a third party, and works best when given the submitter's IP and user
+  agent, which Reef does not have (Red is the client).
+- **LLM classifier** (a small model behind a fixed prompt): nothing to maintain beyond
+  the prompt, and it understands context such as a link in an RFC-related answer.
+  Costs per call, sends content to a third party, and spam text may try to instruct
+  the model, so output must be a strict schema, used only to raise a flag.
+- **Rspamd or SpamAssassin, self-hosted**: keeps content in-house, but they are
+  tuned for email and want training or rule upkeep, which is the work we are trying
+  not to take on.
+- Ruled out: Google Perspective (measures toxicity, not spam, and is shut down after
+  2026); Stop Forum Spam (matches IPs, emails and usernames, not text).
+
+### Critique and open questions
+
+- **Anonymous submissions** cannot be reached by an account block. Candidates for
+  that surface, later: per-survey "require login" (already exists as `visibility`),
+  a honeypot or proof-of-work token Red's runner sends, and throttling by IP at nginx
+  or DRF.
+- **Throttling and rate limits** are prevention, cheaper than moderation, and there
+  are none in the settings today. Probably worth doing alongside, per-account and
+  per-IP, on set creation and response submit. Needs a decision on how the client IP
+  is trusted behind the nginx proxy.
+- **Forgeable signals.** `duration_seconds` and `pages_viewed` come from the client;
+  anything keyed on them catches careless bots only. Treat as score inputs, not gates.
+  A server-issued start token (timestamp signed when the runner loads the survey)
+  would make duration trustworthy, but it is a new additive Red-facing field.
+- **Authentik mapping is unverified.** The OIDC `sub` is not necessarily Authentik's
+  numeric user id; by default it is a hash. We need to confirm how to resolve a `sub`
+  to the user to PATCH (lookup by uuid or search), the exact endpoint and permission
+  the token needs, and whether deactivating also ends sessions. Verify against the
+  real account.ietf.org instance before designing the client; do not assume.
+- **Authentik permissions.** Staff may deactivate accounts (decided), but the
+  service-account token Reef holds is a credential that can disable any IETF user.
+  Confirm with the account.ietf.org owners that it can be scoped to user update only,
+  and keep it out of logs and the admin. Ask them whether they want to be notified of
+  deactivations that Reef makes.
+- **Unblocking.** A block needs an undo, also logged. It clears the local block and
+  restores the user's content; it never reactivates Authentik (see Decisions).
+- **What a blocked user's own requests get.** Their content is a 404. Their writes
+  with a still-valid token need a refusal that is not a new shape: the plan is to
+  reject the token at authentication as if invalid (401), so Red treats it like any
+  expired session. An Authentik-deactivated account fails at login in Authentik
+  itself, before Reef is reached. To confirm.
+- **Akismet wants the submitter's IP and user agent**, which Reef never sees: Red
+  is the client. Without them it still classifies the text, with less signal. Red
+  could forward them as new optional request fields (additive), at the cost of
+  sending an IP address to Akismet; decide when the detection step starts.
+- **Resolved:** the owner of a taken-down set is not told (closes the open item on
+  that point for spam; see Decisions).
+- **Privacy.** The log stores content snapshots and account identifiers. Decide how
+  long they are kept.
+- **Moderator log visibility.** Append-only at the application level is not
+  tamper-proof against a superuser; if that matters, mirror entries to the structured
+  log stream as well.
+- **Classifier cost and volume.** One call per set and per free-text response. Check
+  the provider's limits against real submission volume, and skip responses with no
+  free text.
+
+### Suggested features beyond the brief
+
+- Moderator notes on an account, and an account page showing everything it has made.
+- Bulk undo: "everything this account did in the last 24 hours".
+- Survey-level controls for moderators: pause accepting responses on one survey
+  under attack without unpublishing it.
+- Daily summary email to staff of open flags, using the existing `reef.mail`.
+- A moderator "this was spam" or "this was fine" verdict stored on the flag, as
+  a record of how well the provider is doing (and of any disagreement to raise with it).
+- Metrics: flags raised, dismissed (false-positive rate), actions taken, per provider.
+
+### API impact
+
+No endpoint or schema changes are needed for the core of this. Blocked users get a 403
+on writes they are already allowed to attempt; the 403 body should use an error code
+documented in `reef_api.yaml` as an additive description, not a new required shape.
+Soft-deleting `Response` rows changes nothing Reef serves except that they stop
+appearing in analytics and any precomputed file derived from them (confirm `surveys/
+precompute.py` reads none). A server-issued start token, if adopted, is an additive
+optional field on the submit request. `git diff reef_api.yaml` must still show only
+added lines.
+
+### Suggested order
+
+1. Moderation log, `Response` soft delete, and delete actions from the admin, all
+   logged. Immediately useful and the foundation for the rest.
+2. Local account block, enforced in one place, with tests that a blocked user's writes
+   are refused on every write endpoint.
+3. Authentik client and the deactivation task, wired into the block action, once the
+   Authentik lookup and permissions are verified against the real instance.
+4. Detection: the classifier seam, one provider, flags and the moderation queue.
+5. Throttling, and anonymous weighting once the provider's verdict can be combined
+   with it.
+6. Low priority: the team-dev and team-staff exemption on the Authentik call.
+
+### Verification (when built)
+
+- Every moderation action writes exactly one log row, including when Authentik
+  fails, and the log row survives deletion of its target and its subject.
+- A blocked user's bearer token is refused on every write endpoint and still reads
+  public data; unblocking restores access with no re-login.
+- A soft-deleted response appears in no analytics, tabulation or precomputed file;
+  restore brings it back.
+- The Authentik task retries on failure and never blocks the request.
+- `git diff reef_api.yaml` shows only added lines.
