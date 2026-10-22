@@ -2436,3 +2436,105 @@ is the `SurveyDefinition` schema's description, which comes from
 - `/api/v1/surveys/open.json` carries
   `https://<red origin>/survey/?slug=<slug>&returnTo=/` in each `url`, and that link
   opens the survey on Red.
+
+## Response timing and page count
+
+Red's runner knows two things about a submission that Reef cannot work out for
+itself: how long the visitor spent on the survey, and how many pages they browsed
+before submitting. The submission API takes both, optionally, and stores them with
+the response as anti-spam measures: a submission completed implausibly fast, or
+without having viewed any pages, is the signature of a bot, and these two numbers
+are what let staff spot it.
+
+Status: done. Migration `surveys/0004_response_anti_spam_measures`; `reef_api.yaml` regenerated with only added lines.
+
+### Decisions
+
+- **Which pages.** Red decides what counts as a page. Reef stores and validates a
+  non-negative integer and defines nothing more, so the column's `help_text` and
+  the API description say "pages viewed, as counted by the submitting client".
+- **Names.** `duration_seconds` and `pages_viewed`, in the request body beside
+  `data`. Whole seconds, because nothing here needs finer, and it keeps the unit in
+  the name.
+- **Limits.** `duration_seconds` at most 2,592,000 (30 days). `pages_viewed` at
+  most 10,000.
+
+### API
+
+`POST /api/reef/surveys/{slug}/responses/` accepts two new optional integer
+properties next to `data`:
+
+- `duration_seconds`: seconds from the visitor starting the survey to submitting it.
+  At least 0, at most 2,592,000 (30 days).
+- `pages_viewed`: how many pages they viewed. At least 0, at most
+  10,000.
+
+Additive only. Both are optional, so a client generated from the current
+`reef_api.yaml` keeps working, and a runner that sends neither gets the same 201 it
+gets today.
+
+- Both are `write_only` on `ResponseCreateSerializer`, so the 201 body is
+  unchanged. A response echoing a key it has nothing to say for would otherwise
+  send `null`, which the additive-only rule forbids.
+- A value out of range is a 400 naming the field, as `data` over the size limit is.
+  It is rejected, not clamped: a clamped number looks like a measurement.
+- Both are anti-spam measures: signals for telling a bot's submission from a
+  person's. They are reported by the caller, so a determined spammer can forge
+  them; they catch careless bots, not careful ones. Treat them as a signal staff
+  review, not a gate that rejects a submission.
+
+### Model
+
+Two nullable columns on `Response`, rather than keys in the existing `meta`
+JSONField:
+
+- `duration_seconds = PositiveIntegerField(null=True, blank=True)`
+- `pages_viewed = PositiveIntegerField(null=True, blank=True)`
+
+Null means the runner did not say, which includes every response stored before this
+change; it must not read as 0. Columns over `meta` because they are numbers that
+anti-spam review will filter and aggregate on, and because `meta` is deliberately never
+taken from the caller (`test_submission_ignores_meta_from_the_caller` stays as is).
+
+One migration, `surveys/migrations/0004_...`, adding the two columns. Adding a
+nullable column rewrites no rows. `Response` has no `HistoricalRecords`, so there is
+no historical table to touch.
+
+### Steps
+
+1. `surveys/models.py`: add the two fields to `Response`, with `help_text` saying
+   the unit and that they are anti-spam measures reported by the submitter.
+2. `makemigrations surveys`; check the migration is only two `AddField`s.
+3. `reef/settings/base.py`: `REEF_SURVEY_DURATION_MAX_SECONDS = 30 * 24 * 60 * 60`
+   and `REEF_SURVEY_PAGES_MAX = 10_000`, with a comment saying what each bounds.
+   Plain settings, not read from the environment: nothing needs to vary them per
+   deployment, so `.env.example`, compose and k8s files stay untouched.
+4. `surveys/serializers.py`: add both to `ResponseCreateSerializer.fields` as
+   `write_only` with `min_value` 0 and the setting as `max_value`, `required=False`.
+   Leave `ResponseSerializer` alone: nothing uses it.
+5. `surveys/admin.py`: add both to `ResponseAdmin.readonly_fields`, and
+   `duration_seconds` to `list_display`.
+6. Regenerate the contract with the command in `docs/development.md`. Then
+   `git diff reef_api.yaml` must show only added lines: two properties on
+   `ResponseCreate` and nothing else. If anything is removed or changed, stop.
+7. Tests in `surveys/tests.py`, with the existing submission tests untouched:
+   - both stored when sent, and the 201 body has neither key
+   - neither sent: 201, both null
+   - one sent without the other
+   - negative, over the maximum, and a non-integer each give a 400 naming the field
+   - the committed-schema test passes against the regenerated file
+8. Update this section's status when done.
+
+### What does not change
+
+Analytics, `surveys/tabulate.py`, the precomputed files and the callbacks Reef sends
+to Red read none of this, so none of them move. Acting on the anti-spam measures
+(flagging or filtering fast responses in the admin or the analytics dashboard) is a
+separate piece of work.
+
+### Verification
+
+- `git diff reef_api.yaml` shows only added lines.
+- A submit with neither field behaves exactly as before.
+- A submit with both shows them in the Reef admin on that response.
+- Responses from before the migration show them blank, not 0.

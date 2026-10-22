@@ -124,11 +124,35 @@ class ResponseSerializer(serializers.ModelSerializer):
 
 
 class ResponseCreateSerializer(serializers.ModelSerializer):
+    """A submission: the answers, plus optional anti-spam measures.
+
+    duration_seconds and pages_viewed are reported by the caller, so a determined
+    spammer can forge them; they are for staff to review, not a gate. Both are
+    write-only so the 201 body never sends a null for one the caller left out.
+    """
+
+    duration_seconds = serializers.IntegerField(
+        required=False,
+        write_only=True,
+        min_value=0,
+        max_value=settings.REEF_SURVEY_DURATION_MAX_SECONDS,
+        help_text="Seconds the submitter took on the survey, as reported by the "
+        "submitting client. An anti-spam measure.",
+    )
+    pages_viewed = serializers.IntegerField(
+        required=False,
+        write_only=True,
+        min_value=0,
+        max_value=settings.REEF_SURVEY_PAGES_MAX,
+        help_text="Pages viewed before submitting, as counted by the submitting "
+        "client. An anti-spam measure.",
+    )
+
     class Meta:
         model = Response
         # Not meta: the runner never sends it, so taking it from the caller only
         # let anyone store arbitrary JSON.
-        fields = ["data"]
+        fields = ["data", "duration_seconds", "pages_viewed"]
 
     def validate_data(self, value):
         size = len(json.dumps(value, separators=(",", ":")).encode())
