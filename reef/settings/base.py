@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "stats",
     "me",
     "precomputer",
+    "moderation",
 ]
 
 MIDDLEWARE = [

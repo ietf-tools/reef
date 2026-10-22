@@ -19,4 +19,6 @@ class ReefOIDCAuthBackend(OIDCAuthenticationBackend):
         return sync_user_from_claims(claims, sync_permissions=True)
 
     def update_user(self, user, claims):
+        if user.is_blocked:
+            return None
         return sync_user_from_claims(claims, sync_permissions=True)
