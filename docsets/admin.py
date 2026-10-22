@@ -2,9 +2,9 @@
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 
-from moderation import actions
-from moderation.admin_actions import LogsRemovalMixin, reason_action
-from moderation.models import ModerationAction
+from moderation import actions, review
+from moderation.admin_actions import LogsRemovalMixin, reason_action, review_filter
+from moderation.models import ModerationAction, ModerationFlag
 from reef.admin_documents import DocumentTitleMixin
 from reef.docids import normalize_doc_id
 
@@ -29,6 +29,14 @@ def _restore(actor, queryset, reason):
     )
 
 
+def _spam(actor, queryset, reason):
+    return review.review_sets(actor, queryset, ModerationFlag.Verdict.SPAM, reason)
+
+
+def _fine(actor, queryset, reason):
+    return review.review_sets(actor, queryset, ModerationFlag.Verdict.FINE, reason)
+
+
 @admin.register(DocumentSet)
 class DocumentSetAdmin(LogsRemovalMixin, admin.ModelAdmin):
     """Where a set is taken down, and the only place a taken-down one shows.
@@ -50,6 +58,18 @@ class DocumentSetAdmin(LogsRemovalMixin, admin.ModelAdmin):
 
     actions = [
         reason_action(
+            "mark_sets_spam",
+            "Mark selected sets as spam",
+            "These sets will be taken down and kept as examples of spam.",
+            _spam,
+        ),
+        reason_action(
+            "mark_sets_fine",
+            "Mark selected sets as fine",
+            "These sets will be kept as examples of content that is not spam.",
+            _fine,
+        ),
+        reason_action(
             "take_down_sets",
             "Take down selected sets",
             "These sets will 404 everywhere, for their owners too.",
@@ -64,7 +84,10 @@ class DocumentSetAdmin(LogsRemovalMixin, admin.ModelAdmin):
     ]
 
     list_display = ["title", "owner", "deleted_at", "updated_at"]
-    list_filter = [("deleted_at", admin.EmptyFieldListFilter)]
+    list_filter = [
+        ("deleted_at", admin.EmptyFieldListFilter),
+        review_filter("documentset"),
+    ]
     search_fields = ["id", "title", "description"]
     fields = ["id", "owner", "title", "description", "deleted_at", "deleted_reason"]
     readonly_fields = ["id"]

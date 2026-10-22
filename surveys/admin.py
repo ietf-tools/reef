@@ -1,9 +1,9 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.contrib import admin
 
-from moderation import actions
-from moderation.admin_actions import LogsRemovalMixin, reason_action
-from moderation.models import ModerationAction
+from moderation import actions, review
+from moderation.admin_actions import LogsRemovalMixin, reason_action, review_filter
+from moderation.models import ModerationAction, ModerationFlag
 
 from .models import Response, Survey
 
@@ -22,6 +22,14 @@ def _restore_surveys(actor, queryset, reason):
 
 def _delete_responses(actor, queryset, reason):
     return len(actions.delete_responses(actor, queryset, reason))
+
+
+def _spam(actor, queryset, reason):
+    return review.review_responses(actor, queryset, ModerationFlag.Verdict.SPAM, reason)
+
+
+def _fine(actor, queryset, reason):
+    return review.review_responses(actor, queryset, ModerationFlag.Verdict.FINE, reason)
 
 
 def _restore_responses(actor, queryset, reason):
@@ -79,7 +87,11 @@ class ResponseAdmin(admin.ModelAdmin):
         "duration_seconds",
         "deleted_at",
     ]
-    list_filter = ["survey", ("deleted_at", admin.EmptyFieldListFilter)]
+    list_filter = [
+        "survey",
+        ("deleted_at", admin.EmptyFieldListFilter),
+        review_filter("response"),
+    ]
     readonly_fields = [
         "survey",
         "data",
@@ -92,6 +104,18 @@ class ResponseAdmin(admin.ModelAdmin):
         "deleted_reason",
     ]
     actions = [
+        reason_action(
+            "mark_responses_spam",
+            "Mark selected responses as spam",
+            "These responses will be removed and kept as examples of spam.",
+            _spam,
+        ),
+        reason_action(
+            "mark_responses_fine",
+            "Mark selected responses as fine",
+            "These responses will be kept as examples of content that is not spam.",
+            _fine,
+        ),
         reason_action(
             "delete_responses",
             "Delete selected responses",

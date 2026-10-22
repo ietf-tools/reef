@@ -6,10 +6,12 @@ logs a takedown made by editing deleted_at on the change form.
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.template.response import TemplateResponse
 
-from .actions import CannotBlock, log_action
+from . import review
+from .actions import log_action
 
 
 class ReasonForm(forms.Form):
@@ -25,7 +27,7 @@ def reason_action(name, description, prompt, perform):
     """An admin action that asks for a reason before it acts.
 
     perform(actor, queryset, reason) returns how many rows it changed. It may
-    raise CannotBlock, which is shown to the moderator and changes nothing.
+    raise ValidationError, which is shown to the moderator and changes nothing.
     """
 
     @admin.action(description=description)
@@ -38,8 +40,10 @@ def reason_action(name, description, prompt, perform):
                         done = perform(
                             request.user, queryset, form.cleaned_data["reason"]
                         )
-                except CannotBlock as exc:
-                    modeladmin.message_user(request, str(exc), messages.ERROR)
+                except ValidationError as exc:
+                    modeladmin.message_user(
+                        request, " ".join(exc.messages), messages.ERROR
+                    )
                 else:
                     modeladmin.message_user(
                         request, f"{description}: {done} changed.", messages.SUCCESS
@@ -64,6 +68,27 @@ def reason_action(name, description, prompt, perform):
 
     action.__name__ = name
     return action
+
+
+def review_filter(target_type):
+    """A changelist filter for what no moderator has labelled yet."""
+
+    class ReviewFilter(admin.SimpleListFilter):
+        title = "review"
+        parameter_name = "review"
+
+        def lookups(self, request, model_admin):
+            return [("unreviewed", "Not yet reviewed"), ("reviewed", "Reviewed")]
+
+        def queryset(self, request, queryset):
+            if self.value() not in ("unreviewed", "reviewed"):
+                return queryset
+            reviewed = review.reviewed_target_ids(target_type)
+            if self.value() == "unreviewed":
+                return queryset.exclude(pk__in=reviewed)
+            return queryset.filter(pk__in=reviewed)
+
+    return ReviewFilter
 
 
 class LogsRemovalMixin:

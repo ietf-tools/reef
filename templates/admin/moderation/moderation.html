@@ -1,0 +1,123 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+
+<p>
+  Content nobody has reviewed yet, newest first. Marking something as spam takes it
+  down and keeps its text as an example of spam; marking it as fine keeps it as an
+  example of content that is not. Nobody is told. Everything done here is recorded in
+  <a href="{% url 'admin:moderation_moderationaction_changelist' %}">the moderator
+  log</a>.
+</p>
+
+<form method="post">
+  {% csrf_token %}
+
+  <h2>Sets ({{ sets_page.paginator.count }} unreviewed)</h2>
+  {% if sets_page %}
+    <table>
+      <thead><tr><th></th><th>Title</th><th>Description</th><th>Owner</th><th>Created</th></tr></thead>
+      <tbody>
+        {% for set in sets_page %}
+          <tr>
+            <td><input type="checkbox" name="sets" value="{{ set.pk }}"></td>
+            <td><a href="{% url 'admin:docsets_documentset_change' set.pk %}">{{ set.title }}</a></td>
+            <td>{{ set.description }}</td>
+            <td>{{ set.owner }}</td>
+            <td>{{ set.created_at }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include "admin/moderation/_pager.html" with page=sets_page %}
+  {% else %}
+    <p>Nothing to review.</p>
+  {% endif %}
+
+  <h2>Survey responses ({{ responses_page.paginator.count }} unreviewed)</h2>
+  {% if response_rows %}
+    <table>
+      <thead><tr><th></th><th>Survey</th><th>Free text</th><th>Submitter</th><th>Seconds</th><th>Pages</th><th>Submitted</th></tr></thead>
+      <tbody>
+        {% for row in response_rows %}
+          <tr>
+            <td><input type="checkbox" name="responses" value="{{ row.response.pk }}"></td>
+            <td>{{ row.response.survey.title }}</td>
+            <td><a href="{% url 'admin:surveys_response_change' row.response.pk %}">{{ row.text|default:"(no free text)" }}</a></td>
+            <td>{{ row.response.submitted_by|default:"anonymous" }}</td>
+            <td>{{ row.response.duration_seconds|default_if_none:"" }}</td>
+            <td>{{ row.response.pages_viewed|default_if_none:"" }}</td>
+            <td>{{ row.response.submitted_at }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include "admin/moderation/_pager.html" with page=responses_page %}
+  {% else %}
+    <p>Nothing to review.</p>
+  {% endif %}
+
+  <fieldset class="module aligned">
+    <div class="form-row">
+      <label for="reason">Reason:</label>
+      <textarea name="reason" id="reason" rows="3"></textarea>
+      <div class="help">Kept in the moderator log. Never shown to the user. Optional.</div>
+    </div>
+  </fieldset>
+  <div class="submit-row">
+    <button type="submit" name="button" value="spam" class="default">Mark selected as spam</button>
+    <button type="submit" name="button" value="fine">Mark selected as fine</button>
+    <button type="submit" name="button" value="block">Block their owners and remove their content</button>
+  </div>
+  <p class="help">
+    Blocking refuses the account's API calls in Reef. Unblocking restores what the
+    block removed. Staff accounts cannot be
+    blocked, and anonymous responses have no account to block.
+  </p>
+
+  <h2>Blocked accounts ({{ blocked_page.paginator.count }})</h2>
+  {% if blocked_page %}
+    <table>
+      <thead><tr><th></th><th>Account</th><th>Blocked</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for blocked in blocked_page %}
+          <tr>
+            <td><input type="checkbox" name="users" value="{{ blocked.pk }}"></td>
+            <td><a href="{% url 'admin:reefauth_user_change' blocked.pk %}">{{ blocked }}</a></td>
+            <td>{{ blocked.blocked_at }}</td>
+            <td>{{ blocked.blocked_reason }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% include "admin/moderation/_pager.html" with page=blocked_page %}
+    <div class="submit-row">
+      <button type="submit" name="button" value="unblock">Unblock selected</button>
+    </div>
+  {% else %}
+    <p>No account is blocked.</p>
+  {% endif %}
+</form>
+
+<h2>Recent activity</h2>
+{% if actions_page %}
+  <table>
+    <thead><tr><th>When</th><th>Action</th><th>Account</th><th>By</th><th>Reason</th></tr></thead>
+    <tbody>
+      {% for entry in actions_page %}
+        <tr>
+          <td>{{ entry.created_at }}</td>
+          <td>{{ entry.get_action_display }}</td>
+          <td>{{ entry.subject_name }}</td>
+          <td>{{ entry.actor_name }}</td>
+          <td>{{ entry.reason }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "admin/moderation/_pager.html" with page=actions_page %}
+{% else %}
+  <p>Nothing has been done yet.</p>
+{% endif %}
+
+{% endblock %}

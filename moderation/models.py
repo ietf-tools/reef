@@ -22,6 +22,8 @@ class ModerationAction(models.Model):
         RESTORE_SURVEY = "restore_survey", "Restore survey"
         DELETE_RESPONSE = "delete_response", "Delete response"
         RESTORE_RESPONSE = "restore_response", "Restore response"
+        DELETE_RATING = "delete_rating", "Delete rating"
+        RESTORE_RATING = "restore_rating", "Restore rating"
         BLOCK_USER = "block_user", "Block account"
         UNBLOCK_USER = "unblock_user", "Unblock account"
 
@@ -72,3 +74,59 @@ class ModerationAction(models.Model):
         if not self._state.adding:
             raise ValueError("The moderator log is append-only.")
         super().save(*args, **kwargs)
+
+
+class ModerationFlag(models.Model):
+    """A moderator's verdict on a piece of content, kept as a labelled example.
+
+    The labels are the point: they are the in-house dataset that says whether any
+    classifier works on this content, and a score from one can sit on the same row
+    later. A verdict of spam also takes the content down, through the logged
+    actions; a verdict of fine only records that someone looked.
+
+    The text is copied, as the log's snapshot is, so the label stays usable after
+    the content is purged.
+    """
+
+    class Verdict(models.TextChoices):
+        SPAM = "spam", "Spam"
+        FINE = "fine", "Fine"
+
+    target_type = models.CharField(max_length=32)
+    target_id = models.CharField(max_length=64)
+    subject_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    text = models.TextField()
+    # Blank for a human label. A classifier that scores the same content writes
+    # its own row, so its scores and the human verdict never overwrite each other.
+    classifier = models.CharField(max_length=64, blank=True)
+    score = models.FloatField(null=True, blank=True)
+    verdict = models.CharField(
+        max_length=8, choices=Verdict.choices, blank=True, db_index=True
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["target_type", "target_id", "classifier"],
+                name="one_flag_per_target_and_classifier",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.verdict or 'unreviewed'}: {self.target_type} {self.target_id}"
