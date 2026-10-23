@@ -561,7 +561,17 @@ def respondent_label(response):
     return str(user) if user else "Anonymous"
 
 
-FIXED_HEADERS = ("Submitted", "Respondent")
+FIXED_HEADERS = (
+    "Submitted",
+    "Respondent",
+    "Seconds to complete",
+    "Pages viewed",
+)
+
+
+def _reported(value):
+    """A number the submitter reported, or blank: blank means it did not say, not 0."""
+    return "" if value is None else value
 
 
 def iter_csv(survey, columns):
@@ -581,6 +591,8 @@ def iter_csv(survey, columns):
             [
                 response.submitted_at.isoformat(timespec="seconds"),
                 csv_safe(respondent_label(response)),
+                _reported(response.duration_seconds),
+                _reported(response.pages_viewed),
                 *(csv_safe(cell_text(cell)) for cell in cells),
             ]
         )

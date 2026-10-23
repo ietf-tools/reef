@@ -291,6 +291,18 @@ class ResponsesViewTests(TestCase):
         second = self.client.get(f"{url}?page=2")
         self.assertContains(second, "<td>Green</td>", count=1)
 
+    def test_csv_carries_the_reported_duration_and_pages_blank_when_not_reported(
+        self,
+    ):
+        Response.objects.create(
+            survey=self.survey, data={}, duration_seconds=0, pages_viewed=4
+        )
+        Response.objects.create(survey=self.survey, data={})
+        lines = list(tabulate.iter_csv(self.survey, []))
+        rows = list(csv.reader(io.StringIO("".join(lines).lstrip("\ufeff"))))
+        self.assertEqual(rows[0][2:4], ["Seconds to complete", "Pages viewed"])
+        self.assertEqual(sorted(row[2:4] for row in rows[1:]), [["", ""], ["0", "4"]])
+
     def test_csv_exports_every_response(self):
         Response.objects.bulk_create(
             Response(survey=self.survey, data={"q1": 3, "tools": ["svn"]})
@@ -308,7 +320,16 @@ class ResponsesViewTests(TestCase):
         body = b"".join(resp.streaming_content).decode("utf-8-sig")
         rows = list(csv.reader(io.StringIO(body)))
         header, data = rows[0], rows[1:]
-        self.assertEqual(header[:3], ["Submitted", "Respondent", "How useful?"])
+        self.assertEqual(
+            header[:5],
+            [
+                "Submitted",
+                "Respondent",
+                "Seconds to complete",
+                "Pages viewed",
+                "How useful?",
+            ],
+        )
         self.assertEqual(
             header[-2:],
             ["legacy (not in current survey)", "Unrecognised response"],
