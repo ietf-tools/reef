@@ -29,6 +29,8 @@
         <tr>
           <th scope="col">{% translate "Submitted" %}</th>
           <th scope="col">{% translate "Respondent" %}</th>
+          <th scope="col">{% translate "Seconds to complete" %}</th>
+          <th scope="col">{% translate "Pages viewed" %}</th>
           {% for column in columns %}
             <th scope="col">{{ column.title }}</th>
           {% endfor %}
@@ -39,12 +41,14 @@
           <tr>
             <td class="nowrap">{{ row.response.submitted_at|date:"Y-m-d H:i" }}</td>
             <td>{{ row.respondent }}</td>
+            <td>{{ row.response.duration_seconds|default_if_none:"" }}</td>
+            <td>{{ row.response.pages_viewed|default_if_none:"" }}</td>
             {% for cell in row.cells %}
               <td>{{ cell }}</td>
             {% endfor %}
           </tr>
         {% empty %}
-          <tr><td colspan="{{ columns|length|add:2 }}">{% translate "No responses yet." %}</td></tr>
+          <tr><td colspan="{{ columns|length|add:4 }}">{% translate "No responses yet." %}</td></tr>
         {% endfor %}
       </tbody>
     </table>

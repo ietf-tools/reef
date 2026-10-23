@@ -286,6 +286,8 @@ class ResponsesViewTests(TestCase):
         first = self.client.get(url)
         self.assertEqual(first.status_code, 200)
         self.assertContains(first, "Favourite colour")
+        self.assertContains(first, "Seconds to complete")
+        self.assertContains(first, "Pages viewed")
         self.assertContains(first, "<td>Green</td>", count=50)
         self.assertContains(first, "?page=2")
         second = self.client.get(f"{url}?page=2")
