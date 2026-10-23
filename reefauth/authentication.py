@@ -166,6 +166,11 @@ class BearerTokenAuthentication(authentication.BaseAuthentication):
         user = sync_user_from_claims(payload)
         if user is None:
             raise exceptions.AuthenticationFailed("Bearer token has no subject claim.")
+        if user.is_blocked:
+            # The same refusal as any token Reef cannot accept, with no reason: a
+            # blocked person is not told they are blocked, and Red treats this like
+            # an expired session.
+            raise exceptions.AuthenticationFailed("Invalid bearer token.")
         return (user, payload)
 
     def authenticate_header(self, request):

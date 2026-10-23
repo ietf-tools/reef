@@ -28,6 +28,27 @@ class User(AbstractUser):
     # subscriptions.models.WebNotification.
     receive_digest_email = models.BooleanField(default=False)
 
+    # A local block, enforced here rather than in Authentik: Reef validates access
+    # tokens offline, so a token issued before the account was disabled upstream
+    # stays valid until it expires. Blank for an account that is not blocked.
+    blocked_at = models.DateTimeField(null=True, blank=True)
+    blocked_reason = models.TextField(
+        blank=True,
+        help_text="Why the account was blocked, for whoever reviews the "
+        "decision later. Never served through the API and never shown to the user.",
+    )
+    blocked_by = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    @property
+    def is_blocked(self):
+        return self.blocked_at is not None
+
     def get_username(self):
         """Prefer a human-readable identifier for display.
 
