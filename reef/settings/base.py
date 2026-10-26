@@ -161,6 +161,15 @@ REEF_SURVEY_RESPONSE_MAX_BYTES = int(
 REEF_SURVEY_DURATION_MAX_SECONDS = 30 * 24 * 60 * 60
 REEF_SURVEY_PAGES_MAX = 10_000
 
+# Spam scoring by Jev (TypeSafe AI), a hosted service: the free text of sets and
+# survey responses is sent to it, and nothing else. Unset means no content is sent
+# and nothing is scored. The threshold is the score at which a flag is raised for a
+# moderator; unset means scores are recorded and never raised, which is how a
+# classifier is measured against moderators' labels before it is trusted.
+REEF_JEV_API_KEY = os.environ.get("REEF_JEV_API_KEY")
+_spam_threshold = os.environ.get("REEF_SPAM_FLAG_THRESHOLD")
+REEF_SPAM_FLAG_THRESHOLD = float(_spam_threshold) if _spam_threshold else None
+
 # Bearer (resource-server) validation of Authentik access tokens.
 #
 # Independent of the RP login settings above. One caller: Red's "rfc-editor"

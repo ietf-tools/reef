@@ -226,10 +226,11 @@ class BlockTests(APITestCase):
         self.assertEqual(entry.action, Action.UNBLOCK_USER)
         self.assertEqual(entry.reason, "mistake")
 
-    def test_staff_cannot_be_blocked(self):
+    def test_another_staff_account_is_not_special_to_the_block(self):
         other = User.objects.create_superuser(username="o", oidc_sub="o")
-        with self.assertRaises(ValidationError):
-            actions.block_user(self.staff, other)
+        self.assertIsNotNone(actions.block_user(self.staff, other))
+        other.refresh_from_db()
+        self.assertTrue(other.is_blocked)
 
     def test_you_cannot_block_yourself(self):
         me = User.objects.create(username="me", oidc_sub="me")
@@ -482,7 +483,7 @@ class ModerationPageTests(TestCase):
         self.assertContains(page, "No account is blocked.", count=0)
         self.assertContains(page, "spammer")
 
-    def test_blocking_a_staff_owner_changes_nothing(self):
+    def test_blocking_yourself_through_the_page_changes_nothing(self):
         staff_set = DocumentSet.objects.create(owner=self.staff, title="Mine")
         self.client.post(self.url, {"button": "block", "sets": [staff_set.pk]})
         self.staff.refresh_from_db()

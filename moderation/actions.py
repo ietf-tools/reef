@@ -262,12 +262,11 @@ def restore_ratings(actor, ratings, reason="", *, caused_by=None):
 def block_user(actor, user, reason="", *, remove_content=False):
     """Refuse the account's API access, optionally taking its content down too.
 
-    Staff accounts are refused, and so is blocking yourself: a block locks the
-    account out, and the one tier of admin there is has no way back in. An account
-    that is already blocked is left alone and returns None.
+    Blocking yourself is refused, since a block would lock you out of the moderation
+    page that undoes it. Which other accounts must never be deactivated is the account
+    API's rule, not this function's. An account that is already blocked is left alone
+    and returns None.
     """
-    if user.is_staff:
-        raise ValidationError("Staff accounts cannot be blocked.")
     if actor is not None and actor.pk == user.pk:
         raise ValidationError("You cannot block your own account.")
     if user.is_blocked:
