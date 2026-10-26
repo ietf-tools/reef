@@ -106,6 +106,9 @@ class ModerationFlag(models.Model):
     # its own row, so its scores and the human verdict never overwrite each other.
     classifier = models.CharField(max_length=64, blank=True)
     score = models.FloatField(null=True, blank=True)
+    # Whether the score was at or above the threshold when it was recorded, and so
+    # put this in front of moderators. False for every score kept in shadow mode.
+    raised = models.BooleanField(default=False, db_index=True)
     verdict = models.CharField(
         max_length=8, choices=Verdict.choices, blank=True, db_index=True
     )

@@ -2545,12 +2545,13 @@ Status: steps 1 and 2 of the suggested order are built: the `moderation` app (th
 moderator log and logged admin actions for sets, surveys, responses and accounts),
 `Response` soft delete, and the local account block. Migrations
 `moderation/0001`, `reefauth/0006` and `surveys/0005`; `reef_api.yaml` is
-unchanged. Account-API deactivation, detection and throttling are not built.
+unchanged. Account-API deactivation is not built.
 
 What the local block does: `block_user` sets `User.blocked_at`, and the bearer
 authenticator then refuses the account's tokens as invalid (401, no reason), on public
-endpoints as well as writes. A blocked account also cannot log in to the admin. Staff
-accounts and the moderator's own account cannot be blocked. "Block and remove content"
+endpoints as well as writes. A blocked account also cannot log in to the admin. The
+moderator cannot block their own account. No other account is exempt here: which
+accounts must never be deactivated is the account API's rule. "Block and remove content"
 takes down the account's sets and responses, logged as consequences of the block, and
 unblocking restores exactly those and nothing removed separately. Removing content is
 soft delete throughout; hard purge is not built.
@@ -2573,8 +2574,15 @@ fine, with a copy of the text. On the set and response lists in the admin, "Mark
 spam" takes the content down through the logged actions and labels it, "Mark as fine"
 only labels it, and a "review" filter shows what has no verdict yet. Moderators can
 find spam and label examples now; the labels are what any classifier will be measured
-on. The classifier seam, shadow mode and scores on a flag are not built: no examples
-or counts were available to choose a model, so labelling comes first.
+on. The classifier is Jev (see Decisions) and is built: `moderation/jev.py` (the client,
+sending the text and a fixed question only), `classify.py` (scoring and the threshold),
+`tasks.py` (a retrying task that records no flag on failure), `signals.py` (queue on
+save, after commit), the `classify_unscored` backfill command, and a score column and
+"flagged only" view on the moderation page. `ModerationFlag.raised` is migration
+`moderation/0004`. With `REEF_SPAM_FLAG_THRESHOLD` unset it is shadow mode: scores are
+recorded and nothing is raised. Not built, and not to be assumed: the response field
+names are from one secondary source and have to be checked against a real call before
+the first run; no real call has been made.
 
 Surveys (responses) and document sets (titles, descriptions) are receiving spam. Staff
 today have the soft delete on a set or survey and the raw Response list in the admin,
@@ -2679,14 +2687,19 @@ a moderator log of every one of those actions.
   content of a blocked account, answers as if it never existed, the way soft-deleted
   sets already do. There is no error code, no new shape, and nothing for Red to know
   about or render. (Supersedes the earlier idea of a stable 403 code.)
-- **No user content leaves IETF infrastructure.** The privacy policy forbids sending
-  it to a third party, so every hosted classifier is out: Akismet, hosted LLM APIs,
-  any moderation API. This was briefly decided the other way (Akismet) and is
-  reversed. Detection runs on infrastructure IETF operates.
-- **Reef does not write spam rules.** Detection is a classifier over the text, run
-  in-house. Reef owns the seam, the flag queue and the actions; it maintains no rules,
-  blocklists or term lists. It does own the moderators' verdicts, which are the
-  labelled data that tells us whether the classifier works. See "Detection".
+- **The classifier is Jev, from TypeSafe AI, a hosted service.** The privacy policy
+  forbids sending user content to a third party, and it was decided that Jev is
+  acceptable. That is a decision about Jev alone: the policy has not been relaxed
+  for any other hosted service, and Akismet and the rest stay out unless someone
+  accepts them the same way. (The name was given as "Jef"; read as Jev, the
+  classifier discussed earlier. Correct this if another was meant.) What Reef sends
+  is the free text only, see "Detection". Jev has no published weights and no
+  self-hosting option, so the dependency is on TypeSafe's service staying available
+  and on its pricing; the seam keeps a self-hosted replacement possible.
+- **Reef does not write spam rules.** Detection is a classifier over the text. Reef
+  owns the seam, the flag queue and the actions; it maintains no rules, blocklists
+  or term lists. It does own the moderators' verdicts, which are the labelled data
+  that tells us whether the classifier works. See "Detection".
 - **The user is never told.** No email, no message, no reason in an API refusal. A
   user who cares can enquire, and staff answer from the moderator log. The log's
   `reason` and snapshot therefore have to be enough to answer an enquiry unaided.
@@ -2695,64 +2708,70 @@ a moderator log of every one of those actions.
 
 A `ModerationFlag` (target, classifier name and version, score, created_at, state:
 open/dismissed/actioned, resolved_by, moderator verdict) is raised when the classifier
-scores a piece of text above a threshold. Reef classifies only free text: set title and
-description, and the string answers within a response. A `SpamClassifier` seam in its
-own module, no Django imports, so the model can change without touching flags, the
-queue or the log. It runs on a celery task after the write, never in the request, so a
+scores a piece of text above a threshold. A `SpamClassifier` seam in its own module,
+no Django imports, so the classifier can change without touching flags, the queue or
+the log. It runs on a celery task after the write, never in the request, so a
 classifier outage delays flagging and blocks nobody. A failed call is retried and then
-recorded as unchecked, never as clean. Nothing is sent outside IETF: the classifier is
-a library inside the worker or a service in our own cluster.
+recorded as unchecked, never as clean.
+
+**What is sent to Jev:** free text and nothing else. For a set, its title and
+description; for a response, the string answers within it (`moderation.review.set_text`
+and `response_text`). No account identifier, name, email, IP address or survey slug
+goes with it, and numeric answers are left out. Everything about the account stays in
+Reef, in ordinary code, which is also how Jev is meant to be used: it judges text and
+cannot see metadata.
+
+**What Jev is.** A "System One" decision model that returns typed, calibrated
+probabilities instead of prose, which maps directly onto the flag's score. Reported,
+from secondary sources and to be confirmed against TypeSafe's own documentation before
+building: reachable through TypeSafe's API and through OpenRouter and Vercel's AI
+Gateway; priced per input token at roughly $0.042 per million with output free;
+access began as a waitlist or invite and may since have opened.
+
+Using it:
+
+- **The score only raises a flag.** Spam text can try to steer a model ("ignore the
+  instructions above"), so a verdict is never acted on automatically, and what is sent
+  is framed so that the text is data and the question is fixed.
+- **The threshold comes from our labels**, not from the model's calibration alone.
+- **A credential, no default.** The API key is read from an environment variable that
+  has no fallback; with it unset, detection is off and the moderation page and its
+  manual review work as they do now.
+- **Which route to call it by** (TypeSafe directly, or a gateway) is open. A gateway
+  is a second third party seeing the text, so the direct route is preferred unless
+  there is a reason otherwise.
+- **The dependency is on a vendor.** Its rate limits bound how fast the backfill and
+  the retries can run.
 
 The existing `duration_seconds` and `pages_viewed` are shown to the moderator beside
 a flag as context. Reef does not score on them.
 
-What runs the classifier. None is chosen; the first step is to evaluate, not to pick.
+How we bring it in without writing rules:
 
-- **A small pretrained text classifier, self-hosted** (a BERT-family or similar model
-  run on CPU, for example through ONNX). Cheap, in-process or a small sidecar, no
-  rules. The public spam models found are trained on SMS, email or one platform's
-  comments, so they are weak fits for set titles and RFC-survey answers; treat any as
-  a baseline to measure, not a solution. Quality on our content is unknown.
-- **A self-hosted open-weight LLM** behind a fixed prompt. Understands context (a link
-  in an RFC discussion is not a link in a pill advert) and needs no training, but
-  costs real compute in the cluster and spam text may try to instruct the model, so
-  the output must be a strict score used only to raise a flag. The heaviest option and
-  an infrastructure decision for whoever runs the cluster.
-- **Rspamd or SpamAssassin**, self-hosted. In-house, but built for email and wanting
-  training or rule upkeep, which is the work we decided not to take on.
-- Ruled out: every hosted service (see Decisions); Google Perspective (measures
-  toxicity, not spam, and shuts down after 2026); Stop Forum Spam (matches IPs,
-  emails and usernames, not text, and would mean sending those out).
-
-How we choose without writing rules:
-
-1. **Shadow mode first.** Run a candidate over existing sets and responses and write
-   its scores to flags in a "shadow" state that moderators can see but that raises
+1. **Shadow mode first.** Run Jev over existing sets and responses and write its
+   scores to flags in a "shadow" state that moderators can see but that raises
    nothing. Moderators label a sample as spam or fine, and the labels are stored on
-   the flag.
-2. **Measure on those labels**, per candidate: how much real spam it catches and how
-   much good content it flags. Pick the threshold from that, not from a model card.
-3. **Keep the labels.** The verdicts are a dataset of our own, in our own database,
-   which is what a later fine-tune of a small model would train on, still in-house.
+   the flag. The review page already collects these labels.
+2. **Measure on those labels:** how much real spam it catches and how much good
+   content it flags. Pick the threshold from that, not from a model card.
+3. **Keep the labels.** The verdicts are a dataset of our own, in our own database.
+   They are what any replacement for Jev would be measured and, if needed, trained on.
 
-Open for the user: a handful of real spam examples and a count of how much there is,
-to say whether a pretrained baseline has a chance or the first labelled batch should
-come from the moderators before any model is tried.
+Still self-hosted and not chosen, kept as the fallback if Jev's pricing or availability
+fail: a small pretrained text classifier on CPU (weak fit unless trained on our
+labels), a self-hosted open-weight LLM (needs cluster compute), and Rspamd or
+SpamAssassin (built for email, wanting upkeep). Ruled out: Google Perspective
+(toxicity, not spam, and shut down after 2026) and Stop Forum Spam (matches IPs,
+emails and usernames, not text).
 
 ### Critique and open questions
 
 - **Anonymous submissions** cannot be reached by an account block. Candidates for
   that surface, later: per-survey "require login" (already exists as `visibility`),
-  a honeypot or proof-of-work token Red's runner sends, and throttling by IP at nginx
-  or DRF.
-- **Throttling and rate limits** are prevention, cheaper than moderation, and there
-  are none in the settings today. Probably worth doing alongside, per-account and
-  per-IP, on set creation and response submit. Needs a decision on how the client IP
-  is trusted behind the nginx proxy.
+  and a honeypot or proof-of-work token Red's runner sends.
 - **Forgeable signals.** `duration_seconds` and `pages_viewed` come from the client;
-  anything keyed on them catches careless bots only. Treat as score inputs, not gates.
-  A server-issued start token (timestamp signed when the runner loads the survey)
-  would make duration trustworthy, but it is a new additive Red-facing field.
+  anything keyed on them catches careless bots only. Shown to moderators as context,
+  not scored on.
 - **The account API contract** is not fully settled; it is being built.
   - **Settled:** the API takes the account's `oidc_sub` (`User.oidc_sub`), confirmed
     by its authors. Reef sends nothing else to identify the account.
@@ -2771,12 +2790,9 @@ come from the moderators before any model is tried.
   reject the token at authentication as if invalid (401), so Red treats it like any
   expired session. A deactivated account fails at login in Authentik
   itself, before Reef is reached. To confirm.
-- **Compute for the classifier.** A small model fits in the existing worker; an
-  LLM needs its own deployment, which is a change to the cluster and to the
-  ietf-tools/infra-k8s configuration, not only this repository. Settle which before
-  building.
-- **The client IP is no longer needed for detection** (nothing is sent anywhere),
-  so only throttling depends on how Reef learns it behind the proxy.
+- **Jev's access and rate limits.** Confirm access and the limits with TypeSafe. Add
+  the credential to the deployment's secrets in ietf-tools/infra-k8s, which is outside
+  this repository.
 - **Resolved:** the owner of a taken-down set is not told (closes the open item on
   that point for spam; see Decisions).
 - **Privacy.** The log stores content snapshots and account identifiers. Decide how
@@ -2802,9 +2818,8 @@ bearer token is refused as invalid (401), and its content 404s; neither adds a
 response shape.
 Soft-deleting `Response` rows changes nothing Reef serves except that they stop
 appearing in analytics and any precomputed file derived from them (confirm `surveys/
-precompute.py` reads none). A server-issued start token, if adopted, is an additive
-optional field on the submit request. `git diff reef_api.yaml` must still show only
-added lines.
+precompute.py` reads none). `git diff reef_api.yaml` must still show only added
+lines.
 
 ### Suggested order
 
@@ -2815,9 +2830,8 @@ added lines.
 3. Account-deactivation client and task, wired into the block action, once the
    account API's contract is settled.
 4. Detection: the flag model, the review workflow and the verdict labels (built),
-   then the classifier seam and a shadow mode. Choosing the classifier is an
-   evaluation on moderator labels, not a decision up front.
-5. Throttling, and anonymous weighting once the classifier's score can be combined
+   then the classifier seam, the Jev client and a shadow mode (built).
+5. Anonymous weighting once the classifier's score can be combined
    with it.
 
 ### Verification (when built)

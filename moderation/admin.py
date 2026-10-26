@@ -13,7 +13,7 @@ from reef.admin_readonly import ReadOnlyAdminMixin
 from reefauth.models import User
 from surveys.models import Response
 
-from . import actions, review
+from . import actions, classify, jev, review
 from .models import ModerationAction, ModerationFlag
 
 PAGE_SIZE = 50
@@ -118,6 +118,24 @@ def _page(request, queryset, param, per_page=PAGE_SIZE):
     return page
 
 
+def _scores(target_type, ids):
+    """The classifier's score for each of ids, as {id: flag}, for the rows on a page."""
+    flags = ModerationFlag.objects.filter(
+        target_type=target_type,
+        classifier=jev.CLASSIFIER,
+        target_id__in=[str(pk) for pk in ids],
+    )
+    return {flag.target_id: flag for flag in flags}
+
+
+def _raised_ids(target_type):
+    return list(
+        ModerationFlag.objects.filter(
+            target_type=target_type, classifier=jev.CLASSIFIER, raised=True
+        ).values_list("target_id", flat=True)
+    )
+
+
 def moderation_view(request):
     if request.method == "POST":
         _moderate(request)
@@ -136,16 +154,35 @@ def moderation_view(request):
     blocked = User.objects.filter(blocked_at__isnull=False).order_by(
         "-blocked_at", "-pk"
     )
+    flagged_only = request.GET.get("flagged") == "1"
+    if flagged_only:
+        sets = sets.filter(pk__in=_raised_ids("documentset"))
+        responses = responses.filter(pk__in=_raised_ids("response"))
+    set_page = _page(request, sets, "sets_page")
     response_page = _page(request, responses, "responses_page")
+    set_scores = _scores("documentset", [s.pk for s in set_page])
+    response_scores = _scores("response", [r.pk for r in response_page])
+    toggled = request.GET.copy()
+    if flagged_only:
+        toggled.pop("flagged")
+    else:
+        toggled["flagged"] = "1"
+    toggled.pop("sets_page", None)
+    toggled.pop("responses_page", None)
     context = {
         **admin.site.each_context(request),
         "title": "Moderation",
-        "sets_page": _page(request, sets, "sets_page"),
+        "classifier_enabled": classify.enabled(),
+        "flagged_only": flagged_only,
+        "flagged_toggle_url": f"?{toggled.urlencode()}",
+        "sets_page": set_page,
+        "set_rows": [{"set": s, "flag": set_scores.get(str(s.pk))} for s in set_page],
         "responses_page": response_page,
         "response_rows": [
             {
                 "response": response,
                 "text": review.response_text(response)[:SNIPPET_LENGTH],
+                "flag": response_scores.get(str(response.pk)),
             }
             for response in response_page
         ],

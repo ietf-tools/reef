@@ -74,6 +74,24 @@ and production is an environment value, and those live in the `reef-secrets-env`
 Kubernetes secret that the ietf-tools/infra-k8s repository defines per cluster,
 not in a settings file here.
 
+## Spam scoring
+
+Reef can score the free text of document sets and survey responses with Jev (TypeSafe
+AI), a hosted classifier, so that moderators see likely spam first on the moderation
+page at `/admin/moderation/`. Only the text is sent: no account, address or survey
+identifier goes with it.
+
+- `REEF_JEV_API_KEY` - the TypeSafe API key. Unset means nothing is sent and nothing
+  is scored.
+- `REEF_SPAM_FLAG_THRESHOLD` - a score from 0 to 1 at or above which a flag is
+  raised for moderators. Unset means scores are recorded and never raised (shadow
+  mode), which is how to start: label a sample on the moderation page, then choose the
+  threshold from how the scores line up with the labels.
+
+New and edited content is queued for scoring on save. To score what already exists, run
+`python manage.py classify_unscored --limit N`; it queues only what has no score yet,
+and the same command fills any gap left by a failed call.
+
 ## Email
 
 `base.py` sets the dummy backend, so a mode that has not configured mail sends

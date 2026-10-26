@@ -10,21 +10,34 @@
   log</a>.
 </p>
 
+{% if classifier_enabled %}
+  <p>
+    Scored by the classifier (probability of spam).
+    {% if flagged_only %}
+      Showing only what it flagged.
+      <a href="{{ flagged_toggle_url }}">Show everything</a>
+    {% else %}
+      <a href="{{ flagged_toggle_url }}">Show only what it flagged</a>
+    {% endif %}
+  </p>
+{% endif %}
+
 <form method="post">
   {% csrf_token %}
 
   <h2>Sets ({{ sets_page.paginator.count }} unreviewed)</h2>
   {% if sets_page %}
     <table>
-      <thead><tr><th></th><th>Title</th><th>Description</th><th>Owner</th><th>Created</th></tr></thead>
+      <thead><tr><th></th><th>Title</th><th>Description</th><th>Owner</th><th>Created</th>{% if classifier_enabled %}<th>Spam score</th>{% endif %}</tr></thead>
       <tbody>
-        {% for set in sets_page %}
+        {% for row in set_rows %}
           <tr>
-            <td><input type="checkbox" name="sets" value="{{ set.pk }}"></td>
-            <td><a href="{% url 'admin:docsets_documentset_change' set.pk %}">{{ set.title }}</a></td>
-            <td>{{ set.description }}</td>
-            <td>{{ set.owner }}</td>
-            <td>{{ set.created_at }}</td>
+            <td><input type="checkbox" name="sets" value="{{ row.set.pk }}"></td>
+            <td><a href="{% url 'admin:docsets_documentset_change' row.set.pk %}">{{ row.set.title }}</a></td>
+            <td>{{ row.set.description }}</td>
+            <td>{{ row.set.owner }}</td>
+            <td>{{ row.set.created_at }}</td>
+            {% if classifier_enabled %}<td>{% include "admin/moderation/_score.html" with flag=row.flag %}</td>{% endif %}
           </tr>
         {% endfor %}
       </tbody>
@@ -37,7 +50,7 @@
   <h2>Survey responses ({{ responses_page.paginator.count }} unreviewed)</h2>
   {% if response_rows %}
     <table>
-      <thead><tr><th></th><th>Survey</th><th>Free text</th><th>Submitter</th><th>Seconds</th><th>Pages</th><th>Submitted</th></tr></thead>
+      <thead><tr><th></th><th>Survey</th><th>Free text</th><th>Submitter</th><th>Seconds</th><th>Pages</th><th>Submitted</th>{% if classifier_enabled %}<th>Spam score</th>{% endif %}</tr></thead>
       <tbody>
         {% for row in response_rows %}
           <tr>
@@ -48,6 +61,7 @@
             <td>{{ row.response.duration_seconds|default_if_none:"" }}</td>
             <td>{{ row.response.pages_viewed|default_if_none:"" }}</td>
             <td>{{ row.response.submitted_at }}</td>
+            {% if classifier_enabled %}<td>{% include "admin/moderation/_score.html" with flag=row.flag %}</td>{% endif %}
           </tr>
         {% endfor %}
       </tbody>
@@ -71,8 +85,7 @@
   </div>
   <p class="help">
     Blocking refuses the account's API calls in Reef. Unblocking restores what the
-    block removed. Staff accounts cannot be
-    blocked, and anonymous responses have no account to block.
+    block removed. Anonymous responses have no account to block.
   </p>
 
   <h2>Blocked accounts ({{ blocked_page.paginator.count }})</h2>
