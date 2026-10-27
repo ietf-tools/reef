@@ -1,1 +1,1 @@
-{% if flag %}{{ flag.score|floatformat:2 }}{% if flag.raised %} <strong>flagged</strong>{% endif %}{% else %}&ndash;{% endif %}
+{% if flag %}{{ flag.score|floatformat:2 }}{% if flag.raised %} <strong>flagged</strong>{% endif %}{% else %}<button type="submit" name="button" value="check:{{ target_type }}:{{ target_id }}">Check</button>{% endif %}

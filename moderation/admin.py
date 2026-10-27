@@ -1,4 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+import urllib.error
 import uuid
 
 from django.contrib import admin, messages
@@ -58,6 +59,38 @@ def _ids(request, name, convert):
     return ids
 
 
+def _check(request, button):
+    """Score one item now, for a moderator who wants the answer before moving on.
+
+    Done in the request rather than queued, so the result is on the page they land
+    on. A failure is shown to them and leaves no flag, as it does in the task.
+    """
+    parts = button.split(":", 2)
+    if len(parts) != 3:
+        return
+    _, target_type, target_id = parts
+    convert = {"documentset": uuid.UUID, "response": int}.get(target_type)
+    if convert is None or not classify.enabled():
+        return
+    try:
+        convert(target_id)
+    except ValueError:
+        return
+    try:
+        flag = classify.score(target_type, target_id)
+    except urllib.error.HTTPError as exc:
+        messages.error(request, f"The classifier refused the check: HTTP {exc.code}.")
+    except (urllib.error.URLError, TimeoutError):
+        messages.error(request, "The classifier could not be reached.")
+    except ValueError:
+        messages.error(request, "The classifier gave an answer that could not be read.")
+    else:
+        if flag is None:
+            messages.info(request, "Nothing to score: it is gone, or has no text.")
+        else:
+            messages.success(request, f"Scored {flag.score:.2f}.")
+
+
 def _moderate(request):
     verdict_by_button = {
         "spam": ModerationFlag.Verdict.SPAM,
@@ -95,6 +128,8 @@ def _moderate(request):
             messages.success(
                 request, f"Blocked {blocked} account(s) and removed their content."
             )
+    elif button and button.startswith("check:"):
+        _check(request, button)
     elif button == "unblock":
         users = User.objects.filter(pk__in=_ids(request, "users", int))
         with transaction.atomic():
