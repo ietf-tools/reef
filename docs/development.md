@@ -74,6 +74,26 @@ and production is an environment value, and those live in the `reef-secrets-env`
 Kubernetes secret that the ietf-tools/infra-k8s repository defines per cluster,
 not in a settings file here.
 
+## Deactivating accounts
+
+Blocking an account in Reef also asks the account service at account.ietf.org to
+deactivate it, from the moderation page and the Users admin. The call is immediate,
+and the moderator is told how it went. The service decides which accounts may be
+deactivated and records the reason, with the calling application, in its audit log.
+
+Reef calls it as its own service client, using client credentials at the same token
+endpoint as the admin login. The service identifies an account by `account_uuid`, a
+claim in the user's OIDC token that Reef stores as `User.account_uuid`; an account
+with none yet is blocked in Reef only until it next signs in.
+
+- `REEF_ADMIN_SERVICE_OIDC_CLIENT_ID` / `REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET` - the
+  service client's credentials.
+- `REEF_ACCOUNT_DEACTIVATE_USER_URL` - the deactivate-user endpoint.
+
+Any of the three unset means no request is made and a block is local to Reef. The
+service currently accepts requests from the reef-admin application only, and users are
+global, so staging cannot be tested against it until it is also allowed.
+
 ## Spam scoring
 
 Reef can score the free text of document sets and survey responses with Jev (TypeSafe

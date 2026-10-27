@@ -161,6 +161,15 @@ REEF_SURVEY_RESPONSE_MAX_BYTES = int(
 REEF_SURVEY_DURATION_MAX_SECONDS = 30 * 24 * 60 * 60
 REEF_SURVEY_PAGES_MAX = 10_000
 
+# Deactivating an account in the account service when staff block it. Reef calls the
+# service as its own client (client credentials), at the token endpoint of the admin
+# login above. All three set, or no request is made and a block is local to Reef.
+REEF_ADMIN_SERVICE_OIDC_CLIENT_ID = os.environ.get("REEF_ADMIN_SERVICE_OIDC_CLIENT_ID")
+REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET = os.environ.get(
+    "REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET"
+)
+REEF_ACCOUNT_DEACTIVATE_USER_URL = os.environ.get("REEF_ACCOUNT_DEACTIVATE_USER_URL")
+
 # Spam scoring by Jev (TypeSafe AI), a hosted service: the free text of sets and
 # survey responses is sent to it, and nothing else. Unset means no content is sent
 # and nothing is scored. The threshold is the score at which a flag is raised for a

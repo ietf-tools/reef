@@ -26,6 +26,7 @@ class ModerationAction(models.Model):
         RESTORE_RATING = "restore_rating", "Restore rating"
         BLOCK_USER = "block_user", "Block account"
         UNBLOCK_USER = "unblock_user", "Unblock account"
+        DEACTIVATE_ACCOUNT = "deactivate_account", "Deactivate in account service"
 
     # Copied alongside the key: the staff account can be deleted, and the log
     # still has to say who acted.

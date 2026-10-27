@@ -8,17 +8,29 @@ calls these rather than editing rows, and a task or command that moderates would
 Soft delete only. Hard deletion of spam, after a retention period, is separate work.
 """
 
+import urllib.error
+
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from docsets.models import DocumentSet
 from ratings.models import Rating
+from reefauth import deactivation
 from surveys.models import Response
 
 from .models import ModerationAction
 
 Action = ModerationAction.Action
+
+# The account service logs a reason with every deactivation and a blocked account
+# always has one, so a block with nothing written gets this.
+DEFAULT_REASON = "Spam"
+
+# How much of the account service's answer is kept in the log: enough to read why it
+# said no, not enough to hold anything else.
+DETAIL_LENGTH = 300
 
 # What an account block writes as the reason on the content it removes, so that
 # the content's own admin page says why it is gone.
@@ -258,6 +270,12 @@ def restore_ratings(actor, ratings, reason="", *, caused_by=None):
     return restored
 
 
+def validate_blockable(actor, user):
+    """Raise ValidationError if actor may not block user."""
+    if actor is not None and actor.pk == user.pk:
+        raise ValidationError("You cannot block your own account.")
+
+
 @transaction.atomic
 def block_user(actor, user, reason="", *, remove_content=False):
     """Refuse the account's API access, optionally taking its content down too.
@@ -267,8 +285,7 @@ def block_user(actor, user, reason="", *, remove_content=False):
     API's rule, not this function's. An account that is already blocked is left alone
     and returns None.
     """
-    if actor is not None and actor.pk == user.pk:
-        raise ValidationError("You cannot block your own account.")
+    validate_blockable(actor, user)
     if user.is_blocked:
         return None
 
@@ -365,3 +382,105 @@ def unblock_user(actor, user, reason=""):
             caused_by=entry,
         )
     return entry
+
+
+class Deactivation:
+    """How a request to the account service went. `status` is one of the
+    constants below, and is what the log row records."""
+
+    DEACTIVATED = "deactivated"
+    REFUSED = "refused"
+    UNREACHABLE = "unreachable"
+    NO_ACCOUNT_UUID = "no_account_uuid"
+
+    def __init__(self, status, http_status=None, detail=""):
+        self.status = status
+        self.http_status = http_status
+        self.detail = detail
+
+
+def deactivation_enabled():
+    return bool(
+        settings.REEF_ADMIN_SERVICE_OIDC_CLIENT_ID
+        and settings.REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET
+        and settings.REEF_ACCOUNT_DEACTIVATE_USER_URL
+    )
+
+
+def _call_account_service(account_uuid, reason):
+    try:
+        token = deactivation.fetch_token(
+            settings.OIDC_OP_TOKEN_ENDPOINT,
+            settings.REEF_ADMIN_SERVICE_OIDC_CLIENT_ID,
+            settings.REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET,
+        )
+        status = deactivation.deactivate(
+            settings.REEF_ACCOUNT_DEACTIVATE_USER_URL, token, account_uuid, reason
+        )
+    except urllib.error.HTTPError as exc:
+        detail = exc.read(DETAIL_LENGTH).decode(errors="replace")
+        return Deactivation(Deactivation.REFUSED, exc.code, detail)
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        return Deactivation(Deactivation.UNREACHABLE, detail=type(exc).__name__)
+    return Deactivation(Deactivation.DEACTIVATED, status)
+
+
+def deactivate_account(actor, user, reason, *, caused_by=None):
+    """Ask the account service to deactivate user, now, and log how it went.
+
+    Never inside a transaction: the service has acted by the time it answers, so a
+    rollback afterwards would erase the record of something that happened. Returns
+    the Deactivation, which the caller shows the moderator.
+
+    Reef never asks for a reactivation. An account the service holds disabled is
+    enabled again there, by whoever administers accounts.
+    """
+    reason = reason.strip() or DEFAULT_REASON
+    if user.account_uuid is None:
+        outcome = Deactivation(Deactivation.NO_ACCOUNT_UUID)
+    else:
+        outcome = _call_account_service(user.account_uuid, reason)
+    log_action(
+        actor,
+        Action.DEACTIVATE_ACCOUNT,
+        "user",
+        user.pk,
+        subject_user=user,
+        reason=reason,
+        snapshot={
+            "status": outcome.status,
+            "http_status": outcome.http_status,
+            "detail": outcome.detail,
+        },
+        caused_by=caused_by,
+    )
+    return outcome
+
+
+def block_and_deactivate(actor, user, reason, *, remove_content=False):
+    """Block locally, then ask the account service to deactivate.
+
+    Returns (block, outcome). block is None if the account was already blocked, and
+    then nothing is asked of the service: use deactivate_account to ask again.
+    outcome is None when deactivation is not configured.
+    """
+    reason = reason.strip() or DEFAULT_REASON
+    block = block_user(actor, user, reason, remove_content=remove_content)
+    if block is None or not deactivation_enabled():
+        return block, None
+    return block, deactivate_account(actor, user, reason, caused_by=block)
+
+
+def deactivation_status(user):
+    """The latest deactivation attempt since user was last blocked, or None."""
+    block = (
+        ModerationAction.objects.filter(action=Action.BLOCK_USER, subject_user=user)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    attempts = ModerationAction.objects.filter(
+        action=Action.DEACTIVATE_ACCOUNT, subject_user=user
+    )
+    if block is not None:
+        attempts = attempts.filter(created_at__gte=block.created_at)
+    return attempts.order_by("-created_at", "-id").first()

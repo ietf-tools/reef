@@ -10,8 +10,8 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.template.response import TemplateResponse
 
-from . import review
-from .actions import log_action
+from . import actions, review
+from .actions import Deactivation, log_action
 
 
 class ReasonForm(forms.Form):
@@ -22,24 +22,50 @@ class ReasonForm(forms.Form):
         "an action that needs doing now should not wait on the wording.",
     )
 
+    def __init__(self, *args, required=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if required:
+            field = self.fields["reason"]
+            field.required = True
+            field.initial = actions.DEFAULT_REASON
+            field.help_text = (
+                "Kept in the moderator log and sent to the account service, which "
+                "records it. Never shown to the user."
+            )
 
-def reason_action(name, description, prompt, perform):
+
+def reason_action(
+    name,
+    description,
+    prompt,
+    perform,
+    *,
+    reason_required=False,
+    needs_request=False,
+):
     """An admin action that asks for a reason before it acts.
 
     perform(actor, queryset, reason) returns how many rows it changed. It may
     raise ValidationError, which is shown to the moderator and changes nothing.
+
+    With needs_request, perform gets the request instead of the actor, to tell the
+    moderator how something went, and is not wrapped in a transaction: it may call
+    out to another service, and a rollback must not erase the record of what that
+    service did.
     """
 
     @admin.action(description=description)
     def action(modeladmin, request, queryset):
         if request.POST.get("confirm"):
-            form = ReasonForm(request.POST)
+            form = ReasonForm(request.POST, required=reason_required)
             if form.is_valid():
+                reason = form.cleaned_data["reason"]
                 try:
-                    with transaction.atomic():
-                        done = perform(
-                            request.user, queryset, form.cleaned_data["reason"]
-                        )
+                    if needs_request:
+                        done = perform(request, queryset, reason)
+                    else:
+                        with transaction.atomic():
+                            done = perform(request.user, queryset, reason)
                 except ValidationError as exc:
                     modeladmin.message_user(
                         request, " ".join(exc.messages), messages.ERROR
@@ -50,7 +76,7 @@ def reason_action(name, description, prompt, perform):
                     )
                 return None
         else:
-            form = ReasonForm()
+            form = ReasonForm(required=reason_required)
         return TemplateResponse(
             request,
             "moderation/confirm.html",
@@ -68,6 +94,85 @@ def reason_action(name, description, prompt, perform):
 
     action.__name__ = name
     return action
+
+
+def report_deactivation(request, user, outcome):
+    """Tell the moderator how the account service answered, in plain words."""
+    who = str(user)
+    if outcome.status == Deactivation.DEACTIVATED:
+        messages.success(request, f"{who} was deactivated in the account service.")
+    elif outcome.status == Deactivation.REFUSED:
+        said = f": {outcome.detail}" if outcome.detail else ""
+        messages.warning(
+            request,
+            f"The account service refused to deactivate {who} "
+            f"(HTTP {outcome.http_status}){said}. They are blocked in Reef only.",
+        )
+    elif outcome.status == Deactivation.UNREACHABLE:
+        messages.error(
+            request,
+            f"The account service could not be reached to deactivate {who}. They "
+            "are blocked in Reef only; deactivate them again from the moderation "
+            "page.",
+        )
+    else:
+        messages.warning(
+            request,
+            f"{who} has no account id on file yet, so the account service was not "
+            "asked. They are blocked in Reef only; the id is recorded the next "
+            "time they use a token that carries it, and then they can be "
+            "deactivated from the moderation page.",
+        )
+
+
+def block_accounts(request, users, reason, *, remove_content):
+    """Block each of users, ask the account service to deactivate them, and tell the
+    moderator how each went. Returns how many were newly blocked.
+
+    Everything that can be refused is checked before anything is done, so a refused
+    block changes nothing. Each account is then its own step: the service has acted
+    by the time it answers, so a later failure must not undo the log of an earlier
+    one.
+    """
+    users = list(users)
+    for user in users:
+        actions.validate_blockable(request.user, user)
+    blocked = 0
+    for user in users:
+        block, outcome = actions.block_and_deactivate(
+            request.user, user, reason, remove_content=remove_content
+        )
+        if block is None:
+            continue
+        blocked += 1
+        if outcome is not None:
+            report_deactivation(request, user, outcome)
+    if blocked and not actions.deactivation_enabled():
+        messages.info(
+            request,
+            "Deactivation in the account service is not configured, so the "
+            "accounts are blocked in Reef only.",
+        )
+    return blocked
+
+
+def deactivate_accounts(request, users, reason):
+    """Ask the account service again about accounts already blocked here."""
+    if not actions.deactivation_enabled():
+        messages.error(
+            request, "Deactivation in the account service is not configured."
+        )
+        return 0
+    asked = 0
+    for user in users:
+        if not user.is_blocked:
+            continue
+        outcome = actions.deactivate_account(
+            request.user, user, reason or user.blocked_reason
+        )
+        report_deactivation(request, user, outcome)
+        asked += 1
+    return asked
 
 
 def review_filter(target_type):

@@ -2545,7 +2545,7 @@ Status: steps 1 and 2 of the suggested order are built: the `moderation` app (th
 moderator log and logged admin actions for sets, surveys, responses and accounts),
 `Response` soft delete, and the local account block. Migrations
 `moderation/0001`, `reefauth/0006` and `surveys/0005`; `reef_api.yaml` is
-unchanged. Account-API deactivation is not built.
+unchanged. Account-service deactivation is built; see its section below.
 
 What the local block does: `block_user` sets `User.blocked_at`, and the bearer
 authenticator then refuses the account's tokens as invalid (401, no reason), on public
@@ -2628,7 +2628,7 @@ a moderator log of every one of those actions.
    survives), `action` (choice), `target_type` and `target_id` (generic, not a FK, so
    the log outlives the target), `subject_user` (nullable FK, SET_NULL, plus a copied
    `oidc_sub`), `reason`, `snapshot` (JSON of the content as it was: title, description,
-   response `data`), `deactivation_result` (status, error text), `created_at`. No update
+   response `data`), `created_at`. No update
    or delete in the admin; read-only and exportable. The snapshot matters: a hard purge
    must not destroy the evidence for why it was done.
 2. **Account block** on `reefauth.User`: `blocked_at`, `blocked_reason`, `blocked_by`.
@@ -2638,13 +2638,12 @@ a moderator log of every one of those actions.
    of public data are unaffected. Distinguish *block* (writes refused, content kept)
    from *block and purge* (content soft-deleted too).
 3. **Account-deactivation client** (`reefauth/deactivation.py`, no Django imports,
-   like `popularity/matomo.py`) for the custom account API, which is under
-   development and owns whether an account may be deactivated. Reef sends the
-   account's `oidc_sub` and the API decides; see the decision below and "The account
-   API contract". Runs on a retrying celery task, never in the request: the local
-   block lands immediately and the API call is recorded on the log row as pending,
-   succeeded, refused or failed, with a visible retry in the admin. The API being
-   down must not stop a moderator doing anything locally.
+   like `popularity/matomo.py`) for the account service's deactivate-user API, which
+   owns whether an account may be deactivated. Reef sends the account's
+   `account_uuid` and a reason and the service decides; see "Deactivation in the
+   account service" below. It is immediate and in the request, not a background task:
+   the moderator is told how it went on the page they land on. The local block
+   happens first and stands whatever the service says.
 4. **Detection** is delegated; see "Detection" below. Flags are for review, never
    automatic deletion.
 5. **Moderation page in the admin**, at `/admin/moderation/` and linked in the
@@ -2667,11 +2666,11 @@ a moderator log of every one of those actions.
 
 - **Reef staff may deactivate IETF accounts, through a custom account API, not
   Authentik's own.** Blocking an account does both halves: the local block, effective
-  immediately, and a deactivation request to that API on a celery task. The API
+  immediately, and a deactivation request to that API in the same request. The API
   carries the rule about which accounts must never be deactivated (members of
   team-dev and team-staff), so the rule lives in one place and Reef has no copy of it
-  and no access to Authentik groups. The confirmation step says in plain words that
-  the account is disabled across every IETF service.
+  and no access to Authentik groups. That the API does protect the target, and not
+  only check the caller's groups, is assumed and has not been confirmed in writing.
 - **Anonymous spam is not a design driver.** Account blocking is the core. Anonymous
   submissions may later score as more suspicious, but that is a refinement of the
   detection rules and changes nothing structural, so there is no measuring step first.
@@ -2681,8 +2680,13 @@ a moderator log of every one of those actions.
   mistake in Reef cannot silently re-enable an account held disabled for other
   reasons. The log records that the account was left deactivated.
 - **A refused deactivation is not an error.** When the API declines (a protected
-  account), the local block stands, the log row records the refusal and the reason
-  the API gave, and the moderator sees it. Reef does not retry a refusal.
+  account), the local block stands, a log row records the refusal and what the API
+  said, and the moderator sees it. Nothing is retried automatically: a moderator
+  can ask again from the moderation page.
+- **The reason is required, and defaults to "Spam".** It goes to the account
+  service, which records it in its audit log, so a block with nothing written sends
+  "Spam". Required only where it is sent (blocking and deactivating); the reasons on
+  other actions stay optional.
 - **Moderated content is a 404, to Red included.** A taken-down set or survey, and any
   content of a blocked account, answers as if it never existed, the way soft-deleted
   sets already do. There is no error code, no new shape, and nothing for Red to know
@@ -2772,17 +2776,34 @@ emails and usernames, not text).
 - **Forgeable signals.** `duration_seconds` and `pages_viewed` come from the client;
   anything keyed on them catches careless bots only. Shown to moderators as context,
   not scored on.
-- **The account API contract** is not fully settled; it is being built.
-  - **Settled:** the API takes the account's `oidc_sub` (`User.oidc_sub`), confirmed
-    by its authors. Reef sends nothing else to identify the account.
-  - **Still to agree:**
-    - idempotent: deactivating an account already deactivated succeeds;
-    - distinct outcomes for deactivated, refused as protected, and unknown account;
-    - the authentication Reef uses to call it, and which environment variable holds
-    the credential;
-    - no reactivate call is needed by Reef.
-- **An account Reef does not know.** The API may be asked about a `sub` it cannot
-  resolve. That is a failure to record and surface, not a retry.
+- **Deactivation in the account service** (built). `POST` to the deactivate-user
+  URL with `{"uuid", "reason"}`, as Reef's own service client: a client-credentials
+  token is fetched from the admin login's token endpoint for each request, and the
+  service checks that it was issued for the reef-admin application and that the caller
+  is authorised. The moderator's own session token is not used, because the request
+  does not run in a session; `OIDC_STORE_ACCESS_TOKEN` stays off.
+  - **The identifier is `account_uuid`**, a claim in the OIDC token, stored on
+    `User.account_uuid` whenever a token carries it and never cleared. It is not
+    unique, because one person given two subjects by two applications is two users
+    with one account. An account with none yet is blocked in Reef only, and the
+    moderator is told; it is recorded the next time they present a token that carries
+    it, and they can then be deactivated again from the moderation page. Whether Red's
+    token carries the claim is Authentik configuration outside this repository.
+  - **Each attempt is a log row** (`deactivate_account`) under the block, holding the
+    status (deactivated, refused, unreachable, no account id), the HTTP status and up
+    to 300 characters of what the service said. Never inside a transaction.
+  - **Configuration:** `REEF_ADMIN_SERVICE_OIDC_CLIENT_ID`,
+    `REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET` and `REEF_ACCOUNT_DEACTIVATE_USER_URL`,
+    with no defaults. Any unset means no request is made and a block is local to Reef.
+  - **Staging is not accepted by the service** while only reef-admin is, and users are
+    global rather than per environment.
+  - **Still to ask the service's developer:** the success and failure status codes and
+    bodies; whether a repeat is harmless; how a protected target is told from an
+    unauthorised caller; the longest reason accepted; and whether a moderator's
+    identity can be passed, since the audit log will otherwise name the service
+    client and not the moderator.
+- **An account the service does not know** answers as a refusal or failure and is
+  shown as one.
 - **Unblocking.** A block needs an undo, also logged. It clears the local block and
   restores the user's content; it never reactivates the account (see Decisions).
 - **What a blocked user's own requests get.** Their content is a 404. Their writes
@@ -2827,8 +2848,9 @@ lines.
    logged. Immediately useful and the foundation for the rest.
 2. Local account block, enforced in one place, with tests that a blocked user's writes
    are refused on every write endpoint.
-3. Account-deactivation client and task, wired into the block action, once the
-   account API's contract is settled.
+3. Account-deactivation client, wired into the block action, immediate with
+   feedback (built; its response handling is to be checked against the service's
+   documented responses).
 4. Detection: the flag model, the review workflow and the verdict labels (built),
    then the classifier seam, the Jev client and a shadow mode (built).
 5. Anonymous weighting once the classifier's score can be combined
@@ -2842,6 +2864,7 @@ lines.
   public data; unblocking restores access with no re-login.
 - A soft-deleted response appears in no analytics, tabulation or precomputed file;
   restore brings it back.
-- The deactivation task retries a failure, does not retry a refusal, and never
-  blocks the request.
+- A deactivation that is refused or unreachable leaves the account blocked and the
+  moderator told, and a later request asks again; the service is never called in a
+  transaction.
 - `git diff reef_api.yaml` shows only added lines.
