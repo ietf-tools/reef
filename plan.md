@@ -2578,7 +2578,7 @@ on. The classifier is Jev (see Decisions) and is built: `moderation/jev.py` (the
 sending the text and a fixed question only), `classify.py` (scoring and the threshold),
 `tasks.py` (a retrying task that records no flag on failure), `signals.py` (queue on
 save, after commit), the `classify_unscored` backfill command, and a score column and
-"flagged only" view on the moderation page. `ModerationFlag.raised` is migration
+"flagged only" view on the moderation page, and a Check button beside each unscored item. `ModerationFlag.raised` is migration
 `moderation/0004`. With `REEF_SPAM_FLAG_THRESHOLD` unset it is shadow mode: scores are
 recorded and nothing is raised. Not built, and not to be assumed: the response field
 names are from one secondary source and have to be checked against a real call before

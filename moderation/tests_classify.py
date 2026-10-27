@@ -320,3 +320,89 @@ class PageScoreTests(TestCase):
     def test_with_no_classifier_the_page_has_no_score_column(self):
         page = self.client.get(reverse("admin:moderation"))
         self.assertNotContains(page, "Spam score")
+
+
+@override_settings(REEF_JEV_API_KEY="k", REEF_SPAM_FLAG_THRESHOLD=None)
+class ManualCheckTests(TestCase):
+    def setUp(self):
+        staff = User.objects.create_superuser(username="mod", oidc_sub="mod")
+        login(self.client, staff)
+        owner = User.objects.create(username="o", oidc_sub="sub-o")
+        self.set = DocumentSet.objects.create(owner=owner, title="Pills")
+        survey = Survey.objects.create(slug="s", title="S", definition={})
+        self.response = Response.objects.create(survey=survey, data={"q": "visit x"})
+        self.url = reverse("admin:moderation")
+
+    def button(self, target_type, pk):
+        return f"check:{target_type}:{pk}"
+
+    def test_an_unscored_item_has_a_check_button_and_a_scored_one_does_not(self):
+        page = self.client.get(self.url)
+        self.assertContains(page, self.button("documentset", self.set.pk))
+        self.assertContains(page, self.button("response", self.response.pk))
+        ModerationFlag.objects.create(
+            target_type="documentset",
+            target_id=str(self.set.pk),
+            classifier=jev.CLASSIFIER,
+            text="t",
+            score=0.2,
+        )
+        page = self.client.get(self.url)
+        self.assertNotContains(page, self.button("documentset", self.set.pk))
+        self.assertContains(page, self.button("response", self.response.pk))
+
+    @override_settings(REEF_JEV_API_KEY=None)
+    def test_with_no_classifier_there_are_no_buttons(self):
+        self.assertNotContains(self.client.get(self.url), "check:documentset:")
+
+    def test_the_button_scores_the_item_and_reports_it(self):
+        with mock.patch(URLOPEN, return_value=answer(0.93)):
+            page = self.client.post(
+                self.url,
+                {"button": self.button("documentset", self.set.pk)},
+                follow=True,
+            )
+        self.assertEqual(ModerationFlag.objects.get().score, 0.93)
+        self.assertContains(page, "Scored 0.93.")
+        self.assertNotContains(page, self.button("documentset", self.set.pk))
+
+    def test_a_response_can_be_checked_too(self):
+        with mock.patch(URLOPEN, return_value=answer(0.4)):
+            self.client.post(
+                self.url, {"button": self.button("response", self.response.pk)}
+            )
+        self.assertEqual(ModerationFlag.objects.get().target_type, "response")
+
+    def test_a_refusal_is_shown_and_leaves_the_button(self):
+        with mock.patch(URLOPEN, side_effect=http_error(401)):
+            page = self.client.post(
+                self.url,
+                {"button": self.button("documentset", self.set.pk)},
+                follow=True,
+            )
+        self.assertContains(page, "HTTP 401")
+        self.assertEqual(ModerationFlag.objects.count(), 0)
+        self.assertContains(page, self.button("documentset", self.set.pk))
+
+    def test_an_unreachable_service_is_shown(self):
+        with mock.patch(URLOPEN, side_effect=urllib.error.URLError("down")):
+            page = self.client.post(
+                self.url,
+                {"button": self.button("documentset", self.set.pk)},
+                follow=True,
+            )
+        self.assertContains(page, "could not be reached")
+
+    def test_a_malformed_button_does_nothing(self):
+        with mock.patch(URLOPEN) as urlopen:
+            for value in (
+                "check:documentset:not-a-uuid",
+                "check:response:x",
+                "check:user:1",
+                "check:",
+                "check",
+            ):
+                with self.subTest(value=value):
+                    response = self.client.post(self.url, {"button": value})
+                    self.assertEqual(response.status_code, 302)
+        urlopen.assert_not_called()

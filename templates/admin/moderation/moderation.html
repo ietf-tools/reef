@@ -37,7 +37,7 @@
             <td>{{ row.set.description }}</td>
             <td>{{ row.set.owner }}</td>
             <td>{{ row.set.created_at }}</td>
-            {% if classifier_enabled %}<td>{% include "admin/moderation/_score.html" with flag=row.flag %}</td>{% endif %}
+            {% if classifier_enabled %}<td>{% include "admin/moderation/_score.html" with flag=row.flag target_type="documentset" target_id=row.set.pk %}</td>{% endif %}
           </tr>
         {% endfor %}
       </tbody>
@@ -61,7 +61,7 @@
             <td>{{ row.response.duration_seconds|default_if_none:"" }}</td>
             <td>{{ row.response.pages_viewed|default_if_none:"" }}</td>
             <td>{{ row.response.submitted_at }}</td>
-            {% if classifier_enabled %}<td>{% include "admin/moderation/_score.html" with flag=row.flag %}</td>{% endif %}
+            {% if classifier_enabled %}<td>{% include "admin/moderation/_score.html" with flag=row.flag target_type="response" target_id=row.response.pk %}</td>{% endif %}
           </tr>
         {% endfor %}
       </tbody>
