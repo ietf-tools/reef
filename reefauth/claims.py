@@ -7,6 +7,8 @@ carrying an Authentik access token). Only the login backend grants
 is_staff and is_superuser; see sync_user_from_claims().
 """
 
+import uuid
+
 from django.contrib.auth import get_user_model
 
 
@@ -32,6 +34,12 @@ def sync_user_from_claims(claims, *, sync_permissions=False):
         "email": claims.get("email") or "",
         "avatar": claims.get("picture") or "",
     }
+    # Only ever set, never cleared: a token from an application that does not
+    # carry the claim must not erase what another one supplied.
+    try:
+        desired["account_uuid"] = uuid.UUID(str(claims.get("account_uuid")))
+    except ValueError:
+        pass
     if sync_permissions:
         desired["is_staff"] = True
         desired["is_superuser"] = True

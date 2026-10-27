@@ -15,6 +15,7 @@ from reefauth.models import User
 from surveys.models import Response
 
 from . import actions, classify, jev, review
+from .admin_actions import block_accounts, deactivate_accounts
 from .models import ModerationAction, ModerationFlag
 
 PAGE_SIZE = 50
@@ -114,14 +115,7 @@ def _moderate(request):
             if response.submitted_by is not None
         }
         try:
-            with transaction.atomic():
-                blocked = sum(
-                    1
-                    for user in owners
-                    if actions.block_user(
-                        request.user, user, reason, remove_content=True
-                    )
-                )
+            blocked = block_accounts(request, owners, reason, remove_content=True)
         except ValidationError as exc:
             messages.error(request, " ".join(exc.messages))
         else:
@@ -130,11 +124,17 @@ def _moderate(request):
             )
     elif button and button.startswith("check:"):
         _check(request, button)
+    elif button == "deactivate":
+        users = User.objects.filter(pk__in=_ids(request, "users", int))
+        deactivate_accounts(request, users, reason)
     elif button == "unblock":
         users = User.objects.filter(pk__in=_ids(request, "users", int))
+        unblock_reason = request.POST.get("unblock_reason", "")
         with transaction.atomic():
             lifted = sum(
-                1 for user in users if actions.unblock_user(request.user, user, reason)
+                1
+                for user in users
+                if actions.unblock_user(request.user, user, unblock_reason)
             )
         messages.success(request, f"Unblocked {lifted} account(s).")
 
@@ -194,6 +194,7 @@ def moderation_view(request):
         sets = sets.filter(pk__in=_raised_ids("documentset"))
         responses = responses.filter(pk__in=_raised_ids("response"))
     set_page = _page(request, sets, "sets_page")
+    blocked_page = _page(request, blocked, "blocked_page")
     response_page = _page(request, responses, "responses_page")
     set_scores = _scores("documentset", [s.pk for s in set_page])
     response_scores = _scores("response", [r.pk for r in response_page])
@@ -221,7 +222,13 @@ def moderation_view(request):
             }
             for response in response_page
         ],
-        "blocked_page": _page(request, blocked, "blocked_page"),
+        "blocked_page": blocked_page,
+        "blocked_rows": [
+            {"user": user, "deactivation": actions.deactivation_status(user)}
+            for user in blocked_page
+        ],
+        "deactivation_enabled": actions.deactivation_enabled(),
+        "default_reason": actions.DEFAULT_REASON,
         "actions_page": _page(
             request, ModerationAction.objects.all(), "actions_page", ACTIONS_PAGE_SIZE
         ),

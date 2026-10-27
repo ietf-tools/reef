@@ -2,21 +2,21 @@
 from django.contrib import admin
 
 from moderation import actions
-from moderation.admin_actions import reason_action
+from moderation.admin_actions import (
+    block_accounts,
+    deactivate_accounts,
+    reason_action,
+)
 
 from .models import User
 
 
-def _block(actor, queryset, reason):
-    return sum(1 for user in queryset if actions.block_user(actor, user, reason))
+def _block(request, queryset, reason):
+    return block_accounts(request, queryset, reason, remove_content=False)
 
 
-def _block_and_remove(actor, queryset, reason):
-    return sum(
-        1
-        for user in queryset
-        if actions.block_user(actor, user, reason, remove_content=True)
-    )
+def _block_and_remove(request, queryset, reason):
+    return block_accounts(request, queryset, reason, remove_content=True)
 
 
 def _unblock(actor, queryset, reason):
@@ -56,6 +56,7 @@ class UserAdmin(admin.ModelAdmin):
         "oidc_sub",
         "last_login",
         "date_joined",
+        "account_uuid",
         "blocked_at",
         "blocked_reason",
         "blocked_by",
@@ -66,6 +67,8 @@ class UserAdmin(admin.ModelAdmin):
             "Block selected accounts",
             "These accounts are refused by the API. Their content stays.",
             _block,
+            reason_required=True,
+            needs_request=True,
         ),
         reason_action(
             "block_accounts_and_remove_content",
@@ -73,12 +76,24 @@ class UserAdmin(admin.ModelAdmin):
             "These accounts are refused by the API, and their sets and responses "
             "are taken down. Unblocking restores what this removes.",
             _block_and_remove,
+            reason_required=True,
+            needs_request=True,
+        ),
+        reason_action(
+            "deactivate_accounts",
+            "Deactivate selected blocked accounts in the account service",
+            "The account service is asked again to deactivate these accounts. "
+            "Only accounts already blocked here are asked.",
+            deactivate_accounts,
+            reason_required=True,
+            needs_request=True,
         ),
         reason_action(
             "unblock_accounts",
             "Unblock selected accounts",
             "These accounts can use the API again, and what their block removed "
-            "is restored. An account disabled in Authentik stays disabled there.",
+            "is restored. An account the account service has deactivated stays "
+            "deactivated there.",
             _unblock,
         ),
     ]

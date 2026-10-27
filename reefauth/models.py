@@ -19,6 +19,19 @@ class User(AbstractUser):
         help_text="Authentik subject identifier (the OIDC 'sub' claim)",
     )
 
+    # The account service identifies an account by this, not by oidc_sub. Not
+    # unique: one person given two subjects by two Authentik applications is two
+    # User rows with one account, and a unique constraint would fail their login
+    # rather than split them. Blank until the account has next shown a token that
+    # carries the claim.
+    account_uuid = models.UUIDField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="The account_uuid claim: what the account service takes to "
+        "deactivate this account.",
+    )
+
     # Unbounded: Authentik's `picture` claim can be a data: URI embedding a
     # generated avatar image, easily running to several KB — not just a link.
     avatar = models.TextField(blank=True)
