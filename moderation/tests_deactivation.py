@@ -99,8 +99,10 @@ class ClientTests(TestCase):
         urlopen = account_service()
         account = uuid.uuid4()
         with mock.patch(URLOPEN, urlopen):
-            status = deactivation.deactivate(DEACTIVATE_URL, "tok", account, "Spam")
-        self.assertEqual(status, 200)
+            status, body = deactivation.deactivate(
+                DEACTIVATE_URL, "tok", account, "Spam", body_limit=100
+            )
+        self.assertEqual((status, body), (200, "{}"))
         (request,) = urlopen.calls
         self.assertEqual(request.get_header("Authorization"), "Bearer tok")
         self.assertEqual(
@@ -189,11 +191,26 @@ class DeactivateAccountTests(TestCase):
         _, outcome = self.run_block(urlopen)
         self.assertEqual(len(outcome.detail), actions.DETAIL_LENGTH)
 
-    def test_an_unreachable_service_keeps_the_block(self):
+    def test_success_keeps_what_the_service_said_cut_to_length(self):
         _, outcome = self.run_block(
-            account_service(deactivate=urllib.error.URLError("down"))
+            account_service(deactivate=FakeResponse({"event": "x" * 5000}))
         )
+        self.assertEqual(outcome.status, Deactivation.DEACTIVATED)
+        self.assertTrue(outcome.detail.startswith('{"event": "xxx'))
+        self.assertEqual(len(outcome.detail), actions.DETAIL_LENGTH)
+        row = ModerationAction.objects.get(action=Action.DEACTIVATE_ACCOUNT)
+        self.assertEqual(row.snapshot["detail"], outcome.detail)
+
+    def test_an_unreachable_service_keeps_the_block_and_says_why(self):
+        with self.assertLogs("reef", "WARNING"):
+            _, outcome = self.run_block(
+                account_service(deactivate=urllib.error.URLError("name not known"))
+            )
         self.assertEqual(outcome.status, Deactivation.UNREACHABLE)
+        self.assertIn("URLError", outcome.detail)
+        self.assertIn("name not known", outcome.detail)
+        row = ModerationAction.objects.get(action=Action.DEACTIVATE_ACCOUNT)
+        self.assertIn("name not known", row.snapshot["detail"])
         self.user.refresh_from_db()
         self.assertTrue(self.user.is_blocked)
 

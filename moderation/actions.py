@@ -8,6 +8,8 @@ calls these rather than editing rows, and a task or command that moderates would
 Soft delete only. Hard deletion of spam, after a retention period, is separate work.
 """
 
+import http.client
+import logging
 import urllib.error
 
 from django.conf import settings
@@ -23,6 +25,8 @@ from surveys.models import Response
 from .models import ModerationAction
 
 Action = ModerationAction.Action
+
+logger = logging.getLogger("reef")
 
 # The account service logs a reason with every deactivation and a blocked account
 # always has one, so a block with nothing written gets this.
@@ -406,15 +410,24 @@ def deactivation_enabled():
 
 def _call_account_service(token, account_uuid, reason):
     try:
-        status = deactivation.deactivate(
-            settings.REEF_ACCOUNT_DEACTIVATE_USER_URL, token, account_uuid, reason
+        status, detail = deactivation.deactivate(
+            settings.REEF_ACCOUNT_DEACTIVATE_USER_URL,
+            token,
+            account_uuid,
+            reason,
+            body_limit=DETAIL_LENGTH,
         )
     except urllib.error.HTTPError as exc:
         detail = exc.read(DETAIL_LENGTH).decode(errors="replace")
         return Deactivation(Deactivation.REFUSED, exc.code, detail)
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        return Deactivation(Deactivation.UNREACHABLE, detail=type(exc).__name__)
-    return Deactivation(Deactivation.DEACTIVATED, status)
+    except (OSError, http.client.HTTPException) as exc:
+        # URLError, timeouts and connections dropped mid-reply all land here.
+        logger.warning(
+            "Account service unreachable for account %s: %r", account_uuid, exc
+        )
+        detail = f"{type(exc).__name__}: {exc}"[:DETAIL_LENGTH]
+        return Deactivation(Deactivation.UNREACHABLE, detail=detail)
+    return Deactivation(Deactivation.DEACTIVATED, status, detail)
 
 
 def deactivate_account(actor, user, reason, *, token, caused_by=None):

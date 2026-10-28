@@ -15,8 +15,11 @@ import urllib.request
 TIMEOUT_SECONDS = 20
 
 
-def deactivate(url, token, account_uuid, reason):
-    """Ask the service to deactivate the account. Returns the HTTP status."""
+def deactivate(url, token, account_uuid, reason, *, body_limit):
+    """Ask the service to deactivate the account.
+
+    Returns the HTTP status and up to body_limit bytes of the reply, decoded.
+    """
     request = urllib.request.Request(
         url,
         data=json.dumps({"uuid": str(account_uuid), "reason": reason}).encode(),
@@ -27,4 +30,4 @@ def deactivate(url, token, account_uuid, reason):
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-        return response.status
+        return response.status, response.read(body_limit).decode(errors="replace")
