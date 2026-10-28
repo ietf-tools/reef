@@ -13,6 +13,9 @@ from django.template.response import TemplateResponse
 from . import actions, review
 from .actions import Deactivation, log_action
 
+# Where mozilla-django-oidc keeps the access token, given OIDC_STORE_ACCESS_TOKEN.
+ACCESS_TOKEN_KEY = "oidc_access_token"
+
 
 class ReasonForm(forms.Form):
     reason = forms.CharField(
@@ -108,12 +111,25 @@ def report_deactivation(request, user, outcome):
             f"The account service refused to deactivate {who} "
             f"(HTTP {outcome.http_status}){said}. They are blocked in Reef only.",
         )
+        if outcome.http_status == 401:
+            messages.info(
+                request,
+                "A 401 usually means your token has expired: sign out and in "
+                "again, then deactivate them from the moderation page.",
+            )
     elif outcome.status == Deactivation.UNREACHABLE:
         messages.error(
             request,
             f"The account service could not be reached to deactivate {who}. They "
             "are blocked in Reef only; deactivate them again from the moderation "
             "page.",
+        )
+    elif outcome.status == Deactivation.NO_TOKEN:
+        messages.warning(
+            request,
+            f"Your session holds no account service token, so {who} was not "
+            "deactivated there. They are blocked in Reef only. Sign out and in "
+            "again, then deactivate them from the moderation page.",
         )
     else:
         messages.warning(
@@ -140,7 +156,11 @@ def block_accounts(request, users, reason, *, remove_content):
     blocked = 0
     for user in users:
         block, outcome = actions.block_and_deactivate(
-            request.user, user, reason, remove_content=remove_content
+            request.user,
+            user,
+            reason,
+            token=request.session.get(ACCESS_TOKEN_KEY),
+            remove_content=remove_content,
         )
         if block is None:
             continue
@@ -168,7 +188,10 @@ def deactivate_accounts(request, users, reason):
         if not user.is_blocked:
             continue
         outcome = actions.deactivate_account(
-            request.user, user, reason or user.blocked_reason
+            request.user,
+            user,
+            reason or user.blocked_reason,
+            token=request.session.get(ACCESS_TOKEN_KEY),
         )
         report_deactivation(request, user, outcome)
         asked += 1

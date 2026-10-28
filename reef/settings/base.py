@@ -137,6 +137,9 @@ OIDC_RP_SIGN_ALGO = "ES256"
 # Authentik instance has no scope actually named "groups" to request.
 OIDC_RP_SCOPES = "openid profile email"
 OIDC_STORE_ID_TOKEN = True  # kept in session for RP-initiated logout
+# The moderator's reef-admin access token, kept in session as oidc_access_token: it is
+# what the account service's deactivate-user API takes as the caller's identity.
+OIDC_STORE_ACCESS_TOKEN = True
 OIDC_OP_LOGOUT_URL_METHOD = "reefauth.utils.op_logout_url"
 # SessionRefresh middleware will force a reauth every EXPIRY_SECONDS (default 15 mins)
 # OIDC_RENEW_ID_TOKEN_EXPIRY_SECONDS = 15 * 60
@@ -161,13 +164,9 @@ REEF_SURVEY_RESPONSE_MAX_BYTES = int(
 REEF_SURVEY_DURATION_MAX_SECONDS = 30 * 24 * 60 * 60
 REEF_SURVEY_PAGES_MAX = 10_000
 
-# Deactivating an account in the account service when staff block it. Reef calls the
-# service as its own client (client credentials), at the token endpoint of the admin
-# login above. All three set, or no request is made and a block is local to Reef.
-REEF_ADMIN_SERVICE_OIDC_CLIENT_ID = os.environ.get("REEF_ADMIN_SERVICE_OIDC_CLIENT_ID")
-REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET = os.environ.get(
-    "REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET"
-)
+# Deactivating an account in the account service when staff block it, using the
+# blocking moderator's own reef-admin access token. Unset means no request is made and
+# a block is local to Reef.
 REEF_ACCOUNT_DEACTIVATE_USER_URL = os.environ.get("REEF_ACCOUNT_DEACTIVATE_USER_URL")
 
 # Spam scoring by Jev (TypeSafe AI), a hosted service: the free text of sets and
