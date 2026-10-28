@@ -4,7 +4,7 @@ composed in Python rather than here, both following the templates/rpc/mail
 convention in Purple.
 
 Context: reasons (each with subscription and watched_doc), events (each with
-doc_display, doc_separator, change, url), subscriptions_url (may be empty).
+doc_display, change, url), subscriptions_url (may be empty).
 
 One mail per subscriber rather than per subscription, so reasons is a list: somebody
 who follows RFC 9110 directly and also has it in a set hears about a change to it
@@ -17,7 +17,7 @@ anything in your document set" runs out of breath at three.
 {% endfor %}{% endif %}
 {% if events|length > 1 %}There have been {{ events|length }} changes since the last notification.
 
-{% endif %}{% for event in events %}{% filter wordwrap:78 %}{% if event.doc_display %}{{ event.doc_display }}{% if event.change %}{{ event.doc_separator }}{% endif %}{% endif %}{{ event.change }}{% endfilter %}
+{% endif %}{% for event in events %}{% filter wordwrap:78 %}{% if event.doc_display %}{{ event.doc_display }}{% if event.change %} {% endif %}{% endif %}{% if event.change %}[{{ event.change }}]{% endif %}{% endfilter %}
 {% if event.url %}    {{ event.url }}
 {% endif %}
 {% endfor %}For the RFC series, see https://www.rfc-editor.org/

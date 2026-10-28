@@ -78,11 +78,6 @@ def render_digest(subscriptions, events):
                     "doc_display": (
                         _titled(event["doc"], mapping) if event.get("doc") else ""
                     ),
-                    # A title ends the document's name, so the change follows a
-                    # full stop; a bare identifier is followed by a colon.
-                    "doc_separator": (
-                        ". " if _title(event.get("doc"), mapping) else ": "
-                    ),
                     "change": event.get("change", ""),
                     "url": event.get("url", ""),
                 }
