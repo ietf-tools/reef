@@ -2798,8 +2798,10 @@ emails and usernames, not text).
     token carries the claim is Authentik configuration outside this repository.
   - **Each attempt is a log row** (`deactivate_account`) under the block, holding the
     status (deactivated, refused, unreachable, no account id, no token), the HTTP
-    status and up to 300 characters of what the service said. Never inside a
-    transaction.
+    status and up to 300 characters of what the service said, on success as well as
+    refusal (more debug while the API is new), or the error's type and message when
+    it could not be reached, which is also logged as a warning on the `reef` logger.
+    The banner and the blocked table show the same. Never inside a transaction.
   - **Configuration:** `REEF_ACCOUNT_DEACTIVATE_USER_URL`, with no default. Unset
     means no request is made and a block is local to Reef.
   - **Staging is not accepted by the service** while only reef-admin is, and users are

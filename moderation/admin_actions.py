@@ -103,7 +103,12 @@ def report_deactivation(request, user, outcome):
     """Tell the moderator how the account service answered, in plain words."""
     who = str(user)
     if outcome.status == Deactivation.DEACTIVATED:
-        messages.success(request, f"{who} was deactivated in the account service.")
+        said = f" It said: {outcome.detail}" if outcome.detail else ""
+        messages.success(
+            request,
+            f"{who} was deactivated in the account service "
+            f"(HTTP {outcome.http_status}).{said}",
+        )
     elif outcome.status == Deactivation.REFUSED:
         said = f": {outcome.detail}" if outcome.detail else ""
         messages.warning(
@@ -120,9 +125,9 @@ def report_deactivation(request, user, outcome):
     elif outcome.status == Deactivation.UNREACHABLE:
         messages.error(
             request,
-            f"The account service could not be reached to deactivate {who}. They "
-            "are blocked in Reef only; deactivate them again from the moderation "
-            "page.",
+            f"The account service could not be reached to deactivate {who} "
+            f"({outcome.detail}). They are blocked in Reef only; deactivate them "
+            "again from the moderation page.",
         )
     elif outcome.status == Deactivation.NO_TOKEN:
         messages.warning(
