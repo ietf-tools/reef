@@ -1,0 +1,254 @@
+# Copyright The IETF Trust 2026, All Rights Reserved
+import urllib.error
+import uuid
+
+from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
+from django.db import transaction
+from django.shortcuts import redirect, render
+from django.urls import path
+
+from docsets.models import DocumentSet
+from reef.admin_readonly import ReadOnlyAdminMixin
+from reefauth.models import User
+from surveys.models import Response
+
+from . import actions, classify, jev, review
+from .admin_actions import block_accounts, deactivate_accounts
+from .models import ModerationAction, ModerationFlag
+
+PAGE_SIZE = 50
+ACTIONS_PAGE_SIZE = 20
+SNIPPET_LENGTH = 300
+
+
+@admin.register(ModerationAction)
+class ModerationActionAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    """The moderator log: what was done, by whom, to what, and why. Read only."""
+
+    list_display = [
+        "created_at",
+        "action",
+        "target_type",
+        "target_id",
+        "subject_name",
+        "actor_name",
+    ]
+    list_filter = ["action", "target_type"]
+    search_fields = ["target_id", "subject_sub", "subject_name", "actor_name", "reason"]
+    date_hierarchy = "created_at"
+
+
+@admin.register(ModerationFlag)
+class ModerationFlagAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    """Moderators' verdicts, kept as labelled examples. Read only: they are made
+    from the lists of sets and responses."""
+
+    list_display = ["created_at", "target_type", "verdict", "classifier", "score"]
+    list_filter = ["verdict", "target_type", "classifier"]
+    search_fields = ["target_id", "text"]
+
+
+def _ids(request, name, convert):
+    ids = []
+    for value in request.POST.getlist(name):
+        try:
+            ids.append(convert(value))
+        except ValueError:
+            continue
+    return ids
+
+
+def _check(request, button):
+    """Score one item now, for a moderator who wants the answer before moving on.
+
+    Done in the request rather than queued, so the result is on the page they land
+    on. A failure is shown to them and leaves no flag, as it does in the task.
+    """
+    parts = button.split(":", 2)
+    if len(parts) != 3:
+        return
+    _, target_type, target_id = parts
+    convert = {"documentset": uuid.UUID, "response": int}.get(target_type)
+    if convert is None or not classify.enabled():
+        return
+    try:
+        convert(target_id)
+    except ValueError:
+        return
+    try:
+        flag = classify.score(target_type, target_id)
+    except urllib.error.HTTPError as exc:
+        messages.error(request, f"The classifier refused the check: HTTP {exc.code}.")
+    except (urllib.error.URLError, TimeoutError):
+        messages.error(request, "The classifier could not be reached.")
+    except ValueError:
+        messages.error(request, "The classifier gave an answer that could not be read.")
+    else:
+        if flag is None:
+            messages.info(request, "Nothing to score: it is gone, or has no text.")
+        else:
+            messages.success(request, f"Scored {flag.score:.2f}.")
+
+
+def _moderate(request):
+    verdict_by_button = {
+        "spam": ModerationFlag.Verdict.SPAM,
+        "fine": ModerationFlag.Verdict.FINE,
+    }
+    button = request.POST.get("button")
+    reason = request.POST.get("reason", "")
+    sets = DocumentSet.objects.filter(pk__in=_ids(request, "sets", uuid.UUID))
+    responses = Response.objects.filter(pk__in=_ids(request, "responses", int))
+    if button in verdict_by_button:
+        verdict = verdict_by_button[button]
+        with transaction.atomic():
+            done = review.review_sets(request.user, sets, verdict, reason)
+            done += review.review_responses(request.user, responses, verdict, reason)
+        messages.success(request, f"Marked {done} as {verdict}.")
+    elif button == "block":
+        owners = {document_set.owner for document_set in sets.select_related("owner")}
+        owners |= {
+            response.submitted_by
+            for response in responses.select_related("submitted_by")
+            if response.submitted_by is not None
+        }
+        try:
+            blocked = block_accounts(request, owners, reason, remove_content=True)
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+        else:
+            messages.success(
+                request, f"Blocked {blocked} account(s) and removed their content."
+            )
+    elif button and button.startswith("check:"):
+        _check(request, button)
+    elif button == "deactivate":
+        users = User.objects.filter(pk__in=_ids(request, "users", int))
+        deactivate_accounts(request, users, reason)
+    elif button == "unblock":
+        users = User.objects.filter(pk__in=_ids(request, "users", int))
+        unblock_reason = request.POST.get("unblock_reason", "")
+        with transaction.atomic():
+            lifted = sum(
+                1
+                for user in users
+                if actions.unblock_user(request.user, user, unblock_reason)
+            )
+        messages.success(request, f"Unblocked {lifted} account(s).")
+
+
+def _page(request, queryset, param, per_page=PAGE_SIZE):
+    """One page of a list, with links that leave the other lists where they are."""
+    page = Paginator(queryset, per_page).get_page(request.GET.get(param))
+
+    def link(number):
+        query = request.GET.copy()
+        query[param] = number
+        return f"?{query.urlencode()}"
+
+    page.previous_url = link(page.previous_page_number()) if page.has_previous() else ""
+    page.next_url = link(page.next_page_number()) if page.has_next() else ""
+    return page
+
+
+def _scores(target_type, ids):
+    """The classifier's score for each of ids, as {id: flag}, for the rows on a page."""
+    flags = ModerationFlag.objects.filter(
+        target_type=target_type,
+        classifier=jev.CLASSIFIER,
+        target_id__in=[str(pk) for pk in ids],
+    )
+    return {flag.target_id: flag for flag in flags}
+
+
+def _raised_ids(target_type):
+    return list(
+        ModerationFlag.objects.filter(
+            target_type=target_type, classifier=jev.CLASSIFIER, raised=True
+        ).values_list("target_id", flat=True)
+    )
+
+
+def moderation_view(request):
+    if request.method == "POST":
+        _moderate(request)
+        return redirect("admin:moderation")
+
+    sets = (
+        DocumentSet.objects.exclude(pk__in=review.reviewed_target_ids("documentset"))
+        .select_related("owner")
+        .order_by("-created_at", "-pk")
+    )
+    responses = (
+        Response.objects.exclude(pk__in=review.reviewed_target_ids("response"))
+        .select_related("survey", "submitted_by")
+        .order_by("-submitted_at", "-pk")
+    )
+    blocked = User.objects.filter(blocked_at__isnull=False).order_by(
+        "-blocked_at", "-pk"
+    )
+    flagged_only = request.GET.get("flagged") == "1"
+    if flagged_only:
+        sets = sets.filter(pk__in=_raised_ids("documentset"))
+        responses = responses.filter(pk__in=_raised_ids("response"))
+    set_page = _page(request, sets, "sets_page")
+    blocked_page = _page(request, blocked, "blocked_page")
+    response_page = _page(request, responses, "responses_page")
+    set_scores = _scores("documentset", [s.pk for s in set_page])
+    response_scores = _scores("response", [r.pk for r in response_page])
+    toggled = request.GET.copy()
+    if flagged_only:
+        toggled.pop("flagged")
+    else:
+        toggled["flagged"] = "1"
+    toggled.pop("sets_page", None)
+    toggled.pop("responses_page", None)
+    context = {
+        **admin.site.each_context(request),
+        "title": "Moderation",
+        "classifier_enabled": classify.enabled(),
+        "flagged_only": flagged_only,
+        "flagged_toggle_url": f"?{toggled.urlencode()}",
+        "sets_page": set_page,
+        "set_rows": [{"set": s, "flag": set_scores.get(str(s.pk))} for s in set_page],
+        "responses_page": response_page,
+        "response_rows": [
+            {
+                "response": response,
+                "text": review.response_text(response)[:SNIPPET_LENGTH],
+                "flag": response_scores.get(str(response.pk)),
+            }
+            for response in response_page
+        ],
+        "blocked_page": blocked_page,
+        "blocked_rows": [
+            {"user": user, "deactivation": actions.deactivation_status(user)}
+            for user in blocked_page
+        ],
+        "deactivation_enabled": actions.deactivation_enabled(),
+        "default_reason": actions.DEFAULT_REASON,
+        "actions_page": _page(
+            request, ModerationAction.objects.all(), "actions_page", ACTIONS_PAGE_SIZE
+        ),
+    }
+    return render(request, "admin/moderation/moderation.html", context)
+
+
+def _get_admin_urls(get_urls):
+    def wrapper():
+        # Ahead of the app's own index at the same path, so that "Moderation" in
+        # the admin lands on this page rather than a bare list of the log.
+        return [
+            path(
+                "moderation/",
+                admin.site.admin_view(moderation_view),
+                name="moderation",
+            ),
+        ] + get_urls()
+
+    return wrapper
+
+
+admin.site.get_urls = _get_admin_urls(admin.site.get_urls)

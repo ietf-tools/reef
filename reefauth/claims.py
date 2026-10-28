@@ -7,7 +7,12 @@ carrying an Authentik access token). Only the login backend grants
 is_staff and is_superuser; see sync_user_from_claims().
 """
 
+import logging
+import uuid
+
 from django.contrib.auth import get_user_model
+
+logger = logging.getLogger("reef")
 
 
 def sync_user_from_claims(claims, *, sync_permissions=False):
@@ -32,6 +37,22 @@ def sync_user_from_claims(claims, *, sync_permissions=False):
         "email": claims.get("email") or "",
         "avatar": claims.get("picture") or "",
     }
+    # Only ever set, never cleared: a token from an application that does not
+    # carry the claim must not erase what another one supplied. Every application
+    # is expected to carry it, though, so each token that does not is logged,
+    # unthrottled: it means an Authentik mapping is missing, and the account
+    # service cannot deactivate an account Reef has no uuid for.
+    try:
+        desired["account_uuid"] = uuid.UUID(str(claims.get("account_uuid")))
+    except ValueError:
+        logger.warning(
+            "Token has no valid account_uuid claim: sub=%s iss=%s aud=%s "
+            "account_uuid=%.80r",
+            sub,
+            claims.get("iss"),
+            claims.get("aud"),
+            claims.get("account_uuid"),
+        )
     if sync_permissions:
         desired["is_staff"] = True
         desired["is_superuser"] = True
