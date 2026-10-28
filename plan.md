@@ -2815,10 +2815,11 @@ emails and usernames, not text).
 - **Unblocking.** A block needs an undo, also logged. It clears the local block and
   restores the user's content; it never reactivates the account (see Decisions).
 - **What a blocked user's own requests get.** Their content is a 404. Their writes
-  with a still-valid token need a refusal that is not a new shape: the plan is to
-  reject the token at authentication as if invalid (401), so Red treats it like any
-  expired session. A deactivated account fails at login in Authentik
-  itself, before Reef is reached. To confirm.
+  with a still-valid token need a refusal that is not a new shape: the token is
+  rejected at authentication with the usual 401 and the detail "Account blocked.",
+  which says plainly why and changes no property. A deactivated account fails at
+  login in Authentik itself, before Reef is reached. To confirm how Red treats a 401
+  that is not an expired session.
 - **Jev's access and rate limits.** Confirm access and the limits with TypeSafe. Add
   the credential to the deployment's secrets in ietf-tools/infra-k8s, which is outside
   this repository.
