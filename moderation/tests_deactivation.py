@@ -78,13 +78,31 @@ class AccountUuidClaimTests(TestCase):
     def test_a_token_without_the_claim_does_not_erase_it(self):
         account = uuid.uuid4()
         sync_user_from_claims({"sub": "s1", "account_uuid": str(account)})
-        user = sync_user_from_claims({"sub": "s1", "name": "Ada"})
+        with self.assertLogs("reef", "WARNING"):
+            user = sync_user_from_claims({"sub": "s1", "name": "Ada"})
         self.assertEqual(user.account_uuid, account)
+
+    def test_every_token_without_a_usable_claim_is_logged_with_its_origin(self):
+        claims = {"sub": "s3", "iss": "https://idp.example/", "aud": "red"}
+        for junk in ({}, {"account_uuid": "nope"}, {"account_uuid": None}):
+            with self.subTest(junk=junk):
+                with self.assertLogs("reef", "WARNING") as logged:
+                    sync_user_from_claims({**claims, **junk})
+                    sync_user_from_claims({**claims, **junk})
+                self.assertEqual(len(logged.records), 2)
+                message = logged.records[0].getMessage()
+                for expected in ("s3", "https://idp.example/", "red"):
+                    self.assertIn(expected, message)
+
+    def test_a_token_with_the_claim_logs_nothing(self):
+        with self.assertNoLogs("reef", "WARNING"):
+            sync_user_from_claims({"sub": "s4", "account_uuid": str(uuid.uuid4())})
 
     def test_something_that_is_not_a_uuid_is_ignored(self):
         for junk in ("", "nope", None, 5):
             with self.subTest(junk=junk):
-                user = sync_user_from_claims({"sub": "s2", "account_uuid": junk})
+                with self.assertLogs("reef", "WARNING"):
+                    user = sync_user_from_claims({"sub": "s2", "account_uuid": junk})
                 self.assertIsNone(user.account_uuid)
 
     def test_two_subjects_may_share_an_account(self):
