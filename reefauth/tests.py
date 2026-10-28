@@ -362,7 +362,7 @@ class AdminLoginPageTests(TestCase):
     REEF_API_OIDC_ALGORITHMS=["RS256"],
 )
 class BlockedAccountTests(TestCase):
-    """A blocked account is refused like any token Reef cannot accept."""
+    """A blocked account's token is refused with a 401 that says so."""
 
     def setUp(self):
         self.key = _make_key()
@@ -381,7 +381,8 @@ class BlockedAccountTests(TestCase):
         )
         with self.assertRaises(exceptions.AuthenticationFailed) as raised:
             self.auth.authenticate(self.request)
-        self.assertNotIn("block", str(raised.exception.detail).lower())
+        self.assertEqual(str(raised.exception.detail), "Account blocked.")
+        self.assertEqual(raised.exception.status_code, 401)
         user.blocked_at = None
         user.save()
         self.assertEqual(self.auth.authenticate(self.request)[0], user)
