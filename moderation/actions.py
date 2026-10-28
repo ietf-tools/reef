@@ -392,6 +392,7 @@ class Deactivation:
     REFUSED = "refused"
     UNREACHABLE = "unreachable"
     NO_ACCOUNT_UUID = "no_account_uuid"
+    NO_TOKEN = "no_token"
 
     def __init__(self, status, http_status=None, detail=""):
         self.status = status
@@ -400,20 +401,11 @@ class Deactivation:
 
 
 def deactivation_enabled():
-    return bool(
-        settings.REEF_ADMIN_SERVICE_OIDC_CLIENT_ID
-        and settings.REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET
-        and settings.REEF_ACCOUNT_DEACTIVATE_USER_URL
-    )
+    return bool(settings.REEF_ACCOUNT_DEACTIVATE_USER_URL)
 
 
-def _call_account_service(account_uuid, reason):
+def _call_account_service(token, account_uuid, reason):
     try:
-        token = deactivation.fetch_token(
-            settings.OIDC_OP_TOKEN_ENDPOINT,
-            settings.REEF_ADMIN_SERVICE_OIDC_CLIENT_ID,
-            settings.REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET,
-        )
         status = deactivation.deactivate(
             settings.REEF_ACCOUNT_DEACTIVATE_USER_URL, token, account_uuid, reason
         )
@@ -425,8 +417,12 @@ def _call_account_service(account_uuid, reason):
     return Deactivation(Deactivation.DEACTIVATED, status)
 
 
-def deactivate_account(actor, user, reason, *, caused_by=None):
+def deactivate_account(actor, user, reason, *, token, caused_by=None):
     """Ask the account service to deactivate user, now, and log how it went.
+
+    token is the moderator's own reef-admin access token, as the service takes it
+    for the caller's identity. None, because the session holds none, asks nobody.
+    It is never logged.
 
     Never inside a transaction: the service has acted by the time it answers, so a
     rollback afterwards would erase the record of something that happened. Returns
@@ -438,8 +434,10 @@ def deactivate_account(actor, user, reason, *, caused_by=None):
     reason = reason.strip() or DEFAULT_REASON
     if user.account_uuid is None:
         outcome = Deactivation(Deactivation.NO_ACCOUNT_UUID)
+    elif not token:
+        outcome = Deactivation(Deactivation.NO_TOKEN)
     else:
-        outcome = _call_account_service(user.account_uuid, reason)
+        outcome = _call_account_service(token, user.account_uuid, reason)
     log_action(
         actor,
         Action.DEACTIVATE_ACCOUNT,
@@ -457,7 +455,7 @@ def deactivate_account(actor, user, reason, *, caused_by=None):
     return outcome
 
 
-def block_and_deactivate(actor, user, reason, *, remove_content=False):
+def block_and_deactivate(actor, user, reason, *, token, remove_content=False):
     """Block locally, then ask the account service to deactivate.
 
     Returns (block, outcome). block is None if the account was already blocked, and
@@ -468,7 +466,7 @@ def block_and_deactivate(actor, user, reason, *, remove_content=False):
     block = block_user(actor, user, reason, remove_content=remove_content)
     if block is None or not deactivation_enabled():
         return block, None
-    return block, deactivate_account(actor, user, reason, caused_by=block)
+    return block, deactivate_account(actor, user, reason, token=token, caused_by=block)
 
 
 def deactivation_status(user):

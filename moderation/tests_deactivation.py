@@ -2,7 +2,6 @@
 import io
 import json
 import urllib.error
-import urllib.parse
 import uuid
 from unittest import mock
 
@@ -14,7 +13,7 @@ from django.urls import reverse
 from docsets.models import DocumentSet
 from reefauth import deactivation
 from reefauth.claims import sync_user_from_claims
-from reefauth.testing import login
+from reefauth.testing import ACCESS_TOKEN, login
 
 from . import actions
 from .actions import Deactivation
@@ -24,15 +23,9 @@ User = get_user_model()
 Action = ModerationAction.Action
 
 URLOPEN = "urllib.request.urlopen"
-TOKEN_URL = "https://account.example/application/o/token/"
 DEACTIVATE_URL = "https://account.example/app/api/service/deactivate-user"
 
-configured = override_settings(
-    REEF_ADMIN_SERVICE_OIDC_CLIENT_ID="svc-id",
-    REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET="svc-secret",
-    REEF_ACCOUNT_DEACTIVATE_USER_URL=DEACTIVATE_URL,
-    OIDC_OP_TOKEN_ENDPOINT=TOKEN_URL,
-)
+configured = override_settings(REEF_ACCOUNT_DEACTIVATE_USER_URL=DEACTIVATE_URL)
 
 
 class FakeResponse:
@@ -50,20 +43,16 @@ class FakeResponse:
         return False
 
 
-def account_service(deactivate=None, token=None):
-    """A urlopen that plays the token endpoint and the deactivate endpoint.
+def account_service(deactivate=None):
+    """A urlopen that plays the deactivate endpoint.
 
-    deactivate and token are either a FakeResponse or an exception to raise.
+    deactivate is either a FakeResponse or an exception to raise.
     """
     calls = []
 
     def urlopen(request, timeout=None):
         calls.append(request)
-        reply = token if request.full_url == TOKEN_URL else deactivate
-        if request.full_url == TOKEN_URL and reply is None:
-            reply = FakeResponse({"access_token": "tok"})
-        if request.full_url == DEACTIVATE_URL and reply is None:
-            reply = FakeResponse({}, 200)
+        reply = FakeResponse({}, 200) if deactivate is None else deactivate
         if isinstance(reply, Exception):
             raise reply
         return reply
@@ -106,29 +95,6 @@ class AccountUuidClaimTests(TestCase):
 
 
 class ClientTests(TestCase):
-    def test_the_token_request_is_client_credentials_in_a_form(self):
-        urlopen = account_service()
-        with mock.patch(URLOPEN, urlopen):
-            token = deactivation.fetch_token(TOKEN_URL, "svc-id", "svc-secret")
-        self.assertEqual(token, "tok")
-        (request,) = urlopen.calls
-        self.assertEqual(
-            request.get_header("Content-type"), "application/x-www-form-urlencoded"
-        )
-        self.assertEqual(
-            urllib.parse.parse_qs(request.data.decode()),
-            {
-                "grant_type": ["client_credentials"],
-                "client_id": ["svc-id"],
-                "client_secret": ["svc-secret"],
-            },
-        )
-
-    def test_a_token_response_without_a_token_is_an_error(self):
-        urlopen = account_service(token=FakeResponse({"error": "x"}))
-        with mock.patch(URLOPEN, urlopen), self.assertRaises(ValueError):
-            deactivation.fetch_token(TOKEN_URL, "i", "s")
-
     def test_the_deactivate_request_carries_the_uuid_and_reason_under_a_bearer(self):
         urlopen = account_service()
         account = uuid.uuid4()
@@ -151,9 +117,11 @@ class DeactivateAccountTests(TestCase):
             username="s", oidc_sub="sub-s", account_uuid=self.account
         )
 
-    def run_block(self, urlopen, reason="pills", **kwargs):
+    def run_block(self, urlopen, reason="pills", token="tok", **kwargs):
         with mock.patch(URLOPEN, urlopen):
-            return actions.block_and_deactivate(self.staff, self.user, reason, **kwargs)
+            return actions.block_and_deactivate(
+                self.staff, self.user, reason, token=token, **kwargs
+            )
 
     def test_success_is_logged_under_the_block(self):
         urlopen = account_service()
@@ -163,13 +131,16 @@ class DeactivateAccountTests(TestCase):
         self.assertEqual(row.caused_by, block)
         self.assertEqual(row.snapshot["status"], "deactivated")
         self.assertEqual(row.subject_user, self.user)
-        sent = json.loads(urlopen.calls[1].data)
-        self.assertEqual(sent, {"uuid": str(self.account), "reason": "pills"})
+        (call,) = urlopen.calls
+        self.assertEqual(call.get_header("Authorization"), "Bearer tok")
+        self.assertEqual(
+            json.loads(call.data), {"uuid": str(self.account), "reason": "pills"}
+        )
 
     def test_a_blank_reason_becomes_the_default_everywhere(self):
         urlopen = account_service()
         self.run_block(urlopen, reason="  ")
-        self.assertEqual(json.loads(urlopen.calls[1].data)["reason"], "Spam")
+        self.assertEqual(json.loads(urlopen.calls[0].data)["reason"], "Spam")
         self.user.refresh_from_db()
         self.assertEqual(self.user.blocked_reason, "Spam")
 
@@ -182,6 +153,24 @@ class DeactivateAccountTests(TestCase):
         self.assertEqual(urlopen.calls, [])
         self.user.refresh_from_db()
         self.assertTrue(self.user.is_blocked)
+
+    def test_no_token_in_the_session_asks_nobody_and_says_so(self):
+        for token in (None, ""):
+            with self.subTest(token=token):
+                self.user.blocked_at = None
+                self.user.save()
+                urlopen = account_service()
+                block, outcome = self.run_block(urlopen, token=token)
+                self.assertEqual(outcome.status, Deactivation.NO_TOKEN)
+                self.assertEqual(urlopen.calls, [])
+                self.user.refresh_from_db()
+                self.assertTrue(self.user.is_blocked)
+
+    def test_the_token_is_never_logged(self):
+        self.run_block(account_service(), token="secret-token")
+        for row in ModerationAction.objects.all():
+            self.assertNotIn("secret-token", json.dumps(row.snapshot))
+            self.assertNotIn("secret-token", row.reason)
 
     def test_a_refusal_keeps_the_block_and_the_services_words(self):
         urlopen = account_service(deactivate=refusal(403, "protected account"))
@@ -200,20 +189,13 @@ class DeactivateAccountTests(TestCase):
         _, outcome = self.run_block(urlopen)
         self.assertEqual(len(outcome.detail), actions.DETAIL_LENGTH)
 
-    def test_an_unreachable_service_or_a_failed_token_keeps_the_block(self):
-        cases = {
-            "service": account_service(deactivate=urllib.error.URLError("down")),
-            "token": account_service(token=urllib.error.URLError("down")),
-            "no token": account_service(token=FakeResponse({})),
-        }
-        for name, urlopen in cases.items():
-            with self.subTest(name):
-                self.user.blocked_at = None
-                self.user.save()
-                _, outcome = self.run_block(urlopen)
-                self.assertEqual(outcome.status, Deactivation.UNREACHABLE)
-                self.user.refresh_from_db()
-                self.assertTrue(self.user.is_blocked)
+    def test_an_unreachable_service_keeps_the_block(self):
+        _, outcome = self.run_block(
+            account_service(deactivate=urllib.error.URLError("down"))
+        )
+        self.assertEqual(outcome.status, Deactivation.UNREACHABLE)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_blocked)
 
     @override_settings(REEF_ACCOUNT_DEACTIVATE_USER_URL=None)
     def test_not_configured_blocks_locally_and_asks_nobody(self):
@@ -236,7 +218,7 @@ class DeactivateAccountTests(TestCase):
             actions.deactivation_status(self.user).snapshot["status"], "unreachable"
         )
         with mock.patch(URLOPEN, account_service()):
-            actions.deactivate_account(self.staff, self.user, "pills")
+            actions.deactivate_account(self.staff, self.user, "pills", token="tok")
         self.assertEqual(
             actions.deactivation_status(self.user).snapshot["status"], "deactivated"
         )
@@ -246,7 +228,7 @@ class DeactivateAccountTests(TestCase):
         actions.unblock_user(self.staff, self.user)
         self.assertIsNotNone(actions.deactivation_status(self.user))
         with mock.patch(URLOPEN, account_service(deactivate=refusal(403, "no"))):
-            actions.block_and_deactivate(self.staff, self.user, "again")
+            actions.block_and_deactivate(self.staff, self.user, "again", token="tok")
         self.assertEqual(
             actions.deactivation_status(self.user).snapshot["status"], "refused"
         )
@@ -309,6 +291,30 @@ class DeactivationInTheAdminTests(TestCase):
         self.assertContains(page, "HTTP 403")
         self.assertContains(page, "protected")
 
+    def test_the_moderators_session_token_is_the_bearer(self):
+        urlopen = account_service()
+        with mock.patch(URLOPEN, urlopen):
+            self.confirm("block_accounts")
+        (call,) = urlopen.calls
+        self.assertEqual(call.get_header("Authorization"), f"Bearer {ACCESS_TOKEN}")
+
+    def test_a_session_without_a_token_blocks_and_tells_the_moderator(self):
+        session = self.client.session
+        del session["oidc_access_token"]
+        session.save()
+        urlopen = account_service()
+        with mock.patch(URLOPEN, urlopen):
+            page = self.confirm("block_accounts")
+        self.assertContains(page, "holds no account service token")
+        self.assertEqual(urlopen.calls, [])
+        self.spammer.refresh_from_db()
+        self.assertTrue(self.spammer.is_blocked)
+
+    def test_a_401_suggests_signing_in_again(self):
+        with mock.patch(URLOPEN, account_service(deactivate=refusal(401, "expired"))):
+            page = self.confirm("block_accounts")
+        self.assertContains(page, "sign out and in again")
+
     def test_an_account_with_no_id_is_blocked_and_the_moderator_is_told(self):
         self.spammer.account_uuid = None
         self.spammer.save()
@@ -328,7 +334,7 @@ class DeactivationInTheAdminTests(TestCase):
                 follow=True,
             )
         self.assertContains(page, "was deactivated in the account service")
-        self.assertEqual(json.loads(urlopen.calls[1].data)["reason"], "Spam")
+        self.assertEqual(json.loads(urlopen.calls[0].data)["reason"], "Spam")
 
     def test_the_blocked_table_shows_the_status_and_can_ask_again(self):
         with mock.patch(
@@ -347,7 +353,7 @@ class DeactivationInTheAdminTests(TestCase):
         self.assertContains(page, "was deactivated in the account service")
         self.spammer.refresh_from_db()
         self.assertEqual(
-            json.loads(urlopen.calls[1].data)["reason"], self.spammer.blocked_reason
+            json.loads(urlopen.calls[0].data)["reason"], self.spammer.blocked_reason
         )
         self.assertContains(page, "deactivated")
 

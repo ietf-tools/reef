@@ -81,17 +81,18 @@ deactivate it, from the moderation page and the Users admin. The call is immedia
 and the moderator is told how it went. The service decides which accounts may be
 deactivated and records the reason, with the calling application, in its audit log.
 
-Reef calls it as its own service client, using client credentials at the same token
-endpoint as the admin login. The service identifies an account by `account_uuid`, a
-claim in the user's OIDC token that Reef stores as `User.account_uuid`; an account
-with none yet is blocked in Reef only until it next signs in.
+The call bears the blocking moderator's own reef-admin access token, which Reef keeps
+in their session (`OIDC_STORE_ACCESS_TOKEN`) and the service checks against team-dev
+and team-staff. A moderator whose session holds none, or whose token has expired, signs
+in again and asks again from the moderation page. The service identifies an account by
+`account_uuid`, a claim in the user's OIDC token that Reef stores as
+`User.account_uuid`; an account with none yet is blocked in Reef only until it next
+signs in.
 
-- `REEF_ADMIN_SERVICE_OIDC_CLIENT_ID` / `REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET` - the
-  service client's credentials.
 - `REEF_ACCOUNT_DEACTIVATE_USER_URL` - the deactivate-user endpoint.
 
-Any of the three unset means no request is made and a block is local to Reef. The
-service currently accepts requests from the reef-admin application only, and users are
+Unset means no request is made and a block is local to Reef. The service currently
+accepts requests from the reef-admin application only, and users are
 global, so staging cannot be tested against it until it is also allowed.
 
 ## Spam scoring

@@ -2777,11 +2777,18 @@ emails and usernames, not text).
   anything keyed on them catches careless bots only. Shown to moderators as context,
   not scored on.
 - **Deactivation in the account service** (built). `POST` to the deactivate-user
-  URL with `{"uuid", "reason"}`, as Reef's own service client: a client-credentials
-  token is fetched from the admin login's token endpoint for each request, and the
-  service checks that it was issued for the reef-admin application and that the caller
-  is authorised. The moderator's own session token is not used, because the request
-  does not run in a session; `OIDC_STORE_ACCESS_TOKEN` stays off.
+  URL with `{"uuid", "reason"}`, bearing **the blocking moderator's own reef-admin
+  access token**. The service checks that it is a valid Authentik token issued for
+  reef-admin and that its holder is in team-dev or team-staff, and logs the moderator
+  and the application with the reason. Reef keeps the token in the moderator's session
+  (`OIDC_STORE_ACCESS_TOKEN = True`, session key `oidc_access_token`) and reads it
+  from `request.session` when they block or ask again. There is no shared Reef
+  credential: no client id or secret, and no token fetched on Reef's behalf.
+  - **A missing or expired token is not an error.** A session with no token (a login
+    from before the setting was on) blocks locally and tells the moderator to sign in
+    again; a 401 from the service shows the same hint. Either way a later "deactivate
+    again" from the moderation page uses their fresh token. The token is never
+    logged or stored beyond the session.
   - **The identifier is `account_uuid`**, a claim in the OIDC token, stored on
     `User.account_uuid` whenever a token carries it and never cleared. It is not
     unique, because one person given two subjects by two applications is two users
@@ -2790,18 +2797,17 @@ emails and usernames, not text).
     it, and they can then be deactivated again from the moderation page. Whether Red's
     token carries the claim is Authentik configuration outside this repository.
   - **Each attempt is a log row** (`deactivate_account`) under the block, holding the
-    status (deactivated, refused, unreachable, no account id), the HTTP status and up
-    to 300 characters of what the service said. Never inside a transaction.
-  - **Configuration:** `REEF_ADMIN_SERVICE_OIDC_CLIENT_ID`,
-    `REEF_ADMIN_SERVICE_OIDC_CLIENT_SECRET` and `REEF_ACCOUNT_DEACTIVATE_USER_URL`,
-    with no defaults. Any unset means no request is made and a block is local to Reef.
+    status (deactivated, refused, unreachable, no account id, no token), the HTTP
+    status and up to 300 characters of what the service said. Never inside a
+    transaction.
+  - **Configuration:** `REEF_ACCOUNT_DEACTIVATE_USER_URL`, with no default. Unset
+    means no request is made and a block is local to Reef.
   - **Staging is not accepted by the service** while only reef-admin is, and users are
     global rather than per environment.
   - **Still to ask the service's developer:** the success and failure status codes and
     bodies; whether a repeat is harmless; how a protected target is told from an
-    unauthorised caller; the longest reason accepted; and whether a moderator's
-    identity can be passed, since the audit log will otherwise name the service
-    client and not the moderator.
+    unauthorised caller; and the longest reason accepted. The access token's lifetime
+    is judged fine as it stands.
 - **An account the service does not know** answers as a refusal or failure and is
   shown as one.
 - **Unblocking.** A block needs an undo, also logged. It clears the local block and
