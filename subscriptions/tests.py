@@ -791,7 +791,7 @@ class SendSubscriptionDigestTests(APITestCase):
         self.assertEqual(sent.to, ["reader@example.org"])
         self.assertEqual(sent.subject, "RFC series updates: RFC 9110")
         self.assertIn("changes to RFC 9110", sent.body)
-        self.assertIn("RFC 9110: Obsoleted by RFC 9999", sent.body)
+        self.assertIn("RFC 9110 [Obsoleted by RFC 9999]", sent.body)
         self.assertIn("https://www.rfc-editor.org/info/rfc9110", sent.body)
         self.assertEqual(sent.extra_headers["Auto-Submitted"], "auto-generated")
         self.assertTrue(sent.extra_headers["Message-ID"].endswith("@example.org>"))
