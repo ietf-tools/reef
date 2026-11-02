@@ -7,8 +7,8 @@ pages that list fifty of them. Answering that from the per-document and
 whole-list endpoints costs one request per control per document, so this is the
 one call that answers all of it for a whole page.
 
-Per-caller only. The public numbers a document also carries (average rating,
-subscriber and set totals) are the same for every visitor, so they reach Red
+Per-caller only. The public numbers a document also carries (subscriber and set
+totals) are the same for every visitor, so they reach Red
 through the data it already loads for the route, and /api/reef/stats/ still
 serves the build-time sweep that produces them. Nothing here aggregates across
 users, which is what keeps every query below scoped to request.user and cheap.
@@ -117,8 +117,8 @@ class MyDocumentsList(APIView):
             "own. Unlike `/stats/`, an empty `doc` does not mean every "
             "document: that endpoint is swept once at build time, whereas this "
             "one is called on every page.\n\n"
-            "Carries no public numbers. Ratings averages, subscriber counts "
-            "and set counts are the same for every visitor and are served by "
+            "Carries no public numbers. Subscriber counts and set counts "
+            "are the same for every visitor and are served by "
             "`/stats/`."
         ),
         parameters=[

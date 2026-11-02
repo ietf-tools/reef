@@ -545,8 +545,8 @@ Subjects (built, no ticket yet):
 
 Per-document statistics (built, no ticket yet):
 
-- GET /stats/ (anonymous, unpaginated): a row per document, with rating_average,
-  rating_count, subscriber_count and set_count. Red's build-time precompute fetches
+- GET /stats/ (anonymous, unpaginated): a row per document, with subscriber_count and
+  set_count. Red's build-time precompute fetches
   the whole thing in one call, which is why it is neither paginated nor keyed by a
   list of identifiers: naming the RFC series in a query string is thousands of
   parameters. Filtering with a repeated doc parameter is for one-off lookups, and a

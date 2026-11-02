@@ -187,6 +187,9 @@ class OutputTests(PrecomputeTestCase):
     def test_a_document_file_is_the_live_response_byte_for_byte(self):
         """Nothing the precomputer writes may disagree with what Reef serves: the
         contract describes the endpoint, and the file is a cache of it."""
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+        )
         Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
         self.precompute("stats", "ratings")
 
@@ -197,19 +200,25 @@ class OutputTests(PrecomputeTestCase):
             live = self.client.get(url, HTTP_ACCEPT="application/json")
             self.assertEqual((self.out_dir / key).read_bytes(), live.content, key)
 
-    def test_stats_covers_engagement(self):
+    def test_stats_does_not_publish_ratings(self):
         Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+        )
         self.precompute("stats")
         rows = {row["doc"]: row for row in self.read("stats.json")}
-        self.assertEqual(rows["rfc9110"]["rating_average"], 4.0)
-        self.assertEqual(rows["rfc9110"]["rating_count"], 1)
+        self.assertNotIn("rating_average", rows["rfc9110"])
+        self.assertNotIn("rating_count", rows["rfc9110"])
+        self.assertEqual(rows["rfc9110"]["subscriber_count"], 1)
 
     def test_ratings_get_a_file_per_rated_document(self):
         Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
         Rating.objects.create(rfc="bcp14", user=self.user, value=2)
         self.precompute("ratings")
         self.assertEqual(self.written(), {"ratings/rfc9110.json", "ratings/bcp14.json"})
-        self.assertEqual(self.read("ratings/rfc9110.json")["average"], 4.0)
+        self.assertEqual(
+            self.read("ratings/rfc9110.json"), {"rfc": "rfc9110", "your_rating": None}
+        )
 
     def test_rating_file_is_the_anonymous_body(self):
         """your_rating is a per-caller field, so the stored copy must be null."""
@@ -458,6 +467,9 @@ class DocumentMetadataTests(PrecomputeTestCase):
 
     def test_document_files_carry_no_metadata(self):
         Rating.objects.create(rfc="rfc9110", user=self.user, value=4)
+        Subscription.objects.create(
+            user=self.user, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+        )
         rank(rfc2119=1.0)
         self.precompute("stats", "ratings", "popularity")
         stats_row = next(r for r in self.read("stats.json") if r["doc"] == "rfc9110")
@@ -468,7 +480,7 @@ class DocumentMetadataTests(PrecomputeTestCase):
         ):
             self.assertNotIn("title", row)
             self.assertNotIn("subseries", row)
-        self.assertEqual(stats_row["rating_count"], 1)
+        self.assertNotIn("rating_count", stats_row)
 
     def test_an_alias_gets_the_redirect_stub_as_its_own_file(self):
         """A name arrives from a link without the caller knowing which kind it is,

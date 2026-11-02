@@ -27,14 +27,15 @@ class DocumentStatsTests(APITestCase):
     def test_empty(self):
         self.assertEqual(self.stats(), {})
 
-    def test_rating_aggregate(self):
+    def test_ratings_are_not_published(self):
         Rating.objects.create(rfc="rfc9110", user=self.a, value=5)
-        Rating.objects.create(rfc="rfc9110", user=self.b, value=3)
+        Subscription.objects.create(
+            user=self.b, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+        )
         row = self.stats()["rfc9110"]
-        self.assertEqual(row["rating_average"], 4.0)
-        self.assertEqual(row["rating_count"], 2)
-        self.assertEqual(row["subscriber_count"], 0)
-        self.assertEqual(row["set_count"], 0)
+        self.assertNotIn("rating_average", row)
+        self.assertNotIn("rating_count", row)
+        self.assertEqual(row["subscriber_count"], 1)
 
     def test_subscriber_count_covers_rfc_and_set_kinds(self):
         document_set = DocumentSet.objects.create(owner=self.b, title="Mine")
@@ -59,10 +60,9 @@ class DocumentStatsTests(APITestCase):
         self.assertEqual(self.stats()["rfc9110"]["subscriber_count"], 1)
 
     def test_predicate_kinds_are_not_counted(self):
-        Rating.objects.create(rfc="rfc9110", user=self.a, value=5)
         Subscription.objects.create(user=self.a, kind=Subscription.Kind.NEW_RFC)
         Subscription.objects.create(user=self.b, kind=Subscription.Kind.OBSOLETED)
-        self.assertEqual(self.stats()["rfc9110"]["subscriber_count"], 0)
+        self.assertEqual(self.stats("?doc=rfc9110")["rfc9110"]["subscriber_count"], 0)
 
     def test_set_count_counts_distinct_sets(self):
         for owner, title in ((self.a, "One"), (self.b, "Two")):
@@ -108,7 +108,10 @@ class DocumentStatsTests(APITestCase):
         self.assertEqual(sorted(self.stats()), ["bcp14", "rfc9110", "std66"])
 
     def test_lists_only_documents_with_engagement(self):
-        Rating.objects.create(rfc="rfc9110", user=self.a, value=5)
+        Rating.objects.create(rfc="bcp14", user=self.a, value=5)
+        Subscription.objects.create(
+            user=self.a, kind=Subscription.Kind.RFC, params={"rfc": "rfc9110"}
+        )
         self.assertEqual(list(self.stats()), ["rfc9110"])
 
     def test_filter_returns_a_row_even_with_no_engagement(self):
@@ -118,8 +121,6 @@ class DocumentStatsTests(APITestCase):
             rows["rfc9110"],
             {
                 "doc": "rfc9110",
-                "rating_average": None,
-                "rating_count": 0,
                 "subscriber_count": 0,
                 "set_count": 0,
             },
@@ -138,8 +139,7 @@ class DocumentStatsTests(APITestCase):
 
         rows = self.stats(f"?set={document_set.pk}")
         self.assertEqual(sorted(rows), ["bcp14", "rfc9110"])
-        self.assertEqual(rows["rfc9110"]["rating_average"], 4.0)
-        self.assertEqual(rows["bcp14"]["rating_count"], 0)  # member, no engagement
+        self.assertEqual(rows["bcp14"]["subscriber_count"], 0)  # member, no engagement
 
     def test_filter_by_set_and_doc_intersects(self):
         document_set = DocumentSet.objects.create(owner=self.a, title="Mine")

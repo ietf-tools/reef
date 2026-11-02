@@ -53,7 +53,7 @@ Red -> precomputed JSON <- blob store <- manage.py precompute
 
 The [precomputer](precomputer/README.md) renders the public API responses ahead
 of time and writes them to a blob store, so that a reader is served a file
-rather than a query that aggregates every rating, subscription and set entry.
+rather than a query that aggregates every subscription and set entry.
 It is one command, `manage.py precompute`, meant to be run on a schedule; with
 no bucket configured it writes to `./precomputed` and needs no object storage.
 

@@ -26,8 +26,8 @@ class MyDocumentSerializer(serializers.Serializer):
     """What one document is to the caller: their rating, their subscription,
     their sets.
 
-    Nothing public: no average, no count, no subscriber total. Those are the
-    same for everybody, so Red takes them from the data it already has for the
+    Nothing public: no subscriber or set total. Those are the same for
+    everybody, so Red takes them from the data it already has for the
     route rather than from a per-caller request.
     """
 

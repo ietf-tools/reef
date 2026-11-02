@@ -4,7 +4,7 @@ Precomputes Reef's public API responses and writes them to a blob store,
 because:
 
 - `/api/reef/stats/` is unpaginated by design (Red wants the whole series in
-  one call) and aggregates every rating, subscription and set entry on each
+  one call) and aggregates every subscription and set entry on each
   request, which gets slower as engagement grows
 - serving a file rather than a query makes the numbers Red builds against
   resilient to Reef being slow or down
@@ -65,7 +65,7 @@ subjects/<slug>.json                one subject and the documents carrying it
 surveys/open.json                   surveys an anonymous visitor may be offered
 surveys/published.json              every published survey, with its visibility
 surveys/<slug>/definition.json      an open survey's definition and theme
-ratings/<doc>.json                  a rated document's public average and count
+ratings/<doc>.json                  a rated document's anonymous rating body
 ```
 
 ### subjects.json
@@ -152,9 +152,9 @@ offline.
 
 ## Pushing changes to Red
 
-Red bakes each document's rating average and subscriber and set counts into its
+Red bakes each document's subscriber and set counts into its
 own precomputed page data, read from `stats.json` at the time Red's precomputer
-runs. So a rating reaches readers only after two runs, in order: Reef republishes
+runs. So a subscription or set entry reaches readers only after two runs, in order: Reef republishes
 `stats.json`, then Red rebuilds that document's page.
 
 Reader writes do not run the precomputer directly. A rating, a set entry or an
@@ -193,8 +193,7 @@ store is served to whoever asks for it. Four endpoints are excluded on purpose:
   can be listed, and a set is edited by its owner between runs, so a
   precomputed copy would be both a leak and stale on the page showing it.
 
-`ratings/<doc>/` is included as its anonymous body: the public average and
-count, with `your_rating` null. That is the field the live response varies by
+`ratings/<doc>/` is included as its anonymous body: `your_rating` null. That is the field the live response varies by
 caller in, and what an unauthenticated reader would have been served.
 
 `surveys/published.json` is the one deliberate exception. Listing the surveys

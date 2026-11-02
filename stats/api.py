@@ -5,7 +5,7 @@ import uuid
 from collections import defaultdict
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Avg, Count
+from django.db.models import Count
 from django.db.models.fields.json import KeyTextTransform
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -15,22 +15,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from docsets.models import DocumentSet, DocumentSetEntry
-from ratings.models import Rating
 from reef.docids import normalize_doc_id
 from subjects.models import Subject
 from subjects.tree import rollup
 from subscriptions.models import Subscription
 
 from .serializers import DocumentStatsSerializer
-
-
-def _rating_stats():
-    return {
-        row["rfc"]: (row["average"], row["count"])
-        for row in Rating.objects.values("rfc").annotate(
-            average=Avg("value"), count=Count("id")
-        )
-    }
 
 
 def _set_counts():
@@ -112,7 +102,7 @@ def _subscriber_counts():
 
 
 class DocumentStatsList(APIView):
-    """Rating, subscriber and set numbers per document.
+    """Subscriber and set numbers per document.
 
     Public and unpaginated: Red precomputes the whole series in one call at
     build time, which is too many identifiers to name in a query string.
@@ -147,7 +137,6 @@ class DocumentStatsList(APIView):
         responses=DocumentStatsSerializer(many=True),
     )
     def get(self, request):
-        ratings = _rating_stats()
         subscribers = _subscriber_counts()
         sets = _set_counts()
 
@@ -163,13 +152,11 @@ class DocumentStatsList(APIView):
             docs = members if docs is None else docs & members
 
         if docs is None:
-            docs = set(ratings) | set(subscribers) | set(sets)
+            docs = set(subscribers) | set(sets)
 
         rows = [
             {
                 "doc": doc,
-                "rating_average": ratings.get(doc, (None, 0))[0],
-                "rating_count": ratings.get(doc, (None, 0))[1],
                 "subscriber_count": subscribers.get(doc, 0),
                 "set_count": sets.get(doc, 0),
             }
