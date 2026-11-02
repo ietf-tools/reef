@@ -8,8 +8,6 @@ class RatingWriteSerializer(serializers.Serializer):
 
 class RatingAggregateSerializer(serializers.Serializer):
     rfc = serializers.CharField()
-    average = serializers.FloatField(allow_null=True)
-    count = serializers.IntegerField()
     # The caller's own rating, so a client can draw the stars filled in without
     # a second request. Null for an anonymous caller and for one who has not
     # rated this document; the two are indistinguishable to the client, which

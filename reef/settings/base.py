@@ -405,7 +405,7 @@ REEF_RFC_INDEX_CACHE_SECONDS = int(
 
 # Precomputer. Where `manage.py precompute` writes the public API responses it
 # renders ahead of time, so that a reader is served a file rather than a query
-# that aggregates every rating, subscription and set entry.
+# that aggregates every subscription and set entry.
 #
 # Naming a bucket switches it to S3; leaving REEF_PRECOMPUTE_S3_BUCKET empty
 # writes to REEF_PRECOMPUTE_DIR instead, which is what a developer with no

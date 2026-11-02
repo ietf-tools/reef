@@ -18,7 +18,7 @@ class RatingApiTests(APITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp.json(),
-            {"rfc": "rfc9999", "average": None, "count": 0, "your_rating": None},
+            {"rfc": "rfc9999", "your_rating": None},
         )
 
     def test_put_requires_auth(self):
@@ -40,11 +40,10 @@ class RatingApiTests(APITestCase):
         self.client.force_authenticate(user=user)
         r1 = self.client.put("/api/reef/ratings/rfc1/", {"value": 4}, format="json")
         self.assertEqual(r1.status_code, 200)
-        self.assertEqual(r1.json()["count"], 1)
+        self.assertEqual(r1.json()["your_rating"], 4)
         # Same user rates again: update, not duplicate.
         r2 = self.client.put("/api/reef/ratings/rfc1/", {"value": 2}, format="json")
-        self.assertEqual(r2.json()["count"], 1)
-        self.assertEqual(r2.json()["average"], 2.0)
+        self.assertEqual(r2.json()["your_rating"], 2)
         self.assertEqual(Rating.objects.count(), 1)
 
     def test_value_out_of_range_rejected(self):
@@ -63,7 +62,7 @@ class RatingApiTests(APITestCase):
                 )
                 self.assertEqual(resp.status_code, 200)
                 self.assertEqual(resp.json()["rfc"], "rfc9110")
-                self.assertEqual(resp.json()["count"], 1)
+                self.assertEqual(resp.json()["your_rating"], 5)
         self.assertEqual(Rating.objects.count(), 1)
         self.assertEqual(Rating.objects.get().rfc, "rfc9110")
 
@@ -80,9 +79,7 @@ class RatingApiTests(APITestCase):
 
         self.client.force_authenticate(user=mine)
         body = self.client.get("/api/reef/ratings/rfc9110/").json()
-        self.assertEqual(body["your_rating"], 5)
-        self.assertEqual(body["count"], 2)
-        self.assertEqual(body["average"], 3.0)
+        self.assertEqual(body, {"rfc": "rfc9110", "your_rating": 5})
 
     def test_own_rating_is_null_when_unrated_or_anonymous(self):
         rater = User.objects.create(username="rater", oidc_sub="rater")
@@ -95,11 +92,10 @@ class RatingApiTests(APITestCase):
             self.client.get("/api/reef/ratings/rfc9110/").json()["your_rating"]
         )
 
-        # Anonymous sees the aggregate and nobody's individual rating.
+        # Anonymous sees nobody's rating.
         self.client.force_authenticate(user=None)
         body = self.client.get("/api/reef/ratings/rfc9110/").json()
-        self.assertIsNone(body["your_rating"])
-        self.assertEqual(body["average"], 4.0)
+        self.assertEqual(body, {"rfc": "rfc9110", "your_rating": None})
 
     def test_get_varies_on_credentials(self):
         # A shared cache must not hand one user's rating to the next caller.
@@ -129,7 +125,7 @@ class RatingApiTests(APITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(
             resp.json(),
-            {"rfc": "rfc9110", "average": 1.0, "count": 1, "your_rating": None},
+            {"rfc": "rfc9110", "your_rating": None},
         )
         self.assertFalse(Rating.objects.filter(user=mine).exists())
         self.assertTrue(Rating.objects.filter(user=theirs).exists())
@@ -143,8 +139,7 @@ class RatingApiTests(APITestCase):
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
         self.assertEqual(first.json(), second.json())
-        self.assertEqual(second.json()["count"], 0)
-        self.assertIsNone(second.json()["average"])
+        self.assertIsNone(second.json()["your_rating"])
 
     def test_delete_accepts_any_spelling_of_the_identifier(self):
         user = User.objects.create(username="u6", oidc_sub="s6")

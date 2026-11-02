@@ -36,11 +36,10 @@ signed-in reader without asking the API first, which publishes those surveys'
 titles and descriptions to anyone who fetches the key. Taken deliberately, and
 the bounds of it are in ``surveys.precompute``.
 
-``ratings/<doc>/`` is included, as its anonymous body: the public average and
-count, with ``your_rating`` null. The endpoint varies by caller only in that
-one field, and DRF already marks the live response ``Vary: Authorization``;
-what is stored here is the anonymous half, which is what an unauthenticated
-reader would have got.
+``ratings/<doc>/`` is included, as its anonymous body: ``your_rating`` null. The
+endpoint varies by caller only in that one field, and DRF already marks the live
+response ``Vary: Authorization``; what is stored here is the anonymous half,
+which is what an unauthenticated reader would have got.
 """
 
 import json
@@ -96,11 +95,11 @@ def task(name, *, owns, per_document=False):
 
 @task("stats", owns=r"^stats\.json$")
 def stats(docs=None, index=None):
-    """Rating, subscriber and set counts for the whole series, in one file.
+    """Subscriber and set counts for the whole series, in one file.
 
     The expensive one, and the reason this command exists: the endpoint is
     unpaginated by design because Red wants the series in a single call, so it
-    aggregates every rating, subscription and set entry on each request.
+    aggregates every subscription and set entry on each request.
     """
     body = render_anonymous(DocumentStatsList.as_view(), "/api/reef/stats/")
     _check_resolvable(index, (row["doc"] for row in json.loads(body)))
@@ -241,7 +240,7 @@ def surveys(docs=None, index=None):
 
 @task("ratings", owns=r"^ratings/[^/]+\.json$", per_document=True)
 def ratings(docs=None, index=None):
-    """One file per rated document: the public average and count.
+    """One file per rated document: its anonymous body.
 
     Documents nobody has rated are left out rather than stored as zeros. The
     endpoint answers for any identifier, so a reader asking about an unrated

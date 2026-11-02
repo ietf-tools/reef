@@ -1,6 +1,5 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Avg, Count
 from django.utils.cache import patch_vary_headers
 from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import ValidationError
@@ -29,9 +28,6 @@ def _canonical(rfc):
 
 
 def _aggregate(rfc, user=None):
-    agg = Rating.objects.filter(rfc=rfc).aggregate(
-        average=Avg("value"), count=Count("id")
-    )
     own = None
     if user is not None and user.is_authenticated:
         own = (
@@ -39,16 +35,11 @@ def _aggregate(rfc, user=None):
             .values_list("value", flat=True)
             .first()
         )
-    return {
-        "rfc": rfc,
-        "average": agg["average"],
-        "count": agg["count"],
-        "your_rating": own,
-    }
+    return {"rfc": rfc, "your_rating": own}
 
 
 def _respond(rfc, user):
-    """The aggregate as a response that no cache may keep or share.
+    """The caller's rating as a response that no cache may keep or share.
 
     The body carries `your_rating`, so it depends on who is asking. Nothing
     caches /api/reef/ today; the headers are here so that adding a cache later
@@ -61,7 +52,7 @@ def _respond(rfc, user):
 
 
 class RatingDetail(APIView):
-    """One RFC's rating: the public aggregate, plus the caller's own.
+    """One RFC's rating: the caller's own. No aggregate is published.
 
     The two methods differ in permission and in audience, so each carries its
     own ``extend_schema`` wording rather than sharing this docstring, which
@@ -76,10 +67,10 @@ class RatingDetail(APIView):
     @extend_schema(
         summary="Read an RFC's rating",
         description=(
-            "Return the public average and count of ratings for one RFC. Open "
-            "to anonymous callers. A credential adds nothing but `your_rating`, "
-            "the caller's own 1-5 rating of this RFC, which is null if they "
-            "have not rated it; for an anonymous caller it is always null.\n\n"
+            "Return the caller's own 1-5 rating of one RFC as `your_rating`, "
+            "which is null if they have not rated it; for an anonymous caller "
+            "it is always null. Open to anonymous callers. Ratings of an RFC "
+            "are not published as an average or a count.\n\n"
             "The identifier is canonicalized, so `9110`, `rfc9110` and "
             "`RFC 9110` all address the same document."
         ),
@@ -93,9 +84,8 @@ class RatingDetail(APIView):
         description=(
             "Record the authenticated caller's 1-5 rating of one RFC, "
             "replacing their previous rating of it if there is one. Requires a "
-            "credential. Returns the same body as GET, so the response carries "
-            "the recomputed average and count along with `your_rating` echoing "
-            "the value just set."
+            "credential. Returns the same body as GET, with `your_rating` "
+            "echoing the value just set."
         ),
         request=RatingWriteSerializer,
         responses=RatingAggregateSerializer,
@@ -119,11 +109,10 @@ class RatingDetail(APIView):
         summary="Withdraw the caller's rating of an RFC",
         description=(
             "Remove the authenticated caller's rating of one RFC, so it no "
-            "longer counts towards the average. Requires a credential. "
+            "longer holds a rating. Requires a credential. "
             "Idempotent: a caller who has not rated this RFC gets the same "
             "response as one whose rating was just removed. Returns the same "
-            "body as GET, so the response carries the recomputed average and "
-            "count, with `your_rating` now null."
+            "body as GET, with `your_rating` now null."
         ),
         request=None,
         # Keyed by status: for DELETE, drf-spectacular otherwise assumes the
@@ -132,8 +121,7 @@ class RatingDetail(APIView):
     )
     def delete(self, request, rfc):
         rfc = _canonical(rfc)
-        # 200 with the recomputed aggregate rather than 204, matching PUT: the
-        # client redraws the same widget after either call, and a withdrawal
-        # moves the public average it is displaying.
+        # 200 with the body rather than 204, matching PUT: the client redraws
+        # the same widget after either call.
         Rating.objects.filter(rfc=rfc, user=request.user).delete()
         return _respond(rfc, request.user)
