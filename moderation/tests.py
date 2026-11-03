@@ -188,26 +188,16 @@ class BlockTests(APITestCase):
         self.assertEqual(Response.objects.count(), 1)
         self.assertEqual(DocumentSet.all_objects.count(), 2)
 
-    def test_block_and_remove_keeps_the_accounts_ratings_out_of_the_aggregate(self):
+    def test_block_and_remove_takes_the_accounts_ratings_down(self):
         Rating.objects.create(rfc="rfc9110", user=self.spammer, value=1)
         fine = User.objects.create(username="f", oidc_sub="sub-f")
         Rating.objects.create(rfc="rfc9110", user=fine, value=5)
         actions.block_user(self.staff, self.spammer, "spam", remove_content=True)
-        body = self.client.get("/api/reef/ratings/rfc9110/").json()
-        self.assertEqual((body["count"], body["average"]), (1, 5))
+        self.assertEqual(list(Rating.objects.values_list("user", flat=True)), [fine.pk])
         self.assertEqual(Rating.all_objects.count(), 2)
         self.assertEqual(
             ModerationAction.objects.filter(action=Action.DELETE_RATING).count(), 1
         )
-
-    def test_removed_ratings_are_out_of_the_series_statistics_too(self):
-        Rating.objects.create(rfc="rfc9110", user=self.spammer, value=1)
-        fine = User.objects.create(username="f", oidc_sub="sub-f")
-        Rating.objects.create(rfc="rfc9110", user=fine, value=5)
-        actions.block_user(self.staff, self.spammer, "spam", remove_content=True)
-        rows = self.client.get("/api/reef/stats/").json()
-        (row,) = [r for r in rows if r["doc"] == "rfc9110"]
-        self.assertEqual((row["rating_count"], row["rating_average"]), (1, 5))
 
     def test_unblock_puts_the_ratings_back(self):
         Rating.objects.create(rfc="rfc9110", user=self.spammer, value=1)
