@@ -277,6 +277,7 @@ class DeactivateAccountTests(TestCase):
 
 
 @configured
+@mock.patch.object(actions, "ACCOUNT_BLOCKING_ENABLED", True)
 class DeactivationInTheAdminTests(TestCase):
     def setUp(self):
         self.staff = User.objects.create_superuser(username="mod", oidc_sub="mod")

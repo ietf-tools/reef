@@ -107,6 +107,10 @@ def _moderate(request):
             done = review.review_sets(request.user, sets, verdict, reason)
             done += review.review_responses(request.user, responses, verdict, reason)
         messages.success(request, f"Marked {done} as {verdict}.")
+    elif button in ("block", "deactivate") and not actions.ACCOUNT_BLOCKING_ENABLED:
+        messages.error(
+            request, "Blocking and deactivating accounts is temporarily disabled."
+        )
     elif button == "block":
         owners = {document_set.owner for document_set in sets.select_related("owner")}
         owners |= {
@@ -228,6 +232,7 @@ def moderation_view(request):
             for user in blocked_page
         ],
         "deactivation_enabled": actions.deactivation_enabled(),
+        "blocking_enabled": actions.ACCOUNT_BLOCKING_ENABLED,
         "default_reason": actions.DEFAULT_REASON,
         "actions_page": _page(
             request, ModerationAction.objects.all(), "actions_page", ACTIONS_PAGE_SIZE

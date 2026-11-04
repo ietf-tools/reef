@@ -155,6 +155,9 @@ def block_accounts(request, users, reason, *, remove_content):
     by the time it answers, so a later failure must not undo the log of an earlier
     one.
     """
+    if not actions.ACCOUNT_BLOCKING_ENABLED:
+        messages.error(request, "Blocking accounts is temporarily disabled.")
+        return 0
     users = list(users)
     for user in users:
         actions.validate_blockable(request.user, user)
@@ -183,6 +186,9 @@ def block_accounts(request, users, reason, *, remove_content):
 
 def deactivate_accounts(request, users, reason):
     """Ask the account service again about accounts already blocked here."""
+    if not actions.ACCOUNT_BLOCKING_ENABLED:
+        messages.error(request, "Deactivating accounts is temporarily disabled.")
+        return 0
     if not actions.deactivation_enabled():
         messages.error(
             request, "Deactivation in the account service is not configured."

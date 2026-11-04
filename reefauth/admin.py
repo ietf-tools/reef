@@ -23,6 +23,13 @@ def _unblock(actor, queryset, reason):
     return sum(1 for user in queryset if actions.unblock_user(actor, user, reason))
 
 
+_DISABLED_ACTIONS = {
+    "block_accounts",
+    "block_accounts_and_remove_content",
+    "deactivate_accounts",
+}
+
+
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
     """Read-mostly: accounts are synced from Authentik claims on login, not typed
@@ -97,3 +104,13 @@ class UserAdmin(admin.ModelAdmin):
             _unblock,
         ),
     ]
+
+    def get_actions(self, request):
+        available = super().get_actions(request)
+        if actions.ACCOUNT_BLOCKING_ENABLED:
+            return available
+        return {
+            name: action
+            for name, action in available.items()
+            if name not in _DISABLED_ACTIONS
+        }

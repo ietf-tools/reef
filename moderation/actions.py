@@ -28,6 +28,11 @@ Action = ModerationAction.Action
 
 logger = logging.getLogger("reef")
 
+# Off while the rest of the feature set is deployed without the moderation
+# buttons that block or deactivate accounts. Gates the admin entry points only;
+# unblocking stays available so staff can undo a block already made.
+ACCOUNT_BLOCKING_ENABLED = False
+
 # The account service logs a reason with every deactivation and a blocked account
 # always has one, so a block with nothing written gets this.
 DEFAULT_REASON = "Spam"

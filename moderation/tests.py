@@ -1,4 +1,6 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
+from unittest import mock
+
 from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -235,6 +237,7 @@ class BlockTests(APITestCase):
         )
 
 
+@mock.patch.object(actions, "ACCOUNT_BLOCKING_ENABLED", True)
 class ModerationAdminTests(ReadOnlyAdminChecks, TestCase):
     def setUp(self):
         self.staff = make_staff()
@@ -315,6 +318,51 @@ class ModerationAdminTests(ReadOnlyAdminChecks, TestCase):
             ),
             [Action.TAKE_DOWN_SET, Action.RESTORE_SET],
         )
+
+
+class BlockingDisabledTests(TestCase):
+    def setUp(self):
+        self.staff = make_staff()
+        login(self.client, self.staff)
+        self.spammer = User.objects.create(username="s", oidc_sub="sub-s")
+        self.set = DocumentSet.objects.create(owner=self.spammer, title="Pills")
+
+    def test_the_moderation_page_offers_no_block_or_deactivate_button(self):
+        actions.block_user(self.staff, self.spammer, "spam")
+        page = self.client.get(reverse("admin:moderation")).content.decode()
+        self.assertNotIn('value="block"', page)
+        self.assertNotIn('value="deactivate"', page)
+        self.assertIn('value="unblock"', page)
+
+    def test_the_users_admin_offers_no_block_or_deactivate_action(self):
+        url = reverse("admin:reefauth_user_changelist")
+        page = self.client.get(url).content.decode()
+        self.assertNotIn('value="block_accounts"', page)
+        self.assertNotIn('value="deactivate_accounts"', page)
+        self.assertIn('value="unblock_accounts"', page)
+
+    def test_posting_a_block_anyway_changes_nothing(self):
+        self.client.post(
+            reverse("admin:moderation"),
+            {"button": "block", "sets": [str(self.set.pk)], "reason": "spam"},
+        )
+        self.spammer.refresh_from_db()
+        self.assertFalse(self.spammer.is_blocked)
+        self.assertEqual(DocumentSet.objects.count(), 1)
+
+    def test_posting_the_users_admin_action_anyway_changes_nothing(self):
+        url = reverse("admin:reefauth_user_changelist")
+        self.client.post(
+            url,
+            {
+                "action": "block_accounts",
+                ACTION_CHECKBOX_NAME: [self.spammer.pk],
+                "reason": "spam",
+                "apply": "1",
+            },
+        )
+        self.spammer.refresh_from_db()
+        self.assertFalse(self.spammer.is_blocked)
 
 
 class ReviewTests(TestCase):
@@ -411,6 +459,7 @@ class ReviewAdminTests(ReadOnlyAdminChecks, TestCase):
         self.assertAdminReadOnly(flag)
 
 
+@mock.patch.object(actions, "ACCOUNT_BLOCKING_ENABLED", True)
 class ModerationPageTests(TestCase):
     def setUp(self):
         self.staff = make_staff()

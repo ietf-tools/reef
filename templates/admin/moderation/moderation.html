@@ -85,8 +85,9 @@
   <div class="submit-row">
     <button type="submit" name="button" value="spam" class="default">Mark selected as spam</button>
     <button type="submit" name="button" value="fine">Mark selected as fine</button>
-    <button type="submit" name="button" value="block">Block their owners and remove their content</button>
+    {% if blocking_enabled %}<button type="submit" name="button" value="block">Block their owners and remove their content</button>{% endif %}
   </div>
+  {% if blocking_enabled %}
   <p class="help">
     Blocking refuses the account's API calls in Reef
     {% if deactivation_enabled %}and asks the account service to deactivate the
@@ -95,6 +96,8 @@
     Unblocking restores what the block removed but never reactivates the account.
     Anonymous responses have no account to block.
   </p>
+  {% endif %}
+
 
   <h2>Blocked accounts ({{ blocked_page.paginator.count }})</h2>
   {% if blocked_page %}
@@ -119,7 +122,7 @@
     </div>
     <div class="submit-row">
       <button type="submit" name="button" value="unblock">Unblock selected</button>
-      {% if deactivation_enabled %}
+      {% if blocking_enabled and deactivation_enabled %}
         <button type="submit" name="button" value="deactivate">Deactivate selected again in the account service</button>
       {% endif %}
     </div>
