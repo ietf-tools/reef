@@ -6,6 +6,7 @@ from reef.docids import normalize_doc_id
 from reef.rfcmeta import require_document
 
 from .models import DocumentSet, DocumentSetEntry
+from .textfilter import FilteredSetTextMixin
 
 
 def canonical_doc_id(value):
@@ -33,7 +34,7 @@ class DocumentSetEntrySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class DocumentSetSerializer(serializers.ModelSerializer):
+class DocumentSetSerializer(FilteredSetTextMixin, serializers.ModelSerializer):
     documents = DocumentSetEntrySerializer(source="entries", many=True, read_only=True)
 
     class Meta:

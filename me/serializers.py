@@ -2,9 +2,10 @@
 from rest_framework import serializers
 
 from docsets.models import DocumentSet
+from docsets.textfilter import FilteredSetTextMixin
 
 
-class MyDocumentSetSerializer(serializers.ModelSerializer):
+class MyDocumentSetSerializer(FilteredSetTextMixin, serializers.ModelSerializer):
     """One of the caller's sets, without its membership.
 
     Deliberately not docsets.DocumentSetSerializer: that one carries the set's

@@ -6,14 +6,82 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from reef.testing import stub_rfc_index
 from reefauth.testing import login
 
 from .models import DESCRIPTION_MAX_LENGTH, DocumentSet, DocumentSetEntry
+from .textfilter import filter_spam_text
 
 User = get_user_model()
+
+
+class FilterSpamTextUriTests(TestCase):
+    def test_strips_a_url_with_a_scheme(self):
+        self.assertEqual(
+            filter_spam_text("Visit https://spam.example/buy?x=1#top now"), "Visit now"
+        )
+
+    def test_strips_schemes_that_have_no_double_slash(self):
+        self.assertEqual(
+            filter_spam_text("Contact mailto:someone@example.com today"),
+            "Contact today",
+        )
+        self.assertEqual(filter_spam_text("magnet:?xt=urn:btih:abc123"), "")
+
+    def test_strips_a_www_host(self):
+        self.assertEqual(filter_spam_text("see www.spam.com today"), "see today")
+
+    def test_strips_a_bare_host_with_or_without_a_path(self):
+        self.assertEqual(filter_spam_text("cheap spam.xyz now"), "cheap now")
+        self.assertEqual(filter_spam_text("spam.xyz/buy cheap"), "cheap")
+
+
+class FilterSpamTextCryptoAddressTests(TestCase):
+    def test_strips_a_legacy_bitcoin_address(self):
+        self.assertEqual(
+            filter_spam_text("Send 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa please"),
+            "Send please",
+        )
+
+    def test_strips_a_bech32_bitcoin_address(self):
+        self.assertEqual(
+            filter_spam_text("Send bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq please"),
+            "Send please",
+        )
+
+    def test_strips_an_ethereum_address(self):
+        self.assertEqual(
+            filter_spam_text("Send 0x742d35Cc6634C0532925a3b844Bc454e4438f44e please"),
+            "Send please",
+        )
+
+    def test_strips_a_token_of_exactly_26_characters_but_not_25(self):
+        self.assertEqual(filter_spam_text(f"a {'x' * 26} b"), "a b")
+        self.assertEqual(filter_spam_text(f"a {'x' * 25} b"), f"a {'x' * 25} b")
+
+
+class FilterSpamTextOtherTests(TestCase):
+    def test_leaves_ordinary_text_alone(self):
+        text = "A community list of RFCs about HTTP, e.g. RFC 9110 and RFC 9111."
+        self.assertEqual(filter_spam_text(text), text)
+
+    def test_strips_a_url_and_an_address_from_the_same_text(self):
+        self.assertEqual(
+            filter_spam_text(
+                "Send 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa to https://spam.test/x"
+            ),
+            "Send to",
+        )
+
+    def test_collapses_the_whitespace_left_behind_and_trims(self):
+        self.assertEqual(
+            filter_spam_text("  Buy   at https://x.io   now  "), "Buy at now"
+        )
+
+    def test_returns_an_empty_string_for_empty_input(self):
+        self.assertEqual(filter_spam_text(""), "")
 
 
 class DocumentSetApiTests(APITestCase):
@@ -25,6 +93,26 @@ class DocumentSetApiTests(APITestCase):
         return self.client.post(
             "/api/reef/sets/", {"title": title, **kwargs}, format="json"
         )
+
+    def test_title_and_description_are_filtered_on_the_way_out(self):
+        created = self.create_set(
+            title="Pills https://spam.example", description="call pills.example now"
+        )
+        raw = {
+            "title": "Pills https://spam.example",
+            "description": "call pills.example now",
+        }
+        self.assertEqual(
+            (created.json()["title"], created.json()["description"]),
+            ("Pills", "call now"),
+        )
+        stored = DocumentSet.objects.get()
+        self.assertEqual((stored.title, stored.description), tuple(raw.values()))
+        for client in (self.client, APIClient()):
+            body = client.get(f"/api/reef/sets/{created.json()['id']}/").json()
+            self.assertEqual(
+                (body["title"], body["description"]), ("Pills", "call now")
+            )
 
     def test_requires_auth(self):
         self.client.force_authenticate(user=None)
