@@ -354,3 +354,43 @@ class AdminLoginPageTests(TestCase):
     def test_a_password_does_not_authenticate(self):
         User.objects.create_user(username="local", password="secret", is_staff=True)
         self.assertFalse(self.client.login(username="local", password="secret"))
+
+
+@override_settings(
+    REEF_API_OIDC_JWKS_ENDPOINTS={_ISSUER: f"{_ISSUER}jwks/"},
+    REEF_API_OIDC_AUDIENCES=[_AUDIENCE],
+    REEF_API_OIDC_ALGORITHMS=["RS256"],
+)
+class BlockedAccountTests(TestCase):
+    """A blocked account's token is refused with a 401 that says so."""
+
+    def setUp(self):
+        self.key = _make_key()
+        self.auth = BearerTokenAuthentication()
+        self.auth.get_signing_key = lambda token, issuer: self.key.public_key()
+        self.request = APIRequestFactory().get(
+            "/api/reef/surveys/open/",
+            HTTP_AUTHORIZATION=f"Bearer {_make_token(self.key)}",
+        )
+
+    def test_a_valid_token_is_refused_once_blocked(self):
+        user = User.objects.create(
+            username="authentik-abc-123",
+            oidc_sub="abc-123",
+            blocked_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+        )
+        with self.assertRaises(exceptions.AuthenticationFailed) as raised:
+            self.auth.authenticate(self.request)
+        self.assertEqual(str(raised.exception.detail), "Account blocked.")
+        self.assertEqual(raised.exception.status_code, 401)
+        user.blocked_at = None
+        user.save()
+        self.assertEqual(self.auth.authenticate(self.request)[0], user)
+
+    def test_a_blocked_account_cannot_log_in_to_the_admin(self):
+        user = User.objects.create(
+            username="authentik-abc-123",
+            oidc_sub="abc-123",
+            blocked_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+        )
+        self.assertIsNone(ReefOIDCAuthBackend().update_user(user, {"sub": "abc-123"}))

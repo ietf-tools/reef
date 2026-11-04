@@ -166,6 +166,8 @@ class BearerTokenAuthentication(authentication.BaseAuthentication):
         user = sync_user_from_claims(payload)
         if user is None:
             raise exceptions.AuthenticationFailed("Bearer token has no subject claim.")
+        if user.is_blocked:
+            raise exceptions.AuthenticationFailed("Account blocked.")
         return (user, payload)
 
     def authenticate_header(self, request):

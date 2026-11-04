@@ -74,6 +74,45 @@ and production is an environment value, and those live in the `reef-secrets-env`
 Kubernetes secret that the ietf-tools/infra-k8s repository defines per cluster,
 not in a settings file here.
 
+## Deactivating accounts
+
+Blocking an account in Reef also asks the account service at account.ietf.org to
+deactivate it, from the moderation page and the Users admin. The call is immediate,
+and the moderator is told how it went. The service decides which accounts may be
+deactivated and records the reason, with the calling application, in its audit log.
+
+The call bears the blocking moderator's own reef-admin access token, which Reef keeps
+in their session (`OIDC_STORE_ACCESS_TOKEN`) and the service checks against team-dev
+and team-staff. A moderator whose session holds none, or whose token has expired, signs
+in again and asks again from the moderation page. The service identifies an account by
+`account_uuid`, a claim in the user's OIDC token that Reef stores as
+`User.account_uuid`; an account with none yet is blocked in Reef only until it next
+signs in.
+
+- `REEF_ACCOUNT_DEACTIVATE_USER_URL` - the deactivate-user endpoint.
+
+Unset means no request is made and a block is local to Reef. The service currently
+accepts requests from the reef-admin application only, and users are
+global, so staging cannot be tested against it until it is also allowed.
+
+## Spam scoring
+
+Reef can score the free text of document sets and survey responses with Jev (TypeSafe
+AI), a hosted classifier, so that moderators see likely spam first on the moderation
+page at `/admin/moderation/`. Only the text is sent: no account, address or survey
+identifier goes with it.
+
+- `REEF_JEV_API_KEY` - the TypeSafe API key. Unset means nothing is sent and nothing
+  is scored.
+- `REEF_SPAM_FLAG_THRESHOLD` - a score from 0 to 1 at or above which a flag is
+  raised for moderators. Unset means scores are recorded and never raised (shadow
+  mode), which is how to start: label a sample on the moderation page, then choose the
+  threshold from how the scores line up with the labels.
+
+New and edited content is queued for scoring on save. To score what already exists, run
+`python manage.py classify_unscored --limit N`; it queues only what has no score yet,
+and the same command fills any gap left by a failed call.
+
 ## Email
 
 `base.py` sets the dummy backend, so a mode that has not configured mail sends

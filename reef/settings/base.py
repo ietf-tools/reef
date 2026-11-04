@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "stats",
     "me",
     "precomputer",
+    "moderation",
 ]
 
 MIDDLEWARE = [
@@ -136,6 +137,9 @@ OIDC_RP_SIGN_ALGO = "ES256"
 # Authentik instance has no scope actually named "groups" to request.
 OIDC_RP_SCOPES = "openid profile email"
 OIDC_STORE_ID_TOKEN = True  # kept in session for RP-initiated logout
+# The moderator's reef-admin access token, kept in session as oidc_access_token: it is
+# what the account service's deactivate-user API takes as the caller's identity.
+OIDC_STORE_ACCESS_TOKEN = True
 OIDC_OP_LOGOUT_URL_METHOD = "reefauth.utils.op_logout_url"
 # SessionRefresh middleware will force a reauth every EXPIRY_SECONDS (default 15 mins)
 # OIDC_RENEW_ID_TOKEN_EXPIRY_SECONDS = 15 * 60
@@ -159,6 +163,20 @@ REEF_SURVEY_RESPONSE_MAX_BYTES = int(
 # self-reported, so these only reject values no person could have produced.
 REEF_SURVEY_DURATION_MAX_SECONDS = 30 * 24 * 60 * 60
 REEF_SURVEY_PAGES_MAX = 10_000
+
+# Deactivating an account in the account service when staff block it, using the
+# blocking moderator's own reef-admin access token. Unset means no request is made and
+# a block is local to Reef.
+REEF_ACCOUNT_DEACTIVATE_USER_URL = os.environ.get("REEF_ACCOUNT_DEACTIVATE_USER_URL")
+
+# Spam scoring by Jev (TypeSafe AI), a hosted service: the free text of sets and
+# survey responses is sent to it, and nothing else. Unset means no content is sent
+# and nothing is scored. The threshold is the score at which a flag is raised for a
+# moderator; unset means scores are recorded and never raised, which is how a
+# classifier is measured against moderators' labels before it is trusted.
+REEF_JEV_API_KEY = os.environ.get("REEF_JEV_API_KEY")
+_spam_threshold = os.environ.get("REEF_SPAM_FLAG_THRESHOLD")
+REEF_SPAM_FLAG_THRESHOLD = float(_spam_threshold) if _spam_threshold else None
 
 # Bearer (resource-server) validation of Authentik access tokens.
 #
