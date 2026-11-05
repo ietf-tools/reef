@@ -14,7 +14,7 @@ from reef.admin_readonly import ReadOnlyAdminMixin
 from reefauth.models import User
 from surveys.models import Response
 
-from . import actions, classify, jev, review
+from . import actions, backfill, classify, jev, review
 from .admin_actions import block_accounts, deactivate_accounts
 from .models import ModerationAction, ModerationFlag
 
@@ -92,6 +92,24 @@ def _check(request, button):
             messages.success(request, f"Scored {flag.score:.2f}.")
 
 
+def _check_unscored(request):
+    if not classify.enabled():
+        return
+    try:
+        queued, remaining = backfill.queue_unscored(backfill.BATCH_SIZE)
+    except OSError:
+        messages.error(request, "The scoring queue could not be reached.")
+        return
+    if queued == 0:
+        messages.info(request, "Everything already has a score.")
+    else:
+        messages.success(
+            request,
+            f"Queued {queued} for scoring; {remaining} more have no score yet. "
+            "Scores appear here as they arrive.",
+        )
+
+
 def _moderate(request):
     verdict_by_button = {
         "spam": ModerationFlag.Verdict.SPAM,
@@ -128,6 +146,8 @@ def _moderate(request):
             )
     elif button and button.startswith("check:"):
         _check(request, button)
+    elif button == "check_unscored":
+        _check_unscored(request)
     elif button == "deactivate":
         users = User.objects.filter(pk__in=_ids(request, "users", int))
         deactivate_accounts(request, users, reason)
@@ -213,6 +233,7 @@ def moderation_view(request):
         **admin.site.each_context(request),
         "title": "Moderation",
         "classifier_enabled": classify.enabled(),
+        "backfill_batch_size": backfill.BATCH_SIZE,
         "flagged_only": flagged_only,
         "flagged_toggle_url": f"?{toggled.urlencode()}",
         "sets_page": set_page,

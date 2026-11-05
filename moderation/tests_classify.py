@@ -406,3 +406,52 @@ class ManualCheckTests(TestCase):
                     response = self.client.post(self.url, {"button": value})
                     self.assertEqual(response.status_code, 302)
         urlopen.assert_not_called()
+
+
+@override_settings(REEF_JEV_API_KEY="k", REEF_SPAM_FLAG_THRESHOLD=None)
+class CheckAllUnscoredTests(TestCase):
+    url = "/admin/moderation/"
+
+    def setUp(self):
+        staff = User.objects.create_superuser(username="mod", oidc_sub="mod")
+        login(self.client, staff)
+        self.owner = User.objects.create(username="o", oidc_sub="sub-o")
+
+    def post(self):
+        with mock.patch("moderation.backfill.classify_content.delay") as delay:
+            page = self.client.post(self.url, {"button": "check_unscored"}, follow=True)
+        return page, delay
+
+    def test_it_queues_a_batch_and_says_how_many_remain(self):
+        for number in range(5):
+            DocumentSet.objects.create(owner=self.owner, title=f"T{number}")
+        with mock.patch("moderation.backfill.BATCH_SIZE", 3):
+            page, delay = self.post()
+        self.assertEqual(delay.call_count, 3)
+        self.assertContains(page, "Queued 3 for scoring; 2 more have no score yet.")
+
+    def test_scored_items_are_left_alone(self):
+        scored = DocumentSet.objects.create(owner=self.owner, title="Scored")
+        ModerationFlag.objects.create(
+            target_type="documentset",
+            target_id=str(scored.pk),
+            classifier=jev.CLASSIFIER,
+            text="t",
+            score=0.1,
+        )
+        page, delay = self.post()
+        delay.assert_not_called()
+        self.assertContains(page, "Everything already has a score.")
+
+    def test_a_broker_failure_is_shown(self):
+        DocumentSet.objects.create(owner=self.owner, title="T")
+        with mock.patch(
+            "moderation.backfill.classify_content.delay", side_effect=OSError("down")
+        ):
+            page = self.client.post(self.url, {"button": "check_unscored"}, follow=True)
+        self.assertContains(page, "The scoring queue could not be reached.")
+
+    def test_the_button_is_shown_only_with_a_classifier(self):
+        self.assertContains(self.client.get(self.url), "Check all unscored")
+        with override_settings(REEF_JEV_API_KEY=None):
+            self.assertNotContains(self.client.get(self.url), "Check all unscored")

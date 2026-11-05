@@ -1,11 +1,7 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 from django.core.management.base import BaseCommand, CommandError
 
-from docsets.models import DocumentSet
-from moderation import classify, jev
-from moderation.models import ModerationFlag
-from moderation.tasks import classify_content
-from surveys.models import Response
+from moderation import backfill, classify
 
 
 class Command(BaseCommand):
@@ -25,18 +21,5 @@ class Command(BaseCommand):
     def handle(self, *args, limit, **options):
         if not classify.enabled():
             raise CommandError("REEF_JEV_API_KEY is not set, so nothing can be scored.")
-        queued = 0
-        for target_type, model in (
-            ("documentset", DocumentSet),
-            ("response", Response),
-        ):
-            scored = ModerationFlag.objects.filter(
-                target_type=target_type, classifier=jev.CLASSIFIER
-            ).values_list("target_id", flat=True)
-            pending = model.objects.exclude(pk__in=list(scored)).values_list(
-                "pk", flat=True
-            )
-            for pk in pending[: max(limit - queued, 0)]:
-                classify_content.delay(target_type, str(pk))
-                queued += 1
+        queued, _ = backfill.queue_unscored(limit)
         self.stdout.write(f"Queued {queued} item(s) for scoring.")

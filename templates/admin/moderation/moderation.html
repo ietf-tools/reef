@@ -25,6 +25,14 @@
 <form method="post">
   {% csrf_token %}
 
+  {% if classifier_enabled %}
+    <p>
+      <button type="submit" name="button" value="check_unscored">Check all unscored</button>
+      Queues up to {{ backfill_batch_size }} sets and responses that have no score yet.
+      Click again for the next batch once the scores have arrived.
+    </p>
+  {% endif %}
+
   <h2>Sets ({{ sets_page.paginator.count }} unreviewed)</h2>
   {% if sets_page %}
     <table>
