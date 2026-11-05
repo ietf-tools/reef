@@ -266,14 +266,10 @@ class BackfillCommandTests(TestCase):
 
     @override_settings(REEF_JEV_API_KEY="k")
     def test_it_queues_only_what_has_no_score_and_respects_the_limit(self):
-        with mock.patch(
-            "moderation.management.commands.classify_unscored.classify_content.delay"
-        ) as delay:
+        with mock.patch("moderation.backfill.classify_content.delay") as delay:
             call_command("classify_unscored", limit=10, stdout=io.StringIO())
         delay.assert_called_once_with("documentset", str(self.waiting.pk))
-        with mock.patch(
-            "moderation.management.commands.classify_unscored.classify_content.delay"
-        ) as delay:
+        with mock.patch("moderation.backfill.classify_content.delay") as delay:
             call_command("classify_unscored", limit=0, stdout=io.StringIO())
         delay.assert_not_called()
 
