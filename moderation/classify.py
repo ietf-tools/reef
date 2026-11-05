@@ -53,9 +53,12 @@ def record_failure(target_type, target_id, exc):
 def score(target_type, target_id):
     """Score one set or response if it has not been scored as it now reads.
 
+    Content with no text is scored 0 without asking the classifier: it holds no
+    spam, and a score is what stops it counting as unscored.
+
     Returns the flag written, or None when there was nothing to do: the content is
-    gone, has no text, or already holds a score for this exact text. Either way the
-    content is no longer waiting on a failed attempt.
+    gone or already holds a score for this exact text. Either way the content is no
+    longer waiting on a failed attempt.
     """
     flag = _score(target_type, target_id)
     ClassifierFailure.objects.filter(
@@ -70,15 +73,16 @@ def _score(target_type, target_id):
     if obj is None:
         return None
     text = text_of(obj)
-    if not text.strip():
-        return None
     existing = ModerationFlag.objects.filter(
         target_type=target_type, target_id=str(target_id), classifier=jev.CLASSIFIER
     ).first()
     if existing is not None and existing.text == text:
         return None
 
-    probability = jev.spam_probability(text, settings.REEF_JEV_API_KEY)
+    has_text = bool(text.strip())
+    probability = (
+        jev.spam_probability(text, settings.REEF_JEV_API_KEY) if has_text else 0.0
+    )
     threshold = settings.REEF_SPAM_FLAG_THRESHOLD
     flag, _ = ModerationFlag.objects.update_or_create(
         target_type=target_type,
@@ -88,7 +92,7 @@ def _score(target_type, target_id):
             "subject_user": owner_of(obj),
             "text": text,
             "score": probability,
-            "raised": threshold is not None and probability >= threshold,
+            "raised": has_text and threshold is not None and probability >= threshold,
         },
     )
     return flag

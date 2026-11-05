@@ -87,7 +87,7 @@ def _check(request, button):
         messages.error(request, "The classifier gave an answer that could not be read.")
     else:
         if flag is None:
-            messages.info(request, "Nothing to score: it is gone, or has no text.")
+            messages.info(request, "Nothing to score: it is gone.")
         else:
             messages.success(request, f"Scored {flag.score:.2f}.")
 

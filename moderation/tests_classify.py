@@ -14,7 +14,7 @@ from docsets.models import DocumentSet
 from reefauth.testing import login
 from surveys.models import Response, Survey
 
-from . import classify, jev
+from . import backfill, classify, jev
 from .models import ClassifierFailure, ModerationFlag
 from .tasks import classify_content
 
@@ -117,13 +117,14 @@ class ScoreTests(TestCase):
             self.assertEqual(urlopen.call_count, 2)
         self.assertEqual(ModerationFlag.objects.count(), 1)
 
-    def test_a_response_scores_on_its_free_text_and_a_textless_one_is_skipped(self):
+    def test_a_response_scores_on_its_free_text_and_a_textless_one_scores_zero(self):
         survey = Survey.objects.create(slug="s", title="S", definition={})
         words = Response.objects.create(survey=survey, data={"q": "visit spam.example"})
         numbers = Response.objects.create(survey=survey, data={"n": 3})
         with mock.patch(URLOPEN, return_value=answer(0.9)) as urlopen:
             self.assertIsNotNone(classify.score("response", words.pk))
-            self.assertIsNone(classify.score("response", numbers.pk))
+            self.assertEqual(classify.score("response", numbers.pk).score, 0.0)
+        urlopen.assert_called_once()
         self.assertEqual(
             json.loads(urlopen.call_args.args[0].data)["state"], "visit spam.example"
         )
@@ -277,6 +278,61 @@ class BackfillCommandTests(TestCase):
     def test_without_a_key_it_refuses(self):
         with self.assertRaises(CommandError):
             call_command("classify_unscored", limit=1)
+
+
+@override_settings(REEF_JEV_API_KEY="k", REEF_SPAM_FLAG_THRESHOLD=0.0)
+class EmptyContentTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create(username="o", oidc_sub="sub-o")
+
+    def test_content_with_no_text_is_scored_zero_without_asking_the_classifier(self):
+        empty = DocumentSet.objects.create(owner=self.owner, title="")
+        with mock.patch(URLOPEN) as urlopen:
+            flag = classify.score("documentset", empty.pk)
+        urlopen.assert_not_called()
+        self.assertEqual(flag.score, 0.0)
+        self.assertFalse(flag.raised)
+
+    def test_a_batch_full_of_empty_sets_does_not_hide_the_rest(self):
+        for _ in range(3):
+            DocumentSet.objects.create(owner=self.owner, title="")
+        survey = Survey.objects.create(title="S", definition={})
+        Response.objects.create(survey=survey, data={"q": "real text"})
+        with mock.patch(URLOPEN, return_value=answer(0.2)):
+            for _ in range(2):
+                with mock.patch("moderation.backfill.BATCH_SIZE", 3):
+                    with mock.patch(
+                        "moderation.backfill.classify_content.delay",
+                        side_effect=lambda *args: classify.score(*args),
+                    ):
+                        queued, remaining = backfill.queue_unscored(3)
+        self.assertEqual((queued, remaining), (1, 0))
+        self.assertEqual(ModerationFlag.objects.count(), 4)
+
+    def test_items_that_failed_do_not_take_batch_slots_from_the_rest(self):
+        stuck = [
+            DocumentSet.objects.create(owner=self.owner, title="x") for _ in range(3)
+        ]
+        fresh = DocumentSet.objects.create(owner=self.owner, title="fresh")
+        for document_set in stuck:
+            ClassifierFailure.objects.create(
+                target_type="documentset",
+                target_id=str(document_set.pk),
+                detail="the classifier answered HTTP 400",
+            )
+        with mock.patch("moderation.backfill.classify_content.delay") as delay:
+            queued, remaining = backfill.queue_unscored(3)
+        delay.assert_called_once_with("documentset", str(fresh.pk))
+        self.assertEqual((queued, remaining), (1, 0))
+
+    def test_text_added_later_is_scored_for_real(self):
+        document_set = DocumentSet.objects.create(owner=self.owner, title="")
+        classify.score("documentset", document_set.pk)
+        document_set.title = "Pills"
+        document_set.save()
+        with mock.patch(URLOPEN, return_value=answer(0.9)):
+            flag = classify.score("documentset", document_set.pk)
+        self.assertEqual(flag.score, 0.9)
 
 
 @override_settings(REEF_JEV_API_KEY="k")
