@@ -10,6 +10,16 @@
   log</a>.
 </p>
 
+{% if classifier_enabled and failure_count %}
+  <p class="errornote">
+    {{ failure_count }} item{{ failure_count|pluralize }} could not be scored and
+    {{ failure_count|pluralize:"is,are" }} still waiting. Most recent failure,
+    {{ latest_failure.updated_at|timesince }} ago: {{ latest_failure.detail }}
+    (attempt {{ latest_failure.attempts }}). Scoring is retried automatically, and
+    this clears as items are scored.
+  </p>
+{% endif %}
+
 {% if classifier_enabled %}
   <p>
     Scored by the classifier (probability of spam).

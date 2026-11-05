@@ -15,7 +15,7 @@ from reefauth.testing import login
 from surveys.models import Response, Survey
 
 from . import classify, jev
-from .models import ModerationFlag
+from .models import ClassifierFailure, ModerationFlag
 from .tasks import classify_content
 
 User = get_user_model()
@@ -451,3 +451,49 @@ class CheckAllUnscoredTests(TestCase):
         self.assertContains(self.client.get(self.url), "Check all unscored")
         with override_settings(REEF_JEV_API_KEY=None):
             self.assertNotContains(self.client.get(self.url), "Check all unscored")
+
+
+@override_settings(REEF_JEV_API_KEY="k", REEF_SPAM_FLAG_THRESHOLD=None)
+class FailureVisibilityTests(TestCase):
+    url = "/admin/moderation/"
+
+    def setUp(self):
+        staff = User.objects.create_superuser(username="mod", oidc_sub="mod")
+        login(self.client, staff)
+        owner = User.objects.create(username="o", oidc_sub="sub-o")
+        self.set = DocumentSet.objects.create(owner=owner, title="T", description="d")
+
+    def run_task(self, side_effect):
+        with (
+            mock.patch(URLOPEN, side_effect=side_effect),
+            mock.patch.object(classify_content, "retry", side_effect=Retry()),
+        ):
+            classify_content.apply(args=("documentset", str(self.set.pk)))
+
+    def test_an_unreachable_classifier_is_shown_on_the_page_with_the_reason(self):
+        self.run_task(urllib.error.URLError("name resolution failed"))
+        page = self.client.get(self.url)
+        self.assertContains(page, "1 item could not be scored")
+        self.assertContains(page, "name resolution failed")
+
+    def test_a_refusal_is_shown_with_its_status(self):
+        self.run_task(http_error(401))
+        self.assertContains(self.client.get(self.url), "answered HTTP 401")
+
+    def test_repeated_failures_count_attempts_on_one_row(self):
+        self.run_task(http_error(429))
+        self.run_task(http_error(429))
+        self.assertEqual(ClassifierFailure.objects.get().attempts, 2)
+
+    def test_a_later_success_clears_the_notice(self):
+        self.run_task(http_error(429))
+        with mock.patch(URLOPEN, return_value=answer(0.1)):
+            classify_content.apply(args=("documentset", str(self.set.pk)))
+        self.assertEqual(ClassifierFailure.objects.count(), 0)
+        self.assertNotContains(self.client.get(self.url), "could not be scored")
+
+    def test_nothing_from_the_content_is_recorded(self):
+        self.set.title = "buy-pills-title"
+        self.set.save()
+        self.run_task(http_error(401))
+        self.assertNotIn("buy-pills", ClassifierFailure.objects.get().detail)

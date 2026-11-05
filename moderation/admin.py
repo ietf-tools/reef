@@ -16,7 +16,7 @@ from surveys.models import Response
 
 from . import actions, backfill, classify, jev, review
 from .admin_actions import block_accounts, deactivate_accounts
-from .models import ModerationAction, ModerationFlag
+from .models import ClassifierFailure, ModerationAction, ModerationFlag
 
 PAGE_SIZE = 50
 ACTIONS_PAGE_SIZE = 20
@@ -234,6 +234,8 @@ def moderation_view(request):
         "title": "Moderation",
         "classifier_enabled": classify.enabled(),
         "backfill_batch_size": backfill.BATCH_SIZE,
+        "failure_count": ClassifierFailure.objects.count(),
+        "latest_failure": ClassifierFailure.objects.first(),
         "flagged_only": flagged_only,
         "flagged_toggle_url": f"?{toggled.urlencode()}",
         "sets_page": set_page,

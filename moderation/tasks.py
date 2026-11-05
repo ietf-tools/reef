@@ -29,7 +29,8 @@ def classify_content(self, target_type, target_id):
     """Score one set or response. Never raises for the content itself.
 
     A failure leaves no flag, which is how "unchecked" is recorded: it is never
-    written as a clean score, and the classify_unscored command finds the gap.
+    written as a clean score, and the classify_unscored command finds the gap. It is
+    recorded as a ClassifierFailure, which the moderation page shows.
     Nothing from the content is logged, nor anything Jev sent back.
     """
     if not settings.REEF_JEV_API_KEY:
@@ -37,14 +38,17 @@ def classify_content(self, target_type, target_id):
     try:
         classify.score(target_type, target_id)
     except urllib.error.HTTPError as exc:
+        classify.record_failure(target_type, target_id, exc)
         if exc.code in RETRY_STATUSES or exc.code >= 500:
             raise self.retry(exc=exc) from exc
         logger.error(
             "Jev refused to score %s %s: HTTP %s", target_type, target_id, exc.code
         )
     except (urllib.error.URLError, TimeoutError) as exc:
+        classify.record_failure(target_type, target_id, exc)
         raise self.retry(exc=exc) from exc
-    except ValueError:
+    except ValueError as exc:
+        classify.record_failure(target_type, target_id, exc)
         logger.error(
             "Jev gave an answer that could not be read for %s %s",
             target_type,

@@ -134,3 +134,31 @@ class ModerationFlag(models.Model):
 
     def __str__(self):
         return f"{self.verdict or 'unreviewed'}: {self.target_type} {self.target_id}"
+
+
+class ClassifierFailure(models.Model):
+    """The latest failed attempt to score one piece of content.
+
+    Scoring runs in a worker, away from any moderator, so this is how a failure
+    reaches the moderation page. A row exists only while the content is still
+    waiting for a score: a later success removes it. Never holds anything from the
+    content or from the classifier's reply.
+    """
+
+    target_type = models.CharField(max_length=32)
+    target_id = models.CharField(max_length=64)
+    detail = models.CharField(max_length=255)
+    attempts = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["target_type", "target_id"],
+                name="one_classifier_failure_per_target",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.target_type} {self.target_id}: {self.detail}"
