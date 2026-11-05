@@ -115,6 +115,15 @@ class MyDocumentsTests(APITestCase):
         )
         self.assertIsNone(self.documents("rfc9110")["rfc9110"]["your_subscription_id"])
 
+    def test_set_text_is_filtered(self):
+        DocumentSet.objects.create(
+            owner=self.reader,
+            title="Pills https://spam.example",
+            description="x.example",
+        )
+        (row,) = self.client.get(URL).json()["sets"]
+        self.assertEqual((row["title"], row["description"]), ("Pills", ""))
+
     def test_sets_carry_no_membership(self):
         document_set = DocumentSet.objects.create(owner=self.reader, title="Mine")
         DocumentSetEntry.objects.create(document_set=document_set, doc="rfc9110")
