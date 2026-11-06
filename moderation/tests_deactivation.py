@@ -383,7 +383,11 @@ class DeactivationInTheAdminTests(TestCase):
         with mock.patch(URLOPEN, urlopen):
             page = self.client.post(
                 self.page_url,
-                {"button": "deactivate", "users": [self.spammer.pk], "reason": ""},
+                {
+                    "button": "deactivate",
+                    "users": [self.spammer.pk],
+                    "deactivate_reason": "",
+                },
                 follow=True,
             )
         self.assertContains(page, "was deactivated in the account service")
@@ -414,3 +418,35 @@ class DeactivationInTheAdminTests(TestCase):
         page = self.client.get(self.page_url)
         self.assertNotContains(page, "Account service</th>")
         self.assertNotContains(page, "Deactivate selected again")
+
+
+class ReasonHelpTextTests(TestCase):
+    sends = "sends it to the account service"
+    keeps = "keeps it on the blocked account"
+
+    def setUp(self):
+        login(
+            self.client, User.objects.create_superuser(username="mod", oidc_sub="mod")
+        )
+        self.url = reverse("admin:moderation")
+        DocumentSet.objects.create(
+            owner=User.objects.create(username="o", oidc_sub="sub-o"), title="T"
+        )
+
+    @mock.patch.object(actions, "ACCOUNT_BLOCKING_ENABLED", False)
+    def test_without_blocking_it_says_nothing_about_blocking(self):
+        page = self.client.get(self.url)
+        self.assertNotContains(page, self.keeps)
+        self.assertNotContains(page, self.sends)
+
+    @mock.patch.object(actions, "ACCOUNT_BLOCKING_ENABLED", True)
+    @override_settings(REEF_ACCOUNT_DEACTIVATE_USER_URL=None)
+    def test_without_deactivation_it_does_not_claim_the_account_service_hears_it(self):
+        page = self.client.get(self.url)
+        self.assertContains(page, self.keeps)
+        self.assertNotContains(page, self.sends)
+
+    @configured
+    @mock.patch.object(actions, "ACCOUNT_BLOCKING_ENABLED", True)
+    def test_with_deactivation_it_says_the_account_service_records_it(self):
+        self.assertContains(self.client.get(self.url), self.sends)

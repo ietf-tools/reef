@@ -1,0 +1,30 @@
+<div class="moderation-decision">
+  <h3>Moderation decision</h3>
+  <div class="form-row">
+    <label for="{{ reason_id }}">Reason:</label>
+    <textarea name="reason" id="{{ reason_id }}" rows="3">{{ default_reason }}</textarea>
+    <div class="help">
+      Kept in the moderator log. Never shown to the user.
+      {% if blocking_enabled %}
+        Blocking also keeps it on the blocked account{% if deactivation_enabled %}
+        and sends it to the account service, which records it{% endif %}. Clearing
+        the box records "{{ default_reason }}" instead.
+      {% endif %}
+    </div>
+  </div>
+  <div class="submit-row">
+    <button type="submit" name="button" value="spam" class="default">Mark ticked as spam</button>
+    <button type="submit" name="button" value="fine">Mark ticked as fine</button>
+    {% if blocking_enabled %}<button type="submit" name="button" value="block">Block their owners and remove their content</button>{% endif %}
+  </div>
+  {% if blocking_enabled %}
+    <p class="help">
+      Blocking refuses the account's API calls in Reef
+      {% if deactivation_enabled %}and asks the account service to deactivate the
+      account across IETF services, then tells you how that went{% else %}and, because
+      deactivation in the account service is not configured, does nothing more{% endif %}.
+      Unblocking restores what the block removed but never reactivates the account.
+      Anonymous responses have no account to block.
+    </p>
+  {% endif %}
+</div>

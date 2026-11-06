@@ -150,7 +150,7 @@ def _moderate(request):
         _check_unscored(request)
     elif button == "deactivate":
         users = User.objects.filter(pk__in=_ids(request, "users", int))
-        deactivate_accounts(request, users, reason)
+        deactivate_accounts(request, users, request.POST.get("deactivate_reason", ""))
     elif button == "unblock":
         users = User.objects.filter(pk__in=_ids(request, "users", int))
         unblock_reason = request.POST.get("unblock_reason", "")
@@ -200,7 +200,7 @@ def _raised_ids(target_type):
 def moderation_view(request):
     if request.method == "POST":
         _moderate(request)
-        return redirect("admin:moderation")
+        return redirect(request.get_full_path())
 
     sets = (
         DocumentSet.objects.exclude(pk__in=review.reviewed_target_ids("documentset"))

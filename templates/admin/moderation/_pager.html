@@ -4,4 +4,7 @@
     Page {{ page.number }} of {{ page.paginator.num_pages }}
     {% if page.next_url %}<a href="{{ page.next_url }}">Next</a>{% endif %}
   </p>
+  {% if clears_selection %}
+    <p class="help">Changing page clears what is ticked, so act on the rows you have ticked first.</p>
+  {% endif %}
 {% endif %}

@@ -93,3 +93,22 @@ button.theme-toggle {
   margin: 0;
   padding-left: 1.5em;
 }
+
+/* One bordered group per table-and-decision on the moderation page, so it is clear
+   which rows a decision acts on. */
+.moderation-section {
+  border: 1px solid var(--hairline-color);
+  border-radius: 4px;
+  margin: 0 0 32px;
+  padding: 0 16px 16px;
+}
+
+.moderation-section > legend {
+  font-size: 1.25rem;
+  font-weight: bold;
+  padding: 0 8px;
+}
+
+.moderation-decision {
+  margin-top: 16px;
+}
