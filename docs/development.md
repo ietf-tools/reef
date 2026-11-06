@@ -104,10 +104,12 @@ identifier goes with it.
 
 - `REEF_JEV_API_KEY` - the TypeSafe API key. Unset means nothing is sent and nothing
   is scored.
-- `REEF_SPAM_FLAG_THRESHOLD` - a score from 0 to 1 at or above which a flag is
-  raised for moderators. Unset means scores are recorded and never raised (shadow
-  mode), which is how to start: label a sample on the moderation page, then choose the
-  threshold from how the scores line up with the labels.
+
+The score at or above which something is flagged for moderators is
+`SPAM_THRESHOLD` in `moderation/jev.py`, next to the pinned model it was chosen
+against. It is applied when the page is shown, so changing it applies to every score
+already held. Choose it by labelling a sample on the moderation page and seeing how
+the scores line up with the labels; a different model needs that done again.
 
 New and edited content is queued for scoring on save. To score what already exists, run
 `python manage.py classify_unscored --limit N`; it queues only what has no score yet,

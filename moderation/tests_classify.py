@@ -74,7 +74,7 @@ class JevClientTests(TestCase):
                     jev.spam_probability("t", "k")
 
 
-@override_settings(REEF_JEV_API_KEY="k", REEF_SPAM_FLAG_THRESHOLD=None)
+@override_settings(REEF_JEV_API_KEY="k")
 class ScoreTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create(username="o", oidc_sub="sub-o", name="Olive")
@@ -82,22 +82,26 @@ class ScoreTests(TestCase):
             owner=self.owner, title="Cheap pills", description="buy now"
         )
 
-    def test_no_threshold_records_the_score_without_raising_it(self):
+    def test_the_score_is_recorded_with_who_owns_it(self):
         with mock.patch(URLOPEN, return_value=answer(0.97)):
             flag = classify.score("documentset", self.set.pk)
         self.assertEqual(flag.score, 0.97)
-        self.assertFalse(flag.raised)
         self.assertEqual(flag.verdict, "")
         self.assertEqual(flag.classifier, jev.CLASSIFIER)
         self.assertEqual(flag.subject_user, self.owner)
 
-    @override_settings(REEF_SPAM_FLAG_THRESHOLD=0.8)
-    def test_a_score_at_the_threshold_is_raised_and_below_it_is_not(self):
-        with mock.patch(URLOPEN, side_effect=[answer(0.8), answer(0.79)]):
-            self.assertTrue(classify.score("documentset", self.set.pk).raised)
+    def test_a_score_at_the_threshold_is_flagged_and_below_it_is_not(self):
+        with mock.patch(URLOPEN, side_effect=[answer(0.4), answer(0.39)]):
+            self.assertTrue(classify.score("documentset", self.set.pk).flagged)
             self.set.title = "Changed"
             self.set.save()
-            self.assertFalse(classify.score("documentset", self.set.pk).raised)
+            self.assertFalse(classify.score("documentset", self.set.pk).flagged)
+
+    def test_a_human_label_is_never_flagged_by_its_score(self):
+        label = ModerationFlag.objects.create(
+            target_type="documentset", target_id="x", text="t", score=0.99
+        )
+        self.assertFalse(label.flagged)
 
     def test_the_payload_has_no_trace_of_who_wrote_it(self):
         with mock.patch(URLOPEN, return_value=answer(0.1)) as urlopen:
@@ -147,7 +151,7 @@ class ScoreTests(TestCase):
         self.assertEqual(ModerationFlag.objects.count(), 2)
 
 
-@override_settings(REEF_JEV_API_KEY="k", REEF_SPAM_FLAG_THRESHOLD=None)
+@override_settings(REEF_JEV_API_KEY="k")
 class TaskTests(TestCase):
     def setUp(self):
         owner = User.objects.create(username="o", oidc_sub="sub-o")
@@ -280,7 +284,7 @@ class BackfillCommandTests(TestCase):
             call_command("classify_unscored", limit=1)
 
 
-@override_settings(REEF_JEV_API_KEY="k", REEF_SPAM_FLAG_THRESHOLD=0.0)
+@override_settings(REEF_JEV_API_KEY="k")
 class EmptyContentTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create(username="o", oidc_sub="sub-o")
@@ -291,7 +295,7 @@ class EmptyContentTests(TestCase):
             flag = classify.score("documentset", empty.pk)
         urlopen.assert_not_called()
         self.assertEqual(flag.score, 0.0)
-        self.assertFalse(flag.raised)
+        self.assertFalse(flag.flagged)
 
     def test_a_batch_full_of_empty_sets_does_not_hide_the_rest(self):
         for _ in range(3):
@@ -343,17 +347,13 @@ class PageScoreTests(TestCase):
         owner = User.objects.create(username="o", oidc_sub="sub-o")
         self.flagged = DocumentSet.objects.create(owner=owner, title="Pills")
         self.quiet = DocumentSet.objects.create(owner=owner, title="RFC notes")
-        for document_set, score, raised in (
-            (self.flagged, 0.95, True),
-            (self.quiet, 0.04, False),
-        ):
+        for document_set, score in ((self.flagged, 0.95), (self.quiet, 0.04)):
             ModerationFlag.objects.create(
                 target_type="documentset",
                 target_id=str(document_set.pk),
                 classifier=jev.CLASSIFIER,
                 text="t",
                 score=score,
-                raised=raised,
             )
 
     def test_scores_are_shown_and_flagged_ones_marked(self):
@@ -374,7 +374,7 @@ class PageScoreTests(TestCase):
         self.assertNotContains(page, "Spam score")
 
 
-@override_settings(REEF_JEV_API_KEY="k", REEF_SPAM_FLAG_THRESHOLD=None)
+@override_settings(REEF_JEV_API_KEY="k")
 class ManualCheckTests(TestCase):
     def setUp(self):
         staff = User.objects.create_superuser(username="mod", oidc_sub="mod")
@@ -460,7 +460,7 @@ class ManualCheckTests(TestCase):
         urlopen.assert_not_called()
 
 
-@override_settings(REEF_JEV_API_KEY="k", REEF_SPAM_FLAG_THRESHOLD=None)
+@override_settings(REEF_JEV_API_KEY="k")
 class CheckAllUnscoredTests(TestCase):
     url = "/admin/moderation/"
 
@@ -509,7 +509,7 @@ class CheckAllUnscoredTests(TestCase):
             self.assertNotContains(self.client.get(self.url), "Check all unscored")
 
 
-@override_settings(REEF_JEV_API_KEY="k", REEF_SPAM_FLAG_THRESHOLD=None)
+@override_settings(REEF_JEV_API_KEY="k")
 class FailureVisibilityTests(TestCase):
     url = "/admin/moderation/"
 

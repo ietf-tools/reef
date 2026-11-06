@@ -79,11 +79,9 @@ def _score(target_type, target_id):
     if existing is not None and existing.text == text:
         return None
 
-    has_text = bool(text.strip())
     probability = (
-        jev.spam_probability(text, settings.REEF_JEV_API_KEY) if has_text else 0.0
+        jev.spam_probability(text, settings.REEF_JEV_API_KEY) if text.strip() else 0.0
     )
-    threshold = settings.REEF_SPAM_FLAG_THRESHOLD
     flag, _ = ModerationFlag.objects.update_or_create(
         target_type=target_type,
         target_id=str(target_id),
@@ -92,7 +90,6 @@ def _score(target_type, target_id):
             "subject_user": owner_of(obj),
             "text": text,
             "score": probability,
-            "raised": has_text and threshold is not None and probability >= threshold,
         },
     )
     return flag

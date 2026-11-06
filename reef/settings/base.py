@@ -171,12 +171,9 @@ REEF_ACCOUNT_DEACTIVATE_USER_URL = os.environ.get("REEF_ACCOUNT_DEACTIVATE_USER_
 
 # Spam scoring by Jev (TypeSafe AI), a hosted service: the free text of sets and
 # survey responses is sent to it, and nothing else. Unset means no content is sent
-# and nothing is scored. The threshold is the score at which a flag is raised for a
-# moderator; unset means scores are recorded and never raised, which is how a
-# classifier is measured against moderators' labels before it is trusted.
+# and nothing is scored. The score at which content is flagged is
+# moderation.jev.SPAM_THRESHOLD, not a setting.
 REEF_JEV_API_KEY = os.environ.get("REEF_JEV_API_KEY")
-_spam_threshold = os.environ.get("REEF_SPAM_FLAG_THRESHOLD")
-REEF_SPAM_FLAG_THRESHOLD = float(_spam_threshold) if _spam_threshold else None
 
 # Bearer (resource-server) validation of Authentik access tokens.
 #

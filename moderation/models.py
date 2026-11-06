@@ -2,6 +2,8 @@
 from django.conf import settings
 from django.db import models
 
+from . import jev
+
 
 class ModerationAction(models.Model):
     """One thing a moderator did, kept for as long as the log is.
@@ -107,8 +109,10 @@ class ModerationFlag(models.Model):
     # its own row, so its scores and the human verdict never overwrite each other.
     classifier = models.CharField(max_length=64, blank=True)
     score = models.FloatField(null=True, blank=True)
-    # Whether the score was at or above the threshold when it was recorded, and so
-    # put this in front of moderators. False for every score kept in shadow mode.
+    # Not read or written any more: whether a score is flagged is worked out from
+    # score and jev.SPAM_THRESHOLD, so a change of threshold applies to every score
+    # already held. Kept so a release that still writes it can run alongside; drop
+    # it in a later migration.
     raised = models.BooleanField(default=False, db_index=True)
     verdict = models.CharField(
         max_length=8, choices=Verdict.choices, blank=True, db_index=True
@@ -134,6 +138,15 @@ class ModerationFlag(models.Model):
 
     def __str__(self):
         return f"{self.verdict or 'unreviewed'}: {self.target_type} {self.target_id}"
+
+    @property
+    def flagged(self):
+        """Whether the classifier's score puts this in front of moderators."""
+        return (
+            self.classifier == jev.CLASSIFIER
+            and self.score is not None
+            and self.score >= jev.SPAM_THRESHOLD
+        )
 
 
 class ClassifierFailure(models.Model):

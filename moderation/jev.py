@@ -16,6 +16,11 @@ ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 # scores under it.
 MODEL = "jev-1.13.0"
 
+# The score at or above which content is put in front of moderators as likely
+# spam. Chosen from moderators' labels against this model's scores, so it belongs
+# with MODEL: a different model has to be measured again before this is reused.
+SPAM_THRESHOLD = 0.4
+
 # The identifier a score is stored under, so that a change of model never
 # overwrites the scores of another.
 CLASSIFIER = f"jev:{MODEL}"

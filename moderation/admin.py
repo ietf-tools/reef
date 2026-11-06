@@ -190,7 +190,9 @@ def _scores(target_type, ids):
 def _raised_ids(target_type):
     return list(
         ModerationFlag.objects.filter(
-            target_type=target_type, classifier=jev.CLASSIFIER, raised=True
+            target_type=target_type,
+            classifier=jev.CLASSIFIER,
+            score__gte=jev.SPAM_THRESHOLD,
         ).values_list("target_id", flat=True)
     )
 
