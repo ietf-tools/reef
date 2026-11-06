@@ -48,8 +48,8 @@
         <tbody>
           {% for row in set_rows %}
             <tr>
-              <td><input type="checkbox" name="sets" value="{{ row.set.pk }}" aria-label="Select set {{ row.set.title }}"></td>
-              <td><a href="{% url 'admin:docsets_documentset_change' row.set.pk %}">{{ row.set.title }}</a></td>
+              <td><input type="checkbox" name="sets" value="{{ row.set.pk }}" aria-label="Select set {{ row.set.title|default:'(no text)' }}"></td>
+              <td><a href="{% url 'admin:docsets_documentset_change' row.set.pk %}">{% if row.set.title %}{{ row.set.title }}{% else %}<em>(no text)</em>{% endif %}</a></td>
               <td>{{ row.set.description }}</td>
               <td>{{ row.set.owner }}</td>
               <td>{{ row.set.created_at }}</td>
@@ -78,7 +78,7 @@
             <tr>
               <td><input type="checkbox" name="responses" value="{{ row.response.pk }}" aria-label="Select response {{ row.response.pk }}"></td>
               <td>{{ row.response.survey.title }}</td>
-              <td><a href="{% url 'admin:surveys_response_change' row.response.pk %}">{{ row.text|default:"(no free text)" }}</a></td>
+              <td><a href="{% url 'admin:surveys_response_change' row.response.pk %}">{% if row.text %}{{ row.text }}{% else %}<em>(no text)</em>{% endif %}</a></td>
               <td>{{ row.response.submitted_by|default:"anonymous" }}</td>
               <td>{{ row.response.duration_seconds|default_if_none:"" }}</td>
               <td>{{ row.response.pages_viewed|default_if_none:"" }}</td>

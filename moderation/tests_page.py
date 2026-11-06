@@ -46,7 +46,7 @@ class ModerationPageLayoutTests(TestCase):
         self.assertNotIn('name="responses"', sets_form)
 
     def test_the_selection_warning_shows_only_when_there_is_another_page(self):
-        warning = "Changing page clears what is ticked"
+        warning = "Using Previous or Next clears what is ticked"
         self.assertNotContains(self.client.get(self.url), warning)
         DocumentSet.objects.bulk_create(
             [DocumentSet(owner=self.owner, title=f"S{n}") for n in range(PAGE_SIZE)]
@@ -64,6 +64,14 @@ class ModerationPageLayoutTests(TestCase):
             f"{self.url}?flagged=1&sets_page=1",
             fetch_redirect_response=False,
         )
+
+    def test_content_with_no_text_is_labelled_so_in_italics_and_stays_a_link(self):
+        DocumentSet.objects.create(owner=self.owner, title="")
+        survey = Survey.objects.get()
+        Response.objects.create(survey=survey, data={"n": 3})
+        page = self.client.get(self.url)
+        self.assertContains(page, "<em>(no text)</em></a>", count=2)
+        self.assertContains(page, 'aria-label="Select set (no text)"')
 
     def test_select_all_is_added_by_script_not_written_into_the_page(self):
         page = self.client.get(self.url)
