@@ -1,10 +1,9 @@
 # Copyright The IETF Trust 2026, All Rights Reserved
 """Score content for spam and record it on a flag.
 
-A score is a recorded fact about a piece of text. Whether it raises a flag is a
-threshold set in the environment, and with none set every score is only recorded:
-shadow mode, for measuring the classifier against moderators' labels before it is
-allowed to put anything in front of them.
+A score is a recorded fact about a piece of text. Whether it puts the content in
+front of moderators is a comparison with jev.SPAM_THRESHOLD, made when the page is
+shown.
 """
 
 import urllib.error

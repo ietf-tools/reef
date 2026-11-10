@@ -2574,14 +2574,17 @@ fine, with a copy of the text. On the set and response lists in the admin, "Mark
 spam" takes the content down through the logged actions and labels it, "Mark as fine"
 only labels it, and a "review" filter shows what has no verdict yet. Moderators can
 find spam and label examples now; the labels are what any classifier will be measured
-on. The classifier is Jev (see Decisions) and is built: `moderation/jev.py` (the client,
-sending the text and a fixed question only), `classify.py` (scoring and the threshold),
-`tasks.py` (a retrying task that records no flag on failure), `signals.py` (queue on
-save, after commit), the `classify_unscored` backfill command, and a score column and
-"flagged only" view on the moderation page, and a Check button beside each unscored item. A score is flagged when it is at or above
-`jev.SPAM_THRESHOLD`, worked out when the page is shown rather than stored. Not built, and not to be assumed: the response field
-names are from one secondary source and have to be checked against a real call before
-the first run; no real call has been made.
+on. The classifier is Jev (see Decisions) and is in use: `moderation/jev.py` (the client,
+sending the text and a fixed question only, and `SPAM_THRESHOLD`), `classify.py`
+(scoring; content with no text scores 0 without a call), `tasks.py` (a retrying task
+that records each failure as a `ClassifierFailure`, which the moderation page shows),
+`signals.py` (queue on save, after commit), `backfill.py` and the
+`classify_unscored` command (queue what has no score yet), and on the moderation page a
+score column, a "flagged only" view, a Check button beside each unscored item and a
+"Check all unscored" button. Sets, responses and blocked accounts are each their own
+form and fieldset with their own moderation decision. A score is flagged when it is at
+or above `jev.SPAM_THRESHOLD` (0.4), worked out when the page is shown rather than
+stored.
 
 Surveys (responses) and document sets (titles, descriptions) are receiving spam. Staff
 today have the soft delete on a set or survey and the raw Response list in the admin,
@@ -2690,15 +2693,14 @@ a moderator log of every one of those actions.
   content of a blocked account, answers as if it never existed, the way soft-deleted
   sets already do. There is no error code, no new shape, and nothing for Red to know
   about or render. (Supersedes the earlier idea of a stable 403 code.)
-- **The classifier is Jev, from TypeSafe AI, a hosted service.** The privacy policy
-  forbids sending user content to a third party, and it was decided that Jev is
+- **The classifier is Jev, from TypeSafe AI, a hosted service, and Reef now uses it.**
+  The privacy policy forbids sending user content to a third party, and it was decided that Jev is
   acceptable. That is a decision about Jev alone: the policy has not been relaxed
   for any other hosted service, and Akismet and the rest stay out unless someone
-  accepts them the same way. (The name was given as "Jef"; read as Jev, the
-  classifier discussed earlier. Correct this if another was meant.) What Reef sends
+  accepts them the same way. What Reef sends
   is the free text only, see "Detection". Jev has no published weights and no
-  self-hosting option, so the dependency is on TypeSafe's service staying available
-  and on its pricing; the seam keeps a self-hosted replacement possible.
+  self-hosting option, so the dependency is on Jev staying available and on its
+  pricing; the seam keeps a self-hosted replacement possible.
 - **Reef does not write spam rules.** Detection is a classifier over the text. Reef
   owns the seam, the flag queue and the actions; it maintains no rules, blocklists
   or term lists. It does own the moderators' verdicts, which are the labelled data
@@ -2725,11 +2727,10 @@ Reef, in ordinary code, which is also how Jev is meant to be used: it judges tex
 cannot see metadata.
 
 **What Jev is.** A "System One" decision model that returns typed, calibrated
-probabilities instead of prose, which maps directly onto the flag's score. Reported,
-from secondary sources and to be confirmed against TypeSafe's own documentation before
-building: reachable through TypeSafe's API and through OpenRouter and Vercel's AI
-Gateway; priced per input token at roughly $0.042 per million with output free;
-access began as a waitlist or invite and may since have opened.
+probabilities instead of prose, which maps directly onto the flag's score. Reef uses it
+through Jev's API, with the model pinned (`jev-1.13.0`) so that scores do not
+change under the threshold. Reported by secondary sources, not by Jev's own documentation: it is
+priced per input token at roughly $0.042 per million with output free.
 
 Using it:
 
@@ -2740,23 +2741,23 @@ Using it:
 - **A credential, no default.** The API key is read from an environment variable that
   has no fallback; with it unset, detection is off and the moderation page and its
   manual review work as they do now.
-- **Which route to call it by** (TypeSafe directly, or a gateway) is open. A gateway
-  is a second third party seeing the text, so the direct route is preferred unless
-  there is a reason otherwise.
+- **Reef calls Jev's API directly**, not through a gateway, which would be a second
+  third party seeing the text.
 - **The dependency is on a vendor.** Its rate limits bound how fast the backfill and
   the retries can run.
 
 The existing `duration_seconds` and `pages_viewed` are shown to the moderator beside
 a flag as context. Reef does not score on them.
 
-How we bring it in without writing rules:
+How it is used without writing rules:
 
-1. **Shadow mode first.** Run Jev over existing sets and responses and write its
-   scores to flags in a "shadow" state that moderators can see but that raises
-   nothing. Moderators label a sample as spam or fine, and the labels are stored on
-   the flag. The review page already collects these labels.
-2. **Measure on those labels:** how much real spam it catches and how much good
-   content it flags. Pick the threshold from that, not from a model card.
+1. **Every set and response is scored.** New and edited content is scored on save and
+   existing content by the backfill, and each score is recorded on a flag that
+   moderators see beside the item.
+2. **The threshold is `jev.SPAM_THRESHOLD` (0.4).** It was chosen by reading real
+   scores, not from a model card, and it is a constant next to the pinned model
+   because it belongs to that model's scores. Moderators can
+   filter to what is flagged.
 3. **Keep the labels.** The verdicts are a dataset of our own, in our own database.
    They are what any replacement for Jev would be measured and, if needed, trained on.
 
@@ -2819,9 +2820,9 @@ emails and usernames, not text).
   which says plainly why and changes no property. A deactivated account fails at
   login in Authentik itself, before Reef is reached. To confirm how Red treats a 401
   that is not an expired session.
-- **Jev's access and rate limits.** Confirm access and the limits with TypeSafe. Add
-  the credential to the deployment's secrets in ietf-tools/infra-k8s, which is outside
-  this repository.
+- **Jev's rate limits.** Access and the credential (`REEF_JEV_API_KEY`) are in place.
+  The limits are not recorded here. The backfill queues at most `backfill.BATCH_SIZE`
+  items per click, and the scoring task retries a rate-limited call later.
 - **Resolved:** the owner of a taken-down set is not told (closes the open item on
   that point for spam; see Decisions).
 - **Privacy.** The log stores content snapshots and account identifiers. Decide how
@@ -2830,8 +2831,8 @@ emails and usernames, not text).
   tamper-proof against a superuser; if that matters, mirror entries to the structured
   log stream as well.
 - **Classifier cost and volume.** One call per set and per free-text response. Check
-  the model's latency and CPU cost against real submission volume, and skip
-  responses with no free text.
+  the model's latency and cost against real submission volume. Sets and responses with
+  no text are not sent to Jev; they score 0.
 
 ### Suggested features beyond the brief
 
@@ -2860,7 +2861,7 @@ lines.
    feedback (built; its response handling is to be checked against the service's
    documented responses).
 4. Detection: the flag model, the review workflow and the verdict labels (built),
-   then the classifier seam, the Jev client and a shadow mode (built).
+   then the classifier seam, the Jev client and its threshold (built, and in use).
 5. Anonymous weighting once the classifier's score can be combined
    with it.
 

@@ -7,7 +7,7 @@ from moderation import backfill, classify
 class Command(BaseCommand):
     help = (
         "Queue every live set and response that has no spam score yet. Run it to "
-        "score existing content in shadow mode, and to fill gaps left by a failure."
+        "score existing content, and to fill gaps left by a failure."
     )
 
     def add_arguments(self, parser):

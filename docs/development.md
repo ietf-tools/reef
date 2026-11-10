@@ -102,7 +102,7 @@ AI), a hosted classifier, so that moderators see likely spam first on the modera
 page at `/admin/moderation/`. Only the text is sent: no account, address or survey
 identifier goes with it.
 
-- `REEF_JEV_API_KEY` - the TypeSafe API key. Unset means nothing is sent and nothing
+- `REEF_JEV_API_KEY` - the Jev API key. Unset means nothing is sent and nothing
   is scored.
 
 The score at or above which something is flagged for moderators is
